@@ -1,5 +1,5 @@
-
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import './globals.css';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import { Toaster } from '@/components/ui/toaster';
@@ -71,5 +71,3 @@ export default function RootLayout({
     </html>
   );
 }
-
-import Link from 'next/link';

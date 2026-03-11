@@ -1,4 +1,3 @@
-
 'use client';
 
 import Link from 'next/link';
@@ -13,7 +12,7 @@ import { collection, query, where, orderBy, limit } from 'firebase/firestore';
 import { News } from '@/types';
 
 export default function Home() {
-  const heroImage = PlaceHolderImages.find(img => img.id === 'hero-bg');
+  const heroImage = PlaceHolderImages?.find(img => img.id === 'hero-bg');
   const db = useFirestore();
 
   const newsQuery = useMemoFirebase(() => {
@@ -88,7 +87,7 @@ export default function Home() {
             </Link>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
-            {newsItems.map(item => (
+            {newsItems?.map(item => (
               <Card key={item.id} className="border-none shadow-md rounded-2xl overflow-hidden bg-white hover:shadow-xl transition-shadow cursor-pointer">
                 <CardHeader className="pb-2">
                   <Badge variant="outline" className="w-fit text-[10px] mb-2">
@@ -101,6 +100,9 @@ export default function Home() {
                 </CardContent>
               </Card>
             ))}
+            {(!newsItems || newsItems.length === 0) && !newsLoading && (
+              <div className="col-span-full text-center py-10 text-muted-foreground">現在お知らせはありません</div>
+            )}
           </div>
         </div>
       </section>

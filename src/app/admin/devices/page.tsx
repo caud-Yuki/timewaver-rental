@@ -24,7 +24,7 @@ export default function DeviceManagementPage() {
   const { toast } = useToast();
 
   const [viewMode, setViewMode] = useState<'list' | 'card'>('list');
-  const [isDialogOpen, setIsModalOpen] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Partial<Device> | null>(null);
 
@@ -45,8 +45,9 @@ export default function DeviceManagementPage() {
   }, [db, user]);
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
 
+  // Gated query to prevent permission errors before role is confirmed
   const devicesQuery = useMemoFirebase(() => {
-    if (!db || profile?.role !== 'admin') return null;
+    if (!db || !profile || profile.role !== 'admin') return null;
     return collection(db, 'devices');
   }, [db, profile?.role]);
   const { data: devices, loading: devicesLoading } = useCollection<Device>(devicesQuery as any);
@@ -63,7 +64,7 @@ export default function DeviceManagementPage() {
       price6mMonthly: 40000,
       price12mMonthly: 30000,
     });
-    setIsModalOpen(true);
+    setIsDialogOpen(true);
   };
 
   const handleOpenEditModal = (device: Device) => {
@@ -78,7 +79,7 @@ export default function DeviceManagementPage() {
       price6mMonthly: device.price?.['6m']?.monthly || 40000,
       price12mMonthly: device.price?.['12m']?.monthly || 30000,
     });
-    setIsModalOpen(true);
+    setIsDialogOpen(true);
   };
 
   const handleSaveDevice = async (e: React.FormEvent) => {
@@ -104,7 +105,7 @@ export default function DeviceManagementPage() {
       updateDoc(doc(db, 'devices', editingDevice.id!), deviceData)
         .then(() => {
           toast({ title: "機器情報を更新しました" });
-          setIsModalOpen(false);
+          setIsDialogOpen(false);
         })
         .finally(() => setIsSubmitting(false));
     } else {
@@ -114,7 +115,7 @@ export default function DeviceManagementPage() {
       })
         .then(() => {
           toast({ title: "機器を新規登録しました" });
-          setIsModalOpen(false);
+          setIsDialogOpen(false);
         })
         .finally(() => setIsSubmitting(false));
     }
@@ -128,7 +129,7 @@ export default function DeviceManagementPage() {
   };
 
   if (authLoading || (profileLoading && !profile)) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
-  if (!user || profile?.role !== 'admin') return <div className="text-center py-20"><ShieldAlert className="mx-auto h-12 w-12 text-destructive mb-4" /> 管理者権限が必要です</div>;
+  if (!user || profile?.role !== 'admin') return <div className="container mx-auto px-4 py-20 text-center space-y-4"><ShieldAlert className="mx-auto h-12 w-12 text-destructive" /><h1 className="text-2xl font-bold">管理者権限が必要です</h1><Link href="/admin"><Button variant="outline">戻る</Button></Link></div>;
 
   return (
     <div className="container mx-auto px-4 py-12 space-y-8">
@@ -161,7 +162,7 @@ export default function DeviceManagementPage() {
           </TabsList>
         </Tabs>
         <div className="text-xs text-muted-foreground mr-4">
-          全 {devices.length} 台の機器が登録されています
+          全 {devices?.length || 0} 台の機器が登録されています
         </div>
       </div>
 
@@ -179,7 +180,7 @@ export default function DeviceManagementPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {devices.map(d => (
+                {devices?.map(d => (
                   <TableRow key={d.id} className="hover:bg-muted/5 transition-colors">
                     <TableCell className="pl-8 font-medium">{d.type}</TableCell>
                     <TableCell className="font-mono text-xs">{d.serialNumber}</TableCell>
@@ -199,7 +200,7 @@ export default function DeviceManagementPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {devices.length === 0 && (
+                {(!devices || devices.length === 0) && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-20 text-muted-foreground">登録されている機器はありません</TableCell>
                   </TableRow>
@@ -210,7 +211,7 @@ export default function DeviceManagementPage() {
         </Card>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {devices.map(d => (
+          {devices?.map(d => (
             <Card key={d.id} className="border-none shadow-lg rounded-3xl overflow-hidden bg-white group hover:shadow-xl transition-all">
               <CardHeader className="bg-secondary/10 pb-4">
                 <div className="flex justify-between items-start mb-2">
@@ -241,7 +242,7 @@ export default function DeviceManagementPage() {
       )}
 
       {/* Registration/Editing Modal */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsModalOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[600px] rounded-[2rem]">
           <form onSubmit={handleSaveDevice}>
             <DialogHeader>
@@ -307,7 +308,7 @@ export default function DeviceManagementPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)} className="rounded-xl">キャンセル</Button>
+              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} className="rounded-xl">キャンセル</Button>
               <Button type="submit" disabled={isSubmitting} className="rounded-xl px-8 shadow-lg">
                 {isSubmitting ? <Loader2 className="animate-spin h-4 w-4" /> : editingDevice ? '更新する' : '登録する'}
               </Button>
