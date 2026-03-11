@@ -1,10 +1,9 @@
-
 "use client";
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Activity, User, LogOut, Menu, ShieldCheck, LayoutDashboard, Package } from 'lucide-react';
+import { Activity, User, LogOut, Menu, ShieldCheck, LayoutDashboard, Package, Newspaper } from 'lucide-react';
 import { useUser, useAuth, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { signOut } from 'firebase/auth';
 import { doc } from 'firebase/firestore';
@@ -50,6 +49,7 @@ export function Navbar() {
           <Link href="/devices" className={`transition-colors hover:text-primary ${pathname === '/devices' ? 'text-primary' : ''}`}>機器一覧</Link>
           <Link href="/guide" className={`transition-colors hover:text-primary ${pathname === '/guide' ? 'text-primary' : ''}`}>ご利用の流れ</Link>
           <Link href="/introduction" className={`transition-colors hover:text-primary ${pathname === '/introduction' ? 'text-primary' : ''}`}>導入説明</Link>
+          <Link href="/news" className={`transition-colors hover:text-primary ${pathname === '/news' ? 'text-primary' : ''}`}>お知らせ</Link>
         </nav>
 
         <div className="flex items-center space-x-4">
