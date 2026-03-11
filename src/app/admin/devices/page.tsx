@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -18,9 +19,6 @@ import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package, Ch
 import { Device, DeviceTypeCode, UserProfile } from '@/types';
 import Link from 'next/link';
 
-// Rename UIDialogDescription to avoid conflict if necessary, though CardDescription is imported from card.
-// We use UIDialogDescription to be explicit.
-
 export default function DeviceManagementPage() {
   const { user, loading: authLoading } = useUser();
   const db = useFirestore();
@@ -38,6 +36,7 @@ export default function DeviceManagementPage() {
     status: 'available' as Device['status'],
     description: '',
     price3mMonthly: 50000,
+    price6mMonthly: 40000,
     price12mMonthly: 30000,
   });
 
@@ -62,6 +61,7 @@ export default function DeviceManagementPage() {
       status: 'available',
       description: '',
       price3mMonthly: 50000,
+      price6mMonthly: 40000,
       price12mMonthly: 30000,
     });
     setIsModalOpen(true);
@@ -76,6 +76,7 @@ export default function DeviceManagementPage() {
       status: device.status,
       description: device.description || '',
       price3mMonthly: device.price?.['3m']?.monthly || 50000,
+      price6mMonthly: device.price?.['6m']?.monthly || 40000,
       price12mMonthly: device.price?.['12m']?.monthly || 30000,
     });
     setIsModalOpen(true);
@@ -94,7 +95,7 @@ export default function DeviceManagementPage() {
       description: formData.description,
       price: {
         "3m": { full: formData.price3mMonthly * 3, monthly: formData.price3mMonthly },
-        "6m": { full: formData.price3mMonthly * 6 * 0.9, monthly: Math.floor(formData.price3mMonthly * 0.9) },
+        "6m": { full: formData.price6mMonthly * 6, monthly: formData.price6mMonthly },
         "12m": { full: formData.price12mMonthly * 12, monthly: formData.price12mMonthly }
       },
       updatedAt: serverTimestamp(),
@@ -292,6 +293,10 @@ export default function DeviceManagementPage() {
               <div className="space-y-2">
                 <Label>月額料金 (3ヶ月プラン)</Label>
                 <Input type="number" value={formData.price3mMonthly} onChange={e => setFormData({...formData, price3mMonthly: parseInt(e.target.value)})} className="rounded-xl" />
+              </div>
+              <div className="space-y-2">
+                <Label>月額料金 (6ヶ月プラン)</Label>
+                <Input type="number" value={formData.price6mMonthly} onChange={e => setFormData({...formData, price6mMonthly: parseInt(e.target.value)})} className="rounded-xl" />
               </div>
               <div className="space-y-2">
                 <Label>月額料金 (12ヶ月プラン)</Label>
