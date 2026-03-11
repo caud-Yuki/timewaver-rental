@@ -29,11 +29,13 @@
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
         "deviceId": { "type": "string" },
         "rentalType": { "type": "number", "enum": [3, 6, 12] },
         "payType": { "type": "string", "enum": ["monthly", "full"] },
-        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "payment_sent", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "deviceId", "rentalType", "payType", "status"]
     },
@@ -44,10 +46,11 @@
       "properties": {
         "familyName": { "type": "string" },
         "givenName": { "type": "string" },
-        "familyNameKana": { "type": "string" },
-        "givenNameKana": { "type": "string" },
+        "email": { "type": "string" },
         "tel": { "type": "string" },
-        "role": { "type": "string", "enum": ["user", "admin"] }
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["familyName", "givenName", "role"]
     }

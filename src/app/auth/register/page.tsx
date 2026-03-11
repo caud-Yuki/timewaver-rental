@@ -10,8 +10,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from '@/components/ui/label';
 import { useAuth, useFirestore } from '@/firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
 import { Activity, Mail, Lock, User, Loader2 } from 'lucide-react';
 
 export default function RegisterPage() {
@@ -29,27 +31,41 @@ export default function RegisterPage() {
     e.preventDefault();
     if (!auth || !db) return;
     setIsLoading(true);
+    
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Create user profile in Firestore
-      await setDoc(doc(db, 'users', user.uid), {
+      const profileData = {
         familyName,
         givenName,
         email,
         role: 'user',
-        createdAt: new Date().toISOString(),
-      });
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
 
-      router.push('/');
+      // Non-blocking write with contextual error handling
+      setDoc(doc(db, 'users', user.uid), profileData)
+        .then(() => {
+          router.push('/');
+        })
+        .catch(async (error) => {
+          const permissionError = new FirestorePermissionError({
+            path: `users/${user.uid}`,
+            operation: 'create',
+            requestResourceData: profileData,
+          });
+          errorEmitter.emit('permission-error', permissionError);
+          setIsLoading(false);
+        });
+
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: '登録エラー',
         description: error.message || 'アカウントの作成に失敗しました。',
       });
-    } finally {
       setIsLoading(false);
     }
   };

@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -53,7 +54,7 @@ export default function NewApplicationPage() {
 
     const applicationData = {
       userId: user.uid,
-      userEmail: user.email,
+      userEmail: user.email || '',
       deviceId: device.id,
       deviceSerialNumber: device.serialNumber,
       deviceType: device.type,
@@ -68,28 +69,24 @@ export default function NewApplicationPage() {
       updatedAt: serverTimestamp(),
     };
 
-    try {
-      addDoc(collection(db, 'applications'), applicationData)
-        .then(() => {
-          toast({
-            title: "申請を受け付けました",
-            description: "審査が完了次第、メールにてご連絡いたします（通常1〜3営業日）。",
-          });
-          router.push('/mypage/devices');
-        })
-        .catch(async (error) => {
-          const permissionError = new FirestorePermissionError({
-            path: 'applications',
-            operation: 'create',
-            requestResourceData: applicationData,
-          });
-          errorEmitter.emit('permission-error', permissionError);
-          setIsSubmitting(false);
+    // Correct pattern for Firestore mutations
+    addDoc(collection(db, 'applications'), applicationData)
+      .then(() => {
+        toast({
+          title: "申請を受け付けました",
+          description: "審査が完了次第、メールにてご連絡いたします（通常1〜3営業日）。",
         });
-    } catch (error: any) {
-      console.error(error);
-      setIsSubmitting(false);
-    }
+        router.push('/mypage/devices');
+      })
+      .catch(async (error) => {
+        const permissionError = new FirestorePermissionError({
+          path: 'applications',
+          operation: 'create',
+          requestResourceData: applicationData,
+        });
+        errorEmitter.emit('permission-error', permissionError);
+        setIsSubmitting(false);
+      });
   };
 
   if (!user) {
