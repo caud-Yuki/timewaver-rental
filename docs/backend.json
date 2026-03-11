@@ -130,6 +130,33 @@
         "status": { "type": "string", "enum": ["open", "in_progress", "resolved"] }
       }
     },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "Discount coupon",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed"] },
+        "discountValue": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "maxUsesPerUser": { "type": "number" },
+        "maxTotalUsers": { "type": "number" },
+        "currentUsageCount": { "type": "number" }
+      }
+    },
+    "EmailTemplate": {
+      "title": "EmailTemplate",
+      "description": "Email template",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "body": { "type": "string" },
+        "type": { "type": "string", "enum": ["application", "transaction", "news", "waiting", "general"] }
+      }
+    },
     "GlobalSettings": {
       "title": "GlobalSettings",
       "description": "Platform-wide configuration",
@@ -137,8 +164,13 @@
       "properties": {
         "managerName": { "type": "string" },
         "managerEmail": { "type": "string" },
-        "mode": { "type": "string", "enum": ["test", "production"] },
+        "contactNumber": { "type": "string" },
+        "representativeName": { "type": "string" },
         "companyName": { "type": "string" },
+        "zipcode": { "type": "string" },
+        "address": { "type": "string" },
+        "tel": { "type": "string" },
+        "mode": { "type": "string", "enum": ["test", "production"] },
         "firstpay": {
           "type": "object",
           "properties": {
@@ -160,6 +192,8 @@
     "/waitlist/{waitlistId}": { "schema": "Waitlist", "description": "Device waitlists" },
     "/settings/global": { "schema": "GlobalSettings", "description": "Global config" },
     "/news/{newsId}": { "schema": "News", "description": "News articles" },
-    "/supportRequests/{requestId}": { "schema": "SupportRequest", "description": "Support and repair requests" }
+    "/supportRequests/{requestId}": { "schema": "SupportRequest", "description": "Support and repair requests" },
+    "/coupons/{couponId}": { "schema": "Coupon", "description": "Coupons" },
+    "/emailTemplates/{templateId}": { "schema": "EmailTemplate", "description": "Email templates" }
   }
 }

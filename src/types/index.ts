@@ -118,6 +118,31 @@ export interface SupportRequest {
   updatedAt: Timestamp;
 }
 
+export interface Coupon {
+  id: string;
+  name: string;
+  code: string;
+  discountType: "percentage" | "fixed";
+  discountValue: number;
+  status: "active" | "inactive";
+  expiresAt?: Timestamp;
+  maxUsesPerUser: number;
+  maxTotalUsers: number;
+  currentUsageCount: number;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  type: "application" | "transaction" | "news" | "waiting" | "general";
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 export interface GlobalSettings {
   managerName: string;
   managerEmail: string;
