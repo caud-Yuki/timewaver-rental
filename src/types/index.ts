@@ -56,12 +56,38 @@ export interface UserProfile {
   givenNameKana?: string;
   companyName?: string;
   zipcode?: string;
+  prefectureCode?: string;
   address1?: string;
   address2?: string;
   invoiceNumber?: string;
   tel: string;
   role: "user" | "admin";
   customerId?: string;
+  cardToken?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface News {
+  id: string;
+  title: string;
+  body: string;
+  status: "published" | "draft";
+  publishedAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface SupportRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  deviceId?: string;
+  type: "repair" | "support";
+  description: string;
+  imageUrls?: string[];
+  status: "open" | "in_progress" | "resolved";
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -76,5 +102,9 @@ export interface GlobalSettings {
   address: string;
   tel: string;
   mode: "test" | "production";
+  firstpay?: {
+    apiKey: string;
+    bearerToken: string;
+  };
   updatedAt: Timestamp;
 }

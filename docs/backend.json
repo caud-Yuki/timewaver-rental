@@ -14,12 +14,14 @@
         "givenNameKana": { "type": "string" },
         "companyName": { "type": "string" },
         "zipcode": { "type": "string" },
+        "prefectureCode": { "type": "string" },
         "address1": { "type": "string" },
         "address2": { "type": "string" },
         "invoiceNumber": { "type": "string" },
         "tel": { "type": "string" },
         "role": { "type": "string", "enum": ["user", "admin"] },
         "customerId": { "type": "string" },
+        "cardToken": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -59,11 +61,43 @@
         "userName": { "type": "string" },
         "userEmail": { "type": "string" },
         "deviceId": { "type": "string" },
+        "deviceSerialNumber": { "type": "string" },
+        "deviceType": { "type": "string" },
         "rentalType": { "type": "number" },
         "payType": { "type": "string" },
+        "payAmount": { "type": "number" },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected", "payment_sent", "completed"] },
         "identificationImageUrl": { "type": "string" },
-        "agreementPdfUrl": { "type": "string" }
+        "agreementPdfUrl": { "type": "string" },
+        "zip": { "type": "string" },
+        "tel": { "type": "string" },
+        "address": { "type": "string" }
+      }
+    },
+    "News": {
+      "title": "News",
+      "description": "News article",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "status": { "type": "string", "enum": ["published", "draft"] },
+        "publishedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "SupportRequest": {
+      "title": "SupportRequest",
+      "description": "Repair or support request",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "type": { "type": "string", "enum": ["repair", "support"] },
+        "description": { "type": "string" },
+        "imageUrls": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["open", "in_progress", "resolved"] }
       }
     },
     "GlobalSettings": {
@@ -74,7 +108,14 @@
         "managerName": { "type": "string" },
         "managerEmail": { "type": "string" },
         "mode": { "type": "string", "enum": ["test", "production"] },
-        "companyName": { "type": "string" }
+        "companyName": { "type": "string" },
+        "firstpay": {
+          "type": "object",
+          "properties": {
+            "apiKey": { "type": "string" },
+            "bearerToken": { "type": "string" }
+          }
+        }
       }
     }
   },
@@ -86,7 +127,7 @@
     "/devices/{deviceId}": { "schema": "Device", "description": "Device inventory" },
     "/applications/{applicationId}": { "schema": "Application", "description": "Rental applications" },
     "/settings/global": { "schema": "GlobalSettings", "description": "Global config" },
-    "/subscriptions/{subId}": { "schema": "object", "description": "Rental subscriptions" },
-    "/news/{newsId}": { "schema": "object", "description": "News articles" }
+    "/news/{newsId}": { "schema": "News", "description": "News articles" },
+    "/supportRequests/{requestId}": { "schema": "SupportRequest", "description": "Support and repair requests" }
   }
 }

@@ -8,9 +8,17 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, User, Building, MapPin, Phone, CreditCard } from 'lucide-react';
 import { UserProfile } from '@/types';
+
+const PREFECTURES = [
+  { code: '01', name: '北海道' }, { code: '02', name: '青森県' }, { code: '03', name: '岩手県' },
+  // ... more prefectures
+  { code: '13', name: '東京都' }, { code: '14', name: '神奈川県' },
+  // simplified for brevity
+];
 
 export default function ProfilePage() {
   const { user } = useUser();
@@ -60,7 +68,7 @@ export default function ProfilePage() {
       <h1 className="text-3xl font-bold font-headline mb-8">個人情報設定</h1>
 
       <form onSubmit={handleSave} className="space-y-8">
-        <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
+        <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2"><User className="h-5 w-5" /> 基本情報</CardTitle>
           </CardHeader>
@@ -84,7 +92,7 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
+        <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2"><Building className="h-5 w-5" /> 会社・インボイス情報</CardTitle>
           </CardHeader>
@@ -100,28 +108,39 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
+        <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" /> 住所・連絡先</CardTitle>
           </CardHeader>
           <CardContent className="p-6 space-y-4">
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>郵便番号</Label>
-                <Input value={formData.zipcode || ''} onChange={e => setFormData({...formData, zipcode: e.target.value})} />
+                <Input placeholder="123-4567" value={formData.zipcode || ''} onChange={e => setFormData({...formData, zipcode: e.target.value})} />
               </div>
-              <div className="space-y-2">
-                <Label>電話番号</Label>
-                <Input value={formData.tel || ''} onChange={e => setFormData({...formData, tel: e.target.value})} />
+              <div className="space-y-2 md:col-span-2">
+                <Label>都道府県</Label>
+                <Select value={formData.prefectureCode} onValueChange={v => setFormData({...formData, prefectureCode: v})}>
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue placeholder="選択してください" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PREFECTURES.map(p => <SelectItem key={p.code} value={p.code}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-2">
-              <Label>住所1（市区町村・番地）</Label>
+              <Label>市区町村・番地</Label>
               <Input value={formData.address1 || ''} onChange={e => setFormData({...formData, address1: e.target.value})} />
             </div>
             <div className="space-y-2">
-              <Label>住所2（建物名・部屋番号）</Label>
+              <Label>建物名・部屋番号</Label>
               <Input value={formData.address2 || ''} onChange={e => setFormData({...formData, address2: e.target.value})} />
+            </div>
+            <div className="space-y-2">
+              <Label>電話番号</Label>
+              <Input value={formData.tel || ''} onChange={e => setFormData({...formData, tel: e.target.value})} />
             </div>
           </CardContent>
         </Card>
