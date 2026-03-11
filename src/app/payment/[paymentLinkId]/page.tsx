@@ -1,7 +1,6 @@
-
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,8 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Activity, ShieldCheck, CreditCard, Lock, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useDoc, useMemoFirebase } from '@/firebase';
-import { doc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { PaymentLink, Application } from '@/types';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { PaymentLink } from '@/types';
+import { createCardToken, getFirstPayConfig } from '@/lib/firstpay';
 
 export default function PaymentPage() {
   const params = useParams();
@@ -22,6 +22,13 @@ export default function PaymentPage() {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [cardInfo, setCardInfo] = useState({
+    cardNo: '',
+    expireMonth: '',
+    expireYear: '',
+    holderName: '',
+    cvv: '',
+  });
 
   const linkRef = useMemoFirebase(() => {
     if (!db || !paymentLinkId) return null;
@@ -36,35 +43,51 @@ export default function PaymentPage() {
 
     setIsProcessing(true);
 
-    // Simulate payment processing (FirstPay integration would happen here)
-    setTimeout(() => {
-      // 1. Update PaymentLink status
-      updateDoc(doc(db, 'paymentLinks', paymentLink.id), {
+    try {
+      // 1. Get FirstPay Config
+      const config = await getFirstPayConfig(db);
+      if (!config) throw new Error('Payment system configuration not found');
+
+      // 2. Tokenize Card (Client-side)
+      const { cardToken } = await createCardToken(config, cardInfo);
+      console.log('Token generated:', cardToken);
+
+      // 3. Simulate Backend Processing (Normally this would be a Callable Function)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // 4. Update Firestore Statuses
+      await updateDoc(doc(db, 'paymentLinks', paymentLink.id), {
         status: 'used',
+        cardToken: cardToken, // Save token for recurring payments if needed
         updatedAt: serverTimestamp(),
       });
 
-      // 2. Update Application status
-      updateDoc(doc(db, 'applications', paymentLink.applicationId), {
+      await updateDoc(doc(db, 'applications', paymentLink.applicationId), {
         status: 'completed',
         updatedAt: serverTimestamp(),
       });
 
-      // 3. Update Device status to 'active'
-      updateDoc(doc(db, 'devices', paymentLink.deviceId), {
+      await updateDoc(doc(db, 'devices', paymentLink.deviceId), {
         status: 'active',
         currentUserId: paymentLink.userId,
         contractStartAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
-      setIsProcessing(false);
       setIsCompleted(true);
       toast({
         title: "決済が完了しました",
         description: "ご契約ありがとうございました！TimeWaverの世界をお楽しみください。",
       });
-    }, 2500);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "決済エラー",
+        description: error.message || "お支払い処理に失敗しました。カード情報を確認してください。",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   if (linkLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-12 w-12 text-primary" /></div>;
@@ -140,27 +163,57 @@ export default function PaymentPage() {
             <form onSubmit={handlePayment} className="space-y-4">
               <div className="space-y-2">
                 <Label>カード番号</Label>
-                <div className="relative">
-                  <Input placeholder="4242 4242 4242 4242" className="h-12 rounded-xl pl-4 pr-10" required />
-                  <div className="absolute right-3 top-3.5 flex gap-1">
-                    <div className="w-8 h-5 bg-blue-100 rounded" />
-                    <div className="w-8 h-5 bg-orange-100 rounded" />
-                  </div>
+                <Input 
+                  placeholder="4242 4242 4242 4242" 
+                  className="h-12 rounded-xl" 
+                  value={cardInfo.cardNo}
+                  onChange={e => setCardInfo({...cardInfo, cardNo: e.target.value})}
+                  required 
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>有効期限 (月)</Label>
+                  <Input 
+                    placeholder="01" 
+                    className="h-12 rounded-xl" 
+                    value={cardInfo.expireMonth}
+                    onChange={e => setCardInfo({...cardInfo, expireMonth: e.target.value})}
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>有効期限 (年)</Label>
+                  <Input 
+                    placeholder="28" 
+                    className="h-12 rounded-xl" 
+                    value={cardInfo.expireYear}
+                    onChange={e => setCardInfo({...cardInfo, expireYear: e.target.value})}
+                    required 
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>有効期限 (月/年)</Label>
-                  <Input placeholder="MM/YY" className="h-12 rounded-xl" required />
+                  <Label>CVV</Label>
+                  <Input 
+                    placeholder="123" 
+                    className="h-12 rounded-xl" 
+                    value={cardInfo.cvv}
+                    onChange={e => setCardInfo({...cardInfo, cvv: e.target.value})}
+                    required 
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label>セキュリティコード (CVV)</Label>
-                  <Input placeholder="123" className="h-12 rounded-xl" required />
+                  <Label>カード名義人</Label>
+                  <Input 
+                    placeholder="TARO YAMADA" 
+                    className="h-12 rounded-xl" 
+                    value={cardInfo.holderName}
+                    onChange={e => setCardInfo({...cardInfo, holderName: e.target.value.toUpperCase()})}
+                    required 
+                  />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label>カード名義人 (英大文字)</Label>
-                <Input placeholder="TARO YAMADA" className="h-12 rounded-xl" required />
               </div>
 
               <div className="pt-4">
@@ -179,10 +232,6 @@ export default function PaymentPage() {
             <span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3" /> PCI DSS Compliant</span>
           </CardFooter>
         </Card>
-
-        <div className="text-center text-xs text-muted-foreground">
-          決済リンクID: <span className="font-mono">{paymentLinkId}</span>
-        </div>
       </div>
     </div>
   );

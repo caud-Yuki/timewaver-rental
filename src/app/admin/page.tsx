@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -11,9 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from '@/hooks/use-toast';
 import { 
   Loader2, 
-  CheckCircle, 
   ShieldAlert, 
-  Send, 
   LayoutDashboard, 
   Settings, 
   Users, 
@@ -23,7 +20,8 @@ import {
   Newspaper, 
   Mail,
   Clock,
-  ChevronRight
+  ChevronRight,
+  Zap
 } from 'lucide-react';
 import { Application, UserProfile } from '@/types';
 import Link from 'next/link';
@@ -55,18 +53,9 @@ export default function AdminDashboardPage() {
     { title: 'クーポン', desc: '割引コードの設定', icon: Ticket, href: '/admin/coupons', color: 'text-rose-500', bg: 'bg-rose-50' },
     { title: 'ニュース', desc: 'お知らせの公開', icon: Newspaper, href: '/admin/news', color: 'text-indigo-500', bg: 'bg-indigo-50' },
     { title: 'メール', desc: 'テンプレート編集', icon: Mail, href: '/admin/email-templates', color: 'text-slate-500', bg: 'bg-slate-50' },
+    { title: 'トリガー設定', desc: '自動送信の紐付け', icon: Zap, href: '/admin/email-triggers', color: 'text-orange-500', bg: 'bg-orange-50' },
     { title: '基本設定', desc: 'システム・会社情報', icon: Settings, href: '/admin/settings', color: 'text-gray-500', bg: 'bg-gray-50' },
   ];
-
-  const handleUpdateStatus = async (appId: string, status: Application['status']) => {
-    if (!db) return;
-    updateDoc(doc(db, 'applications', appId), {
-      status,
-      updatedAt: serverTimestamp(),
-    }).then(() => {
-      toast({ title: "ステータスを更新しました" });
-    });
-  };
 
   if (authLoading || (profileLoading && !profile)) {
     return <div className="flex items-center justify-center min-h-screen"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
@@ -94,17 +83,10 @@ export default function AdminDashboardPage() {
           </h1>
           <p className="text-muted-foreground">全てのレンタル申請と機器の管理を行っています</p>
         </div>
-        <div className="flex gap-2">
-          <Link href="/admin/devices">
-            <Button className="rounded-xl shadow-lg h-12 px-6">
-              機器在庫の管理
-            </Button>
-          </Link>
-        </div>
       </div>
 
       {/* Admin Modules Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {adminModules.map((module) => (
           <Link key={module.href} href={module.href}>
             <Card className="hover:shadow-xl transition-all duration-300 border-none rounded-3xl group cursor-pointer h-full">
@@ -164,7 +146,7 @@ export default function AdminDashboardPage() {
                   </TableCell>
                   <TableCell className="text-right pr-8">
                     <Button size="sm" variant="ghost" className="rounded-lg h-8" asChild>
-                      <Link href="/admin/applications">詳細</Link>
+                      <Link href="/admin/applications">審査へ</Link>
                     </Button>
                   </TableCell>
                 </TableRow>
