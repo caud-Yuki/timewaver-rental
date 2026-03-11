@@ -61,15 +61,15 @@
   "firestore": {
     "/devices/{deviceId}": {
       "schema": "Device",
-      "description": "Collection of all rental devices"
+      "description": "Collection of all rental devices. Read access should be public for the catalog."
     },
     "/applications/{applicationId}": {
       "schema": "Application",
-      "description": "Collection of all rental applications"
+      "description": "Collection of all rental applications. Users can read/write their own applications."
     },
     "/users/{userId}": {
       "schema": "UserProfile",
-      "description": "User profile data"
+      "description": "User profile data. Owners can read/write their own profiles."
     }
   }
 }
