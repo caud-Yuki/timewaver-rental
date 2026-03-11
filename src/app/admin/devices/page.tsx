@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -12,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Trash2, ShieldAlert } from 'lucide-react';
 import { Device, DeviceTypeCode, UserProfile } from '@/types';
 import Link from 'next/link';
@@ -36,12 +36,12 @@ export default function DeviceManagementPage() {
     if (!db || !user) return null;
     return doc(db, 'users', user.uid);
   }, [db, user]);
-  const { data: profile } = useDoc<UserProfile>(profileRef as any);
+  const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
 
   const devicesQuery = useMemoFirebase(() => {
-    if (!db) return null;
+    if (!db || profile?.role !== 'admin') return null;
     return collection(db, 'devices');
-  }, [db]);
+  }, [db, profile?.role]);
   const { data: devices, loading: devicesLoading } = useCollection<Device>(devicesQuery as any);
 
   const handleAddDevice = async (e: React.FormEvent) => {
@@ -81,7 +81,7 @@ export default function DeviceManagementPage() {
       .catch(() => toast({ variant: "destructive", title: "削除に失敗しました" }));
   };
 
-  if (authLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+  if (authLoading || (profileLoading && !profile)) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
   if (!user || profile?.role !== 'admin') return <div className="text-center py-20"><ShieldAlert className="mx-auto h-12 w-12 text-destructive mb-4" /> 管理者権限が必要です</div>;
 
   return (

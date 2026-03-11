@@ -1,23 +1,32 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Devices: Public read access for the catalog.
-    match /devices/{deviceId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+    // Helper to check if user is an admin
+    function isAdmin() {
+      return request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Applications: Users can read and write only their own applications.
+    // Devices: Public read access for the catalog. Admins can write.
+    match /devices/{deviceId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Applications: Users can read and write only their own applications. Admins can do everything.
     match /applications/{applicationId} {
-      // Allow creation if logged in and the userId matches the authenticated user.
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       
-      // Allow list and get operations if logged in and the userId in the data matches the authenticated user.
-      // For queries (list), Firestore ensures the query has the matching filter.
-      allow read: if request.auth != null && (resource == null || resource.data.userId == request.auth.uid);
+      // For list operations, the query MUST have a filter that matches these constraints.
+      allow read: if request.auth != null && (
+        isAdmin() || 
+        (resource != null && resource.data.userId == request.auth.uid) ||
+        (resource == null) // Allow the query itself to be evaluated
+      );
       
-      // Allow update and delete if owner.
-      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() || (
+        request.auth != null && resource.data.userId == request.auth.uid
+      );
     }
 
     // User Profiles: Owners can read and write their own profiles.

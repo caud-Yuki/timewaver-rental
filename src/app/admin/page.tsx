@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -26,10 +25,12 @@ export default function AdminDashboardPage() {
 
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
 
+  // CRITICAL: Guard the query so it only runs if the user is confirmed as an admin.
+  // This prevents Permission Denied errors when the component first renders.
   const applicationsQuery = useMemoFirebase(() => {
-    if (!db) return null;
+    if (!db || profile?.role !== 'admin') return null;
     return query(collection(db, 'applications'), orderBy('createdAt', 'desc'));
-  }, [db]);
+  }, [db, profile?.role]);
 
   const { data: applications, loading: appsLoading } = useCollection<Application>(applicationsQuery as any);
 
@@ -55,7 +56,7 @@ export default function AdminDashboardPage() {
     });
   };
 
-  if (authLoading || profileLoading) {
+  if (authLoading || (profileLoading && !profile)) {
     return <div className="flex items-center justify-center min-h-screen"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -112,7 +113,7 @@ export default function AdminDashboardPage() {
                 <TableBody>
                   {applications.filter(a => a.status === 'pending').map((app) => (
                     <TableRow key={app.id}>
-                      <TableCell className="text-xs">{new Date(app.createdAt?.seconds * 1000).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '不明'}</TableCell>
                       <TableCell>
                         <div className="font-medium">{app.userEmail}</div>
                         <div className="text-xs text-muted-foreground">{app.userId}</div>
@@ -156,7 +157,7 @@ export default function AdminDashboardPage() {
                 <TableBody>
                   {applications.map((app) => (
                     <TableRow key={app.id}>
-                      <TableCell className="text-xs">{app.createdAt ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
+                      <TableCell className="text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
                       <TableCell>{app.userEmail}</TableCell>
                       <TableCell>{app.deviceType}</TableCell>
                       <TableCell>
