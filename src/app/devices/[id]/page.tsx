@@ -1,5 +1,7 @@
+
 'use client';
 
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -10,9 +12,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
-import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2 } from 'lucide-react';
 import { Device, DeviceTypeCode } from '@/types';
+import { visualizeField, VisualizeFieldOutput } from '@/ai/flows/visualize-field-flow';
 
 export default function DeviceDetailPage() {
   const params = useParams();
@@ -20,12 +24,29 @@ export default function DeviceDetailPage() {
   const db = useFirestore();
   const id = params.id as string;
 
+  const [intent, setIntent] = useState('');
+  const [visualization, setVisualization] = useState<VisualizeFieldOutput | null>(null);
+  const [isVisualizing, setIsVisualizing] = useState(false);
+
   const deviceRef = useMemoFirebase(() => {
     if (!db || !id) return null;
     return doc(db, 'devices', id);
   }, [db, id]);
 
   const { data: device, loading } = useDoc<Device>(deviceRef as any);
+
+  const handleVisualize = async () => {
+    if (!intent.trim()) return;
+    setIsVisualizing(true);
+    try {
+      const res = await visualizeField({ intent });
+      setVisualization(res);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsVisualizing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -71,22 +92,52 @@ export default function DeviceDetailPage() {
               data-ai-hint="medical device"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Card className="border-none shadow-md bg-white rounded-2xl">
-              <CardContent className="p-6 flex flex-col items-center text-center">
-                <ShieldCheck className="h-8 w-8 text-primary mb-2" />
-                <span className="text-xs text-muted-foreground">保証内容</span>
-                <span className="font-bold">メーカー正規保証</span>
-              </CardContent>
-            </Card>
-            <Card className="border-none shadow-md bg-white rounded-2xl">
-              <CardContent className="p-6 flex flex-col items-center text-center">
-                <Zap className="h-8 w-8 text-accent mb-2" />
-                <span className="text-xs text-muted-foreground">搭載モジュール</span>
-                <span className="font-bold">最新アップグレード</span>
-              </CardContent>
-            </Card>
-          </div>
+          
+          {/* AI Visualization Feature */}
+          <Card className="border-none shadow-2xl bg-gradient-to-br from-primary/10 via-background to-accent/10 rounded-[2.5rem] overflow-hidden">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 font-headline">
+                <Sparkles className="h-5 w-5 text-primary" />
+                フィールドの可視化体験
+              </CardTitle>
+              <CardDescription>TimeWaverが分析する「情報場」のイメージをAIで生成します。</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {visualization ? (
+                <div className="space-y-4 animate-in zoom-in duration-500">
+                  <div className="relative aspect-square rounded-2xl overflow-hidden shadow-inner border border-white/50">
+                    <Image src={visualization.imageUrl} alt="Visualization" fill className="object-cover" />
+                  </div>
+                  <p className="text-sm italic text-center text-muted-foreground px-4">
+                    "{visualization.interpretation}"
+                  </p>
+                  <Button variant="outline" className="w-full rounded-xl" onClick={() => setVisualization(null)}>
+                    別の意図で試す
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-muted-foreground ml-1">現在のフォーカス・意図を入力</label>
+                    <Input 
+                      placeholder="例: 心身の調和、ビジネスの成功" 
+                      className="rounded-xl border-white/40 bg-white/40 backdrop-blur-sm"
+                      value={intent}
+                      onChange={(e) => setIntent(e.target.value)}
+                    />
+                  </div>
+                  <Button 
+                    className="w-full rounded-xl font-bold bg-primary hover:bg-primary/90 shadow-lg" 
+                    onClick={handleVisualize}
+                    disabled={isVisualizing || !intent.trim()}
+                  >
+                    {isVisualizing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                    フィールドを生成
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         <div className="space-y-8">
@@ -137,10 +188,6 @@ export default function DeviceDetailPage() {
                 {device.status === 'available' ? 'この機器を申し込む' : '空き通知を受け取る'}
               </Button>
             </Link>
-            <p className="text-xs text-center text-muted-foreground">
-              ※ お申し込みには本人確認書類の提出が必要です。<br />
-              審査には1〜3営業日ほどお時間をいただきます。
-            </p>
           </div>
 
           <div className="bg-secondary/20 rounded-2xl p-6 space-y-4">

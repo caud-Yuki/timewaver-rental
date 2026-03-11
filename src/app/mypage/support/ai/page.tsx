@@ -9,6 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Send, Bot, User, Loader2, Sparkles } from 'lucide-react';
 import { askChatbot } from '@/ai/flows/ai-support-chatbot';
+import { useUser } from '@/firebase';
 
 type Message = {
   id: string;
@@ -18,6 +19,7 @@ type Message = {
 };
 
 export default function AISupportPage() {
+  const { user } = useUser();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -51,7 +53,8 @@ export default function AISupportPage() {
     setIsLoading(true);
 
     try {
-      const response = await askChatbot({ query: input });
+      // Pass the userId so the AI can use the checkMyApplicationStatus tool
+      const response = await askChatbot({ query: input, userId: user?.uid });
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -137,7 +140,7 @@ export default function AISupportPage() {
             className="flex gap-2"
           >
             <Input
-              placeholder="TimeWaverの返却方法について教えてください..."
+              placeholder="現在の申請状況はどうなっていますか？"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               className="rounded-xl border-secondary h-12 bg-secondary/10 focus-visible:ring-primary shadow-inner"
