@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -12,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Settings, ShieldAlert, Globe, Mail, Phone } from 'lucide-react';
 import { GlobalSettings, UserProfile } from '@/types';
+import Link from 'next/link';
 
 export default function AdminSettingsPage() {
   const { user } = useUser();
@@ -66,6 +66,9 @@ export default function AdminSettingsPage() {
     <div className="container mx-auto px-4 py-12 max-w-4xl space-y-8">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold font-headline">基本設定</h1>
+        <Link href="/admin">
+          <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
+        </Link>
       </div>
 
       <form onSubmit={handleSave} className="space-y-8">

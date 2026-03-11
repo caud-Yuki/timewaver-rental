@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -15,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Trash2, Edit, Ticket, ShieldAlert } from 'lucide-react';
 import { Coupon, UserProfile } from '@/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import Link from 'next/link';
 
 export default function CouponManagementPage() {
   const { user, loading: authLoading } = useUser();
@@ -85,60 +85,65 @@ export default function CouponManagementPage() {
     <div className="container mx-auto px-4 py-12 space-y-8">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold font-headline flex items-center gap-2"><Ticket className="h-8 w-8 text-primary" /> クーポン管理</h1>
-        <Dialog open={isEditing} onOpenChange={setIsEditing}>
-          <DialogTrigger asChild>
-            <Button className="rounded-xl" onClick={() => setCurrentCoupon({ name: '', code: '', discountType: 'percentage', discountValue: 0, status: 'inactive', maxUsesPerUser: 1, maxTotalUsers: 100, currentUsageCount: 0 })}>
-              <Plus className="h-4 w-4 mr-2" /> 新規クーポン作成
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>{currentCoupon.id ? 'クーポン編集' : '新規クーポン作成'}</DialogTitle>
-            </DialogHeader>
-            <div className="grid grid-cols-2 gap-4 py-4">
-              <div className="space-y-2 col-span-2">
-                <Label>クーポン名</Label>
-                <Input value={currentCoupon.name} onChange={e => setCurrentCoupon({...currentCoupon, name: e.target.value})} />
+        <div className="flex gap-2">
+          <Link href="/admin">
+            <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
+          </Link>
+          <Dialog open={isEditing} onOpenChange={setIsEditing}>
+            <DialogTrigger asChild>
+              <Button className="rounded-xl" onClick={() => setCurrentCoupon({ name: '', code: '', discountType: 'percentage', discountValue: 0, status: 'inactive', maxUsesPerUser: 1, maxTotalUsers: 100, currentUsageCount: 0 })}>
+                <Plus className="h-4 w-4 mr-2" /> 新規クーポン作成
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[600px]">
+              <DialogHeader>
+                <DialogTitle>{currentCoupon.id ? 'クーポン編集' : '新規クーポン作成'}</DialogTitle>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-4 py-4">
+                <div className="space-y-2 col-span-2">
+                  <Label>クーポン名</Label>
+                  <Input value={currentCoupon.name} onChange={e => setCurrentCoupon({...currentCoupon, name: e.target.value})} />
+                </div>
+                <div className="space-y-2 col-span-2">
+                  <Label>クーポンコード</Label>
+                  <Input value={currentCoupon.code} onChange={e => setCurrentCoupon({...currentCoupon, code: e.target.value.toUpperCase()})} placeholder="WINTER2024" />
+                </div>
+                <div className="space-y-2">
+                  <Label>割引タイプ</Label>
+                  <Select value={currentCoupon.discountType} onValueChange={(v: any) => setCurrentCoupon({...currentCoupon, discountType: v})}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percentage">パーセンテージ (%)</SelectItem>
+                      <SelectItem value="fixed">固定金額 (円)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>割引額</Label>
+                  <Input type="number" value={currentCoupon.discountValue} onChange={e => setCurrentCoupon({...currentCoupon, discountValue: parseInt(e.target.value)})} />
+                </div>
+                <div className="space-y-2">
+                  <Label>ステータス</Label>
+                  <Select value={currentCoupon.status} onValueChange={(v: any) => setCurrentCoupon({...currentCoupon, status: v})}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="inactive">非公開</SelectItem>
+                      <SelectItem value="active">公開</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>利用上限 (総数)</Label>
+                  <Input type="number" value={currentCoupon.maxTotalUsers} onChange={e => setCurrentCoupon({...currentCoupon, maxTotalUsers: parseInt(e.target.value)})} />
+                </div>
               </div>
-              <div className="space-y-2 col-span-2">
-                <Label>クーポンコード</Label>
-                <Input value={currentCoupon.code} onChange={e => setCurrentCoupon({...currentCoupon, code: e.target.value.toUpperCase()})} placeholder="WINTER2024" />
-              </div>
-              <div className="space-y-2">
-                <Label>割引タイプ</Label>
-                <Select value={currentCoupon.discountType} onValueChange={(v: any) => setCurrentCoupon({...currentCoupon, discountType: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="percentage">パーセンテージ (%)</SelectItem>
-                    <SelectItem value="fixed">固定金額 (円)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>割引額</Label>
-                <Input type="number" value={currentCoupon.discountValue} onChange={e => setCurrentCoupon({...currentCoupon, discountValue: parseInt(e.target.value)})} />
-              </div>
-              <div className="space-y-2">
-                <Label>ステータス</Label>
-                <Select value={currentCoupon.status} onValueChange={(v: any) => setCurrentCoupon({...currentCoupon, status: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="inactive">非公開</SelectItem>
-                    <SelectItem value="active">公開</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>利用上限 (総数)</Label>
-                <Input type="number" value={currentCoupon.maxTotalUsers} onChange={e => setCurrentCoupon({...currentCoupon, maxTotalUsers: parseInt(e.target.value)})} />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditing(false)}>キャンセル</Button>
-              <Button onClick={handleSaveCoupon}>保存する</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsEditing(false)}>キャンセル</Button>
+                <Button onClick={handleSaveCoupon}>保存する</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">

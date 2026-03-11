@@ -75,9 +75,14 @@ export default function EmailTriggersPage() {
           <h1 className="text-3xl font-bold font-headline flex items-center gap-2"><Zap className="h-8 w-8 text-primary" /> メール自動トリガー設定</h1>
           <p className="text-muted-foreground">システムイベントとメールテンプレートの紐付け管理</p>
         </div>
-        <Link href="/admin/email-templates">
-          <Button variant="outline" className="rounded-xl"><Mail className="mr-2 h-4 w-4" /> テンプレート管理へ</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/admin">
+            <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
+          </Link>
+          <Link href="/admin/email-templates">
+            <Button variant="outline" className="rounded-xl"><Mail className="mr-2 h-4 w-4" /> テンプレート管理へ</Button>
+          </Link>
+        </div>
       </div>
 
       <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">

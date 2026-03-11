@@ -89,7 +89,7 @@ export default function DeviceManagementPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold font-headline">機器在庫の管理</h1>
         <Link href="/admin">
-          <Button variant="outline" className="rounded-xl">申請管理に戻る</Button>
+          <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
         </Link>
       </div>
 

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
@@ -39,6 +38,9 @@ export default function AdminPaymentManagementPage() {
           <h1 className="text-3xl font-bold font-headline">支払管理</h1>
           <p className="text-muted-foreground">全ユーザーの決済状況とサブスクリプションの管理</p>
         </div>
+        <Link href="/admin">
+          <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
+        </Link>
       </div>
 
       <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -16,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Trash2, Edit, Newspaper, ShieldAlert } from 'lucide-react';
 import { News, UserProfile } from '@/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import Link from 'next/link';
 
 export default function NewsManagementPage() {
   const { user, loading: authLoading } = useUser();
@@ -82,42 +82,47 @@ export default function NewsManagementPage() {
     <div className="container mx-auto px-4 py-12 space-y-8">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold font-headline flex items-center gap-2"><Newspaper className="h-8 w-8 text-primary" /> ニュース管理</h1>
-        <Dialog open={isEditing} onOpenChange={setIsEditing}>
-          <DialogTrigger asChild>
-            <Button className="rounded-xl" onClick={() => setCurrentNews({ title: '', body: '', status: 'draft' })}>
-              <Plus className="h-4 w-4 mr-2" /> 新規作成
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>{currentNews.id ? 'ニュース編集' : '新規ニュース作成'}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>タイトル</Label>
-                <Input value={currentNews.title} onChange={e => setCurrentNews({...currentNews, title: e.target.value})} />
+        <div className="flex gap-2">
+          <Link href="/admin">
+            <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
+          </Link>
+          <Dialog open={isEditing} onOpenChange={setIsEditing}>
+            <DialogTrigger asChild>
+              <Button className="rounded-xl" onClick={() => setCurrentNews({ title: '', body: '', status: 'draft' })}>
+                <Plus className="h-4 w-4 mr-2" /> 新規作成
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[600px]">
+              <DialogHeader>
+                <DialogTitle>{currentNews.id ? 'ニュース編集' : '新規ニュース作成'}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>タイトル</Label>
+                  <Input value={currentNews.title} onChange={e => setCurrentNews({...currentNews, title: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label>ステータス</Label>
+                  <Select value={currentNews.status} onValueChange={(v: any) => setCurrentNews({...currentNews, status: v})}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="draft">下書き</SelectItem>
+                      <SelectItem value="published">公開</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>本文</Label>
+                  <Textarea rows={10} value={currentNews.body} onChange={e => setCurrentNews({...currentNews, body: e.target.value})} />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>ステータス</Label>
-                <Select value={currentNews.status} onValueChange={(v: any) => setCurrentNews({...currentNews, status: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="draft">下書き</SelectItem>
-                    <SelectItem value="published">公開</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>本文</Label>
-                <Textarea rows={10} value={currentNews.body} onChange={e => setCurrentNews({...currentNews, body: e.target.value})} />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditing(false)}>キャンセル</Button>
-              <Button onClick={handleSaveNews}>保存する</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsEditing(false)}>キャンセル</Button>
+                <Button onClick={handleSaveNews}>保存する</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
