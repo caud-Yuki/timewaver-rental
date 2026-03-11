@@ -25,7 +25,7 @@
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["uid", "email", "familyName", "givenName", "role"]
+      "required": ["uid", "email", "familyName", "givenName", "role", "tel"]
     },
     "Device": {
       "title": "Device",
@@ -33,7 +33,7 @@
       "type": "object",
       "properties": {
         "serialNumber": { "type": "string" },
-        "type": { "type": "string" },
+        "type": { "type": "string", "enum": ["TimeWaver Mobile", "TimeWaver Mobile Quantum", "TimeWaver Tabletop", "TimeWaver Frequency"] },
         "typeCode": { "type": "string", "enum": ["tw-m", "tw-mq", "tw-tt", "tw-frq"] },
         "modules": { "type": "array", "items": { "type": "string" } },
         "status": { "type": "string", "enum": ["available", "active", "terminated_early", "terminated"] },
@@ -50,7 +50,8 @@
         "contractStartAt": { "type": "string", "format": "date-time" },
         "contractEndAt": { "type": "string", "format": "date-time" },
         "imageUrl": { "type": "string" }
-      }
+      },
+      "required": ["serialNumber", "type", "typeCode", "status", "price"]
     },
     "Application": {
       "title": "Application",
@@ -63,21 +64,19 @@
         "deviceId": { "type": "string" },
         "deviceSerialNumber": { "type": "string" },
         "deviceType": { "type": "string" },
-        "rentalType": { "type": "number" },
-        "payType": { "type": "string" },
+        "rentalType": { "type": "number", "enum": [3, 6, 12] },
+        "payType": { "type": "string", "enum": ["monthly", "full"] },
         "payAmount": { "type": "number" },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected", "payment_sent", "completed"] },
         "identificationImageUrl": { "type": "string" },
         "agreementPdfUrl": { "type": "string" },
-        "zip": { "type": "string" },
-        "tel": { "type": "string" },
-        "address": { "type": "string" },
         "paymentLinkId": { "type": "string" }
-      }
+      },
+      "required": ["userId", "deviceId", "rentalType", "payType", "payAmount", "status", "identificationImageUrl"]
     },
     "PaymentLink": {
       "title": "PaymentLink",
-      "description": "A secure payment link generated for an approved application",
+      "description": "A secure payment link",
       "type": "object",
       "properties": {
         "applicationId": { "type": "string" },
@@ -85,15 +84,41 @@
         "deviceId": { "type": "string" },
         "serialNumber": { "type": "string" },
         "deviceName": { "type": "string" },
-        "payType": { "type": "string" },
+        "payType": { "type": "string", "enum": ["monthly", "full"] },
         "payAmount": { "type": "number" },
+        "cycle": { "type": "string", "enum": ["MONTHLY"] },
+        "currentlyPayAmount": { "type": "number" },
+        "recurringDayOfMonth": { "type": "number", "enum": [1, 15] },
+        "maxExecutionNumber": { "type": "number" },
+        "payTimes": { "type": "number" },
         "status": { "type": "string", "enum": ["pending", "used", "expired"] },
         "expiresAt": { "type": "string", "format": "date-time" }
-      }
+      },
+      "required": ["applicationId", "userId", "payType", "payAmount", "status"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "Active rental subscription",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "payType": { "type": "string", "enum": ["monthly", "full"] },
+        "startAt": { "type": "string", "format": "date-time" },
+        "endAt": { "type": "string", "format": "date-time" },
+        "recurringId": { "type": "string" },
+        "paymentId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "payAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "payment_failed", "payment_delayed", "completed", "cancelled"] },
+        "delayMonths": { "type": "number" },
+        "applicationId": { "type": "string" }
+      },
+      "required": ["userId", "deviceId", "payType", "status", "customerId"]
     },
     "Waitlist": {
       "title": "Waitlist",
-      "description": "A waitlist entry for a device",
+      "description": "Device waitlist entry",
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
@@ -102,32 +127,6 @@
         "deviceId": { "type": "string" },
         "deviceType": { "type": "string" },
         "status": { "type": "string", "enum": ["waiting", "notified", "cancelled"] }
-      }
-    },
-    "News": {
-      "title": "News",
-      "description": "News article",
-      "type": "object",
-      "properties": {
-        "title": { "type": "string" },
-        "body": { "type": "string" },
-        "status": { "type": "string", "enum": ["published", "draft"] },
-        "publishedAt": { "type": "string", "format": "date-time" }
-      }
-    },
-    "SupportRequest": {
-      "title": "SupportRequest",
-      "description": "Repair or support request",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string" },
-        "userName": { "type": "string" },
-        "userEmail": { "type": "string" },
-        "deviceId": { "type": "string" },
-        "type": { "type": "string", "enum": ["repair", "support"] },
-        "description": { "type": "string" },
-        "imageUrls": { "type": "array", "items": { "type": "string" } },
-        "status": { "type": "string", "enum": ["open", "in_progress", "resolved"] }
       }
     },
     "Coupon": {
@@ -146,6 +145,17 @@
         "currentUsageCount": { "type": "number" }
       }
     },
+    "News": {
+      "title": "News",
+      "description": "News article",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "status": { "type": "string", "enum": ["published", "draft"] },
+        "publishedAt": { "type": "string", "format": "date-time" }
+      }
+    },
     "EmailTemplate": {
       "title": "EmailTemplate",
       "description": "Email template",
@@ -157,9 +167,35 @@
         "type": { "type": "string", "enum": ["application", "transaction", "news", "waiting", "general"] }
       }
     },
+    "EmailTrigger": {
+      "title": "EmailTrigger",
+      "description": "System email trigger",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "triggerPoint": { "type": "string" },
+        "templateId": { "type": "string" },
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "SupportRequest": {
+      "title": "SupportRequest",
+      "description": "Support or repair request",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "type": { "type": "string", "enum": ["repair", "support"] },
+        "description": { "type": "string" },
+        "imageUrls": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["open", "in_progress", "resolved"] }
+      }
+    },
     "GlobalSettings": {
       "title": "GlobalSettings",
-      "description": "Platform-wide configuration",
+      "description": "Global platform settings",
       "type": "object",
       "properties": {
         "managerName": { "type": "string" },
@@ -188,13 +224,14 @@
     "/users/{userId}": { "schema": "UserProfile", "description": "User profiles" },
     "/devices/{deviceId}": { "schema": "Device", "description": "Device inventory" },
     "/applications/{applicationId}": { "schema": "Application", "description": "Rental applications" },
-    "/paymentLinks/{paymentLinkId}": { "schema": "PaymentLink", "description": "Generated payment links" },
+    "/paymentLinks/{paymentLinkId}": { "schema": "PaymentLink", "description": "Secure payment links" },
+    "/subscriptions/{subscriptionId}": { "schema": "Subscription", "description": "Active subscriptions" },
     "/waitlist/{waitlistId}": { "schema": "Waitlist", "description": "Device waitlists" },
-    "/settings/global": { "schema": "GlobalSettings", "description": "Global config" },
+    "/settings/global": { "schema": "GlobalSettings", "description": "Global settings" },
     "/news/{newsId}": { "schema": "News", "description": "News articles" },
-    "/supportRequests/{requestId}": { "schema": "SupportRequest", "description": "Support and repair requests" },
+    "/supportRequests/{requestId}": { "schema": "SupportRequest", "description": "Support requests" },
     "/coupons/{couponId}": { "schema": "Coupon", "description": "Coupons" },
     "/emailTemplates/{templateId}": { "schema": "EmailTemplate", "description": "Email templates" },
-    "/emailTriggers/{triggerId}": { "schema": "object", "description": "Email auto-triggers" }
+    "/emailTriggers/{triggerId}": { "schema": "EmailTrigger", "description": "Email triggers" }
   }
 }

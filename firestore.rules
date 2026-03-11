@@ -32,6 +32,12 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
     }
 
+    // Subscriptions: Users can read their own. Admins manage all.
+    match /subscriptions/{subId} {
+      allow read: if request.auth != null && (isAdmin() || (resource != null && resource.data.userId == request.auth.uid));
+      allow write: if isAdmin();
+    }
+
     // Support Requests: Users can read/create their own. Admins can manage all.
     match /supportRequests/{requestId} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;

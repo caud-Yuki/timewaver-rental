@@ -38,11 +38,8 @@ export interface Application {
   payType: "monthly" | "full";
   payAmount: number;
   status: "pending" | "approved" | "rejected" | "payment_sent" | "completed";
-  identificationImageUrl?: string;
+  identificationImageUrl: string;
   agreementPdfUrl?: string;
-  zip: string;
-  tel: string;
-  address: string;
   paymentLinkId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -57,9 +54,32 @@ export interface PaymentLink {
   deviceName: string;
   payType: "monthly" | "full";
   payAmount: number;
+  cycle?: "MONTHLY";
+  currentlyPayAmount?: number;
+  recurringDayOfMonth?: 1 | 15;
+  maxExecutionNumber?: number;
+  payTimes?: number;
   status: "pending" | "used" | "expired";
   expiresAt?: Timestamp;
   createdAt: Timestamp;
+}
+
+export interface Subscription {
+  id: string;
+  userId: string;
+  deviceId: string;
+  payType: "monthly" | "full";
+  startAt: Timestamp;
+  endAt: Timestamp;
+  recurringId?: string;
+  paymentId?: string;
+  customerId: string;
+  payAmount: number;
+  status: "active" | "payment_failed" | "payment_delayed" | "completed" | "cancelled";
+  delayMonths?: number;
+  applicationId: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface Waitlist {
@@ -141,6 +161,15 @@ export interface EmailTemplate {
   type: "application" | "transaction" | "news" | "waiting" | "general";
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+export interface EmailTrigger {
+  id: string;
+  name: string;
+  triggerPoint: string;
+  templateId: string;
+  enabled: boolean;
+  createdAt: Timestamp;
 }
 
 export interface GlobalSettings {
