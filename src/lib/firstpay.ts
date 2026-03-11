@@ -1,11 +1,12 @@
 'use client';
 
 /**
- * @fileOverview FirstPay Payment API Client-side Utility
- * Handles card tokenization, encryption (RSA), and 3DS polling logic.
+ * @fileOverview FirstPay Payment API Client-side Implementation
+ * Handles card tokenization, encryption (RSA), 3DS polling, and transaction management.
  */
 
 import { doc, getDoc, Firestore } from 'firebase/firestore';
+import JSEncrypt from 'jsencrypt';
 
 export interface CardInfo {
   cardNo: string;
@@ -17,8 +18,23 @@ export interface CardInfo {
 
 export interface FirstPayConfig {
   apiKey: string;
+  bearerToken: string;
   mode: 'test' | 'production';
 }
+
+const getApiBase = (mode: 'test' | 'production') => {
+  return mode === "production"
+    ? "https://www.api.firstpay.jp"
+    : "https://dev.api.firstpay.jp";
+};
+
+const getHeaders = (config: FirstPayConfig) => {
+  return {
+    "Content-Type": "application/json",
+    "FIRSTPAY-PAYMENT-API-KEY": config.apiKey,
+    "Authorization": `Bearer ${config.bearerToken}`
+  };
+};
 
 /**
  * Fetches the global FirstPay configuration from Firestore
@@ -28,45 +44,159 @@ export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig |
   const snap = await getDoc(settingsRef);
   if (!snap.exists()) return null;
   const data = snap.data();
+  if (!data.firstpay) return null;
   return {
-    apiKey: data.firstpay?.apiKey || '',
+    apiKey: data.firstpay.apiKey || '',
+    bearerToken: data.firstpay.bearerToken || '',
     mode: data.mode || 'test',
   };
 }
 
 /**
- * Simulates FirstPay Card Tokenization
- * In a real implementation, this would:
- * 1. Get public key from FirstPay
- * 2. Encrypt card data using JSEncrypt
- * 3. POST to /token endpoint
- * 4. Handle 3DS redirect if necessary
+ * 5.1 & 5.2: Create a card token using FirstPay RSA encryption
  */
 export async function createCardToken(config: FirstPayConfig, card: CardInfo): Promise<{ cardToken: string; issuerUrl?: string }> {
-  console.log('Initiating FirstPay tokenization for:', config.mode);
-  
-  // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 1500));
+  const API_BASE = getApiBase(config.mode);
+  const headers = getHeaders(config);
 
-  // In production, we'd use actual FirstPay endpoints
-  // const API_BASE = config.mode === 'production' ? 'https://www.api.firstpay.jp' : 'https://dev.api.firstpay.jp';
-  
-  // Return a mock token for development
+  // 1. Get encryption key
+  const keyRes = await fetch(`${API_BASE}/token/encryption/key`, { method: "GET", headers });
+  const { keyHash, publicKey } = await keyRes.json();
+
+  // 2. Encrypt card data
+  const encrypt = new JSEncrypt();
+  encrypt.setPublicKey(publicKey);
+  const encryptedData = encrypt.encrypt(JSON.stringify(card));
+
+  if (!encryptedData) throw new Error('Encryption failed');
+
+  // 3. Issue token
+  const tokenRes = await fetch(`${API_BASE}/token`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      encryptedData,
+      encryptionKeyHash: keyHash,
+      validateUsableCard: true,
+      threedsConfiguration: {
+        // Optional: Can be passed from user profile if needed
+        phone: { number: "09000000000", regionCode: "+81" }
+      }
+    })
+  });
+
+  const data = await tokenRes.json();
+  if (data.errors) throw new Error(data.errors[0]?.message || 'Token generation failed');
+
   return {
-    cardToken: `tok_simulated_${Math.random().toString(36).substring(7)}`,
-    // issuerUrl: 'https://...', // If 3DS is required
+    cardToken: data.cardToken,
+    issuerUrl: data.threedsConfiguration?.issuerUrl
   };
 }
 
 /**
- * Polls the status of a 3DS authentication
+ * 5.3: Polls the status of a 3DS authentication
  */
-export async function poll3dsStatus(cardToken: string): Promise<boolean> {
-  // Simulate polling logic
-  for (let i = 0; i < 5; i++) {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    // Simulate success after 2 polls
-    if (i >= 1) return true;
+export async function poll3dsStatus(config: FirstPayConfig, cardToken: string): Promise<boolean> {
+  const API_BASE = getApiBase(config.mode);
+  const headers = getHeaders(config);
+
+  while (true) {
+    const res = await fetch(`${API_BASE}/token/${cardToken}/status/three-ds`, { headers });
+    const { status, errors } = await res.json();
+    if (status === "AVAILABLE") return true;
+    if (status === "NOT_AVAILABLE") {
+      console.error('3DS Status Error:', errors);
+      return false;
+    }
+    await new Promise(r => setTimeout(r, 2000));
   }
-  return false;
+}
+
+/**
+ * 5.4 & 5.5: Register or update customer
+ */
+export async function registerCustomer(config: FirstPayConfig, customerData: {
+  customerId: string;
+  cardToken: string;
+  familyName: string;
+  givenName: string;
+  email: string;
+  tel: string;
+}) {
+  const API_BASE = getApiBase(config.mode);
+  const headers = getHeaders(config);
+
+  const res = await fetch(`${API_BASE}/customer`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(customerData)
+  });
+  return await res.json();
+}
+
+/**
+ * 5.6: Single charge (Full Payment)
+ */
+export async function createCharge(config: FirstPayConfig, chargeData: {
+  customerId: string;
+  paymentId: string;
+  paymentName: string;
+  amount: number;
+}) {
+  const API_BASE = getApiBase(config.mode);
+  const headers = getHeaders(config);
+
+  const res = await fetch(`${API_BASE}/charge`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      ...chargeData,
+      payTimes: 1
+    })
+  });
+  return await res.json();
+}
+
+/**
+ * 5.9: Recurring payment (Monthly Payment)
+ */
+export async function createRecurring(config: FirstPayConfig, recurringData: {
+  reccuringId: string;
+  paymentName: string;
+  customerId: string;
+  startAt: string; // YYYY-MM-DD
+  payAmount: number;
+  maxExecutionNumber: number;
+  recurringDayOfMonth: 1 | 15;
+}) {
+  const API_BASE = getApiBase(config.mode);
+  const headers = getHeaders(config);
+
+  const res = await fetch(`${API_BASE}/recurring`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      ...recurringData,
+      cycle: "MONTHLY",
+      currentlyPayAmount: 0,
+      notifyCustomerBeforeRecurring: false,
+      notifyCustomerRecurred: false
+    })
+  });
+  return await res.json();
+}
+
+/**
+ * 5.12: Stop recurring payment
+ */
+export async function stopRecurring(config: FirstPayConfig, recurringId: string) {
+  const API_BASE = getApiBase(config.mode);
+  const headers = getHeaders(config);
+
+  const res = await fetch(`${API_BASE}/recurring/${recurringId}`, {
+    method: "DELETE",
+    headers
+  });
+  return await res.json();
 }
