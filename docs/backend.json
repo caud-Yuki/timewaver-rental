@@ -1,6 +1,30 @@
 
 {
   "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Extended user information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "familyName": { "type": "string" },
+        "givenName": { "type": "string" },
+        "familyNameKana": { "type": "string" },
+        "givenNameKana": { "type": "string" },
+        "companyName": { "type": "string" },
+        "zipcode": { "type": "string" },
+        "address1": { "type": "string" },
+        "address2": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "tel": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "customerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "familyName", "givenName", "role"]
+    },
     "Device": {
       "title": "Device",
       "description": "A TimeWaver device available for rental",
@@ -9,7 +33,8 @@
         "serialNumber": { "type": "string" },
         "type": { "type": "string" },
         "typeCode": { "type": "string", "enum": ["tw-m", "tw-mq", "tw-tt", "tw-frq"] },
-        "status": { "type": "string", "enum": ["available", "active", "maintenance"] },
+        "modules": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["available", "active", "terminated_early", "terminated"] },
         "description": { "type": "string" },
         "price": {
           "type": "object",
@@ -19,57 +44,49 @@
             "12m": { "type": "object", "properties": { "full": { "type": "number" }, "monthly": { "type": "number" } } }
           }
         },
+        "currentUserId": { "type": "string" },
+        "contractStartAt": { "type": "string", "format": "date-time" },
+        "contractEndAt": { "type": "string", "format": "date-time" },
         "imageUrl": { "type": "string" }
-      },
-      "required": ["serialNumber", "type", "typeCode", "status"]
+      }
     },
     "Application": {
       "title": "Application",
-      "description": "A rental application submitted by a user",
+      "description": "A rental application",
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
+        "userName": { "type": "string" },
         "userEmail": { "type": "string" },
         "deviceId": { "type": "string" },
-        "rentalType": { "type": "number", "enum": [3, 6, 12] },
-        "payType": { "type": "string", "enum": ["monthly", "full"] },
+        "rentalType": { "type": "number" },
+        "payType": { "type": "string" },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected", "payment_sent", "completed"] },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["userId", "deviceId", "rentalType", "payType", "status"]
+        "identificationImageUrl": { "type": "string" },
+        "agreementPdfUrl": { "type": "string" }
+      }
     },
-    "UserProfile": {
-      "title": "UserProfile",
-      "description": "Extended user information",
+    "GlobalSettings": {
+      "title": "GlobalSettings",
+      "description": "Platform-wide configuration",
       "type": "object",
       "properties": {
-        "familyName": { "type": "string" },
-        "givenName": { "type": "string" },
-        "email": { "type": "string" },
-        "tel": { "type": "string" },
-        "role": { "type": "string", "enum": ["user", "admin"] },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["familyName", "givenName", "role"]
+        "managerName": { "type": "string" },
+        "managerEmail": { "type": "string" },
+        "mode": { "type": "string", "enum": ["test", "production"] },
+        "companyName": { "type": "string" }
+      }
     }
   },
   "auth": {
     "providers": ["password", "google"]
   },
   "firestore": {
-    "/devices/{deviceId}": {
-      "schema": "Device",
-      "description": "Collection of all rental devices. Read access should be public for the catalog."
-    },
-    "/applications/{applicationId}": {
-      "schema": "Application",
-      "description": "Collection of all rental applications. Users can read/write their own applications."
-    },
-    "/users/{userId}": {
-      "schema": "UserProfile",
-      "description": "User profile data. Owners can read/write their own profiles."
-    }
+    "/users/{userId}": { "schema": "UserProfile", "description": "User profiles" },
+    "/devices/{deviceId}": { "schema": "Device", "description": "Device inventory" },
+    "/applications/{applicationId}": { "schema": "Application", "description": "Rental applications" },
+    "/settings/global": { "schema": "GlobalSettings", "description": "Global config" },
+    "/subscriptions/{subId}": { "schema": "object", "description": "Rental subscriptions" },
+    "/news/{newsId}": { "schema": "object", "description": "News articles" }
   }
 }
