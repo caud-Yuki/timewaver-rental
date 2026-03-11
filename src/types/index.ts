@@ -43,8 +43,34 @@ export interface Application {
   zip: string;
   tel: string;
   address: string;
+  paymentLinkId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+export interface PaymentLink {
+  id: string;
+  applicationId: string;
+  userId: string;
+  deviceId: string;
+  serialNumber: string;
+  deviceName: string;
+  payType: "monthly" | "full";
+  payAmount: number;
+  status: "pending" | "used" | "expired";
+  expiresAt?: Timestamp;
+  createdAt: Timestamp;
+}
+
+export interface Waitlist {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  deviceId: string;
+  deviceType: string;
+  status: "waiting" | "notified" | "cancelled";
+  createdAt: Timestamp;
 }
 
 export interface UserProfile {

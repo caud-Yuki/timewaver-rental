@@ -71,7 +71,37 @@
         "agreementPdfUrl": { "type": "string" },
         "zip": { "type": "string" },
         "tel": { "type": "string" },
-        "address": { "type": "string" }
+        "address": { "type": "string" },
+        "paymentLinkId": { "type": "string" }
+      }
+    },
+    "PaymentLink": {
+      "title": "PaymentLink",
+      "description": "A secure payment link generated for an approved application",
+      "type": "object",
+      "properties": {
+        "applicationId": { "type": "string" },
+        "userId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "serialNumber": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "payType": { "type": "string" },
+        "payAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "used", "expired"] },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Waitlist": {
+      "title": "Waitlist",
+      "description": "A waitlist entry for a device",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "deviceType": { "type": "string" },
+        "status": { "type": "string", "enum": ["waiting", "notified", "cancelled"] }
       }
     },
     "News": {
@@ -126,6 +156,8 @@
     "/users/{userId}": { "schema": "UserProfile", "description": "User profiles" },
     "/devices/{deviceId}": { "schema": "Device", "description": "Device inventory" },
     "/applications/{applicationId}": { "schema": "Application", "description": "Rental applications" },
+    "/paymentLinks/{paymentLinkId}": { "schema": "PaymentLink", "description": "Generated payment links" },
+    "/waitlist/{waitlistId}": { "schema": "Waitlist", "description": "Device waitlists" },
     "/settings/global": { "schema": "GlobalSettings", "description": "Global config" },
     "/news/{newsId}": { "schema": "News", "description": "News articles" },
     "/supportRequests/{requestId}": { "schema": "SupportRequest", "description": "Support and repair requests" }

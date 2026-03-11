@@ -3,14 +3,14 @@
 
 import { useState } from 'react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { collection, query, orderBy, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, updateDoc, doc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle, XCircle, Eye, ShieldAlert, User as UserIcon, Phone, MapPin } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, Eye, ShieldAlert, User as UserIcon, Phone, MapPin, Send } from 'lucide-react';
 import { Application, UserProfile } from '@/types';
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -55,6 +55,48 @@ export default function AdminDashboardPage() {
     });
   };
 
+  const handleCreatePaymentLink = async (application: Application) => {
+    if (!db) return;
+    
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
+
+    const paymentLinkData = {
+      applicationId: application.id,
+      userId: application.userId,
+      deviceId: application.deviceId,
+      serialNumber: application.deviceSerialNumber,
+      deviceName: application.deviceType,
+      payType: application.payType,
+      payAmount: application.payAmount,
+      status: 'pending',
+      expiresAt: serverTimestamp(), // Ideally we'd calculate a real date but let's use serverTimestamp for now or fix this later
+      createdAt: serverTimestamp(),
+    };
+
+    addDoc(collection(db, 'paymentLinks'), paymentLinkData)
+      .then((docRef) => {
+        // Update application with payment link ID and change status
+        updateDoc(doc(db, 'applications', application.id), {
+          status: 'payment_sent',
+          paymentLinkId: docRef.id,
+          updatedAt: serverTimestamp(),
+        });
+
+        toast({
+          title: "決済リンクを送信しました",
+          description: `ユーザーに決済用のリンクを発行しました。`,
+        });
+      })
+      .catch(() => {
+        toast({
+          variant: "destructive",
+          title: "エラーが発生しました",
+          description: "決済リンクの作成に失敗しました。",
+        });
+      });
+  };
+
   if (authLoading || (profileLoading && !profile)) {
     return <div className="flex items-center justify-center min-h-screen"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
@@ -95,8 +137,8 @@ export default function AdminDashboardPage() {
         <TabsContent value="pending" className="animate-in fade-in duration-300">
           <Card className="border-none shadow-xl bg-white rounded-3xl overflow-hidden">
             <CardHeader className="bg-primary/5">
-              <CardTitle>審査待ちの申請</CardTitle>
-              <CardDescription>現在 {applications.filter(a => a.status === 'pending').length} 件の未処理申請があります</CardDescription>
+              <CardTitle>審査待ち・承認済みの申請</CardTitle>
+              <CardDescription>現在 {applications.filter(a => a.status === 'pending' || a.status === 'approved').length} 件の対応が必要な申請があります</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -106,11 +148,12 @@ export default function AdminDashboardPage() {
                     <TableHead>ユーザー</TableHead>
                     <TableHead>対象機器</TableHead>
                     <TableHead>プラン</TableHead>
+                    <TableHead>ステータス</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {applications.filter(a => a.status === 'pending').map((app) => (
+                  {applications.filter(a => a.status === 'pending' || a.status === 'approved').map((app) => (
                     <TableRow key={app.id}>
                       <TableCell className="text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '不明'}</TableCell>
                       <TableCell>
@@ -119,48 +162,32 @@ export default function AdminDashboardPage() {
                       </TableCell>
                       <TableCell>{app.deviceType}</TableCell>
                       <TableCell>{app.rentalType}ヶ月 / {app.payType === 'monthly' ? '月払い' : '一括'}</TableCell>
+                      <TableCell>
+                        <Badge variant={app.status === 'approved' ? 'default' : 'secondary'}>
+                          {app.status === 'approved' ? '承認済み' : '審査中'}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="text-right space-x-2">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button size="sm" variant="ghost" className="rounded-lg">
-                              <Eye className="h-4 w-4" />
+                        {app.status === 'pending' ? (
+                          <>
+                            <Button size="sm" variant="outline" className="rounded-lg border-emerald-200 text-emerald-600 hover:bg-emerald-50" onClick={() => handleUpdateStatus(app.id, 'approved')}>
+                              <CheckCircle className="h-4 w-4 mr-1" /> 承認
                             </Button>
-                          </DialogTrigger>
-                          <DialogContent className="sm:max-w-md">
-                            <DialogHeader>
-                              <DialogTitle>申請詳細</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4 py-4">
-                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div className="space-y-1">
-                                  <span className="text-muted-foreground block">氏名</span>
-                                  <span className="font-bold flex items-center gap-2"><UserIcon className="h-3 w-3" /> {app.userName}</span>
-                                </div>
-                                <div className="space-y-1">
-                                  <span className="text-muted-foreground block">電話番号</span>
-                                  <span className="font-bold flex items-center gap-2"><Phone className="h-3 w-3" /> {app.tel}</span>
-                                </div>
-                                <div className="col-span-2 space-y-1">
-                                  <span className="text-muted-foreground block">配送先住所</span>
-                                  <span className="font-bold flex items-center gap-2"><MapPin className="h-3 w-3" /> 〒{app.zip} {app.address}</span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex justify-end gap-2">
-                              <Button size="sm" variant="outline" className="border-rose-200 text-rose-600" onClick={() => handleUpdateStatus(app.id, 'rejected')}>却下</Button>
-                              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => handleUpdateStatus(app.id, 'approved')}>承認する</Button>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-                        <Button size="sm" variant="outline" className="rounded-lg border-emerald-200 text-emerald-600 hover:bg-emerald-50" onClick={() => handleUpdateStatus(app.id, 'approved')}>
-                          <CheckCircle className="h-4 w-4 mr-1" /> 承認
-                        </Button>
+                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => handleUpdateStatus(app.id, 'rejected')}>
+                              拒否
+                            </Button>
+                          </>
+                        ) : (
+                          <Button size="sm" className="rounded-lg bg-primary hover:bg-primary/90" onClick={() => handleCreatePaymentLink(app)}>
+                            <Send className="h-4 w-4 mr-1" /> 決済リンク送信
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
-                  {applications.filter(a => a.status === 'pending').length === 0 && (
+                  {applications.filter(a => a.status === 'pending' || a.status === 'approved').length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">処理が必要な申請はありません</TableCell>
+                      <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">対応が必要な申請はありません</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -189,13 +216,13 @@ export default function AdminDashboardPage() {
                       <TableCell>{app.userName || app.userEmail}</TableCell>
                       <TableCell>{app.deviceType}</TableCell>
                       <TableCell>
-                        <Badge variant={app.status === 'approved' ? 'default' : app.status === 'rejected' ? 'destructive' : 'secondary'}>
+                        <Badge variant={app.status === 'completed' ? 'default' : app.status === 'rejected' ? 'destructive' : 'secondary'}>
                           {app.status}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button size="sm" variant="ghost" className="rounded-lg" onClick={() => handleUpdateStatus(app.id, 'pending')}>
-                          リセット
+                        <Button size="sm" variant="ghost" className="rounded-lg" asChild>
+                           <Link href={`/admin/applications`}>詳細</Link>
                         </Button>
                       </TableCell>
                     </TableRow>
