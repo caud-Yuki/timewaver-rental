@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Activity, ShieldCheck, CreditCard, Lock, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Activity, ShieldCheck, CreditCard, Lock, Loader2, CheckCircle2, AlertTriangle, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useDoc, useMemoFirebase, useUser } from '@/firebase';
 import { doc, updateDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore';
@@ -65,20 +65,22 @@ export default function PaymentPage() {
     try {
       // 1. Get FirstPay Config
       const config = await getFirstPayConfig(db);
-      if (!config) throw new Error('Payment system configuration not found');
+      if (!config) throw new Error('Payment system configuration not found. Please contact support.');
 
-      // 2. Tokenize Card
-      const { cardToken, issuerUrl } = await createCardToken(config, cardInfo);
+      // 2. Tokenize Card (includes RSA encryption internally)
+      const { cardToken, issuerUrl } = await createCardToken(config, cardInfo, profile.tel);
       
       // 3. Handle 3DS if required
       if (issuerUrl) {
-        window.open(issuerUrl, '_blank', 'width=600,height=600');
+        toast({ title: "本人認証が必要です", description: "別ウィンドウで開かれたカード会社の認証を完了してください。" });
+        const authWindow = window.open(issuerUrl, '_blank', 'width=600,height=600');
         const isAuthOk = await poll3dsStatus(config, cardToken);
-        if (!isAuthOk) throw new Error('3DS Authentication failed or cancelled');
+        if (!isAuthOk) throw new Error('3DS認証に失敗したか、キャンセルされました。');
+        if (authWindow) authWindow.close();
       }
 
       // 4. Register/Update FirstPay Customer
-      const customerId = profile.customerId || `CUST-${user.uid.substring(0, 8)}`;
+      const customerId = profile.customerId || `CUST-${user.uid.substring(0, 8)}-${Date.now().toString(36)}`;
       await registerCustomer(config, {
         customerId,
         cardToken,
@@ -102,7 +104,7 @@ export default function PaymentPage() {
         });
         transactionId = chargeResult.paymentId;
       } else {
-        const recId = `REC-${Date.now()}`;
+        const recId = `REC-${Date.now().toString(36)}`;
         const recResult = await createRecurring(config, {
           reccuringId: recId,
           paymentName: `Monthly Rental: ${paymentLink.deviceName}`,
@@ -121,7 +123,7 @@ export default function PaymentPage() {
         deviceId: paymentLink.deviceId,
         payType: paymentLink.payType,
         startAt: serverTimestamp(),
-        endAt: serverTimestamp(), // In real app, calculate based on rentalType
+        endAt: serverTimestamp(), // Placeholder - calculated by admin on fulfillment
         recurringId: recurringId || null,
         paymentId: transactionId || null,
         customerId: customerId,
@@ -194,7 +196,7 @@ export default function PaymentPage() {
             <CheckCircle2 className="h-12 w-12" />
           </div>
           <h1 className="text-3xl font-bold font-headline">🎉 完了！</h1>
-          <p className="text-muted-foreground">決済が正常に完了しました。<br />お届けまで今しばらくお待ちください。</p>
+          <p className="text-muted-foreground">決済が正常に完了しました。<br />デバイスの発送準備を開始いたします。</p>
           <Button className="w-full h-14 rounded-2xl text-lg font-bold" onClick={() => router.push('/mypage/devices')}>マイページへ移動</Button>
         </Card>
       </div>
@@ -210,58 +212,67 @@ export default function PaymentPage() {
           <p className="text-muted-foreground">安全な決済システム（FirstPay）で処理されます</p>
         </div>
 
-        <Card className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden">
+        <Card className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-white">
           <CardHeader className="bg-primary/5 pb-8 pt-10">
             <div className="flex justify-between items-start mb-4">
               <div>
                 <CardTitle className="flex items-center gap-2"><CreditCard className="h-6 w-6 text-primary" /> カード情報の入力</CardTitle>
                 <CardDescription>暗号化により、お客様のカード情報は保護されます。</CardDescription>
               </div>
-              <Badge variant="outline" className="bg-white">¥{paymentLink.payAmount?.toLocaleString()}</Badge>
+              <Badge variant="outline" className="bg-white text-lg py-4 px-4 font-bold">¥{paymentLink.payAmount?.toLocaleString()}</Badge>
             </div>
           </CardHeader>
           <CardContent className="p-8 space-y-6">
-            <div className="bg-secondary/20 p-4 rounded-xl mb-4">
-              <p className="text-xs text-muted-foreground uppercase font-bold mb-1">お支払い内容</p>
-              <p className="font-bold">{paymentLink.deviceName}</p>
-              <p className="text-sm">{paymentLink.payType === 'monthly' ? '月々払い' : '一括払い'}</p>
+            <div className="bg-secondary/20 p-6 rounded-2xl mb-4 border border-secondary">
+              <p className="text-[10px] text-muted-foreground uppercase font-bold mb-1 tracking-widest">お支払い内容</p>
+              <p className="font-bold text-lg">{paymentLink.deviceName}</p>
+              <div className="flex gap-2 mt-2">
+                <Badge variant="secondary" className="bg-white">{paymentLink.payType === 'monthly' ? '月々払い' : '一括払い'}</Badge>
+                {paymentLink.payType === 'monthly' && <Badge variant="secondary" className="bg-white">{application?.rentalType}ヶ月間</Badge>}
+              </div>
             </div>
 
             <form onSubmit={handlePayment} className="space-y-4">
               <div className="space-y-2">
                 <Label>カード番号</Label>
-                <Input placeholder="4242 4242 4242 4242" className="h-12 rounded-xl" value={cardInfo.cardNo} onChange={e => setCardInfo({...cardInfo, cardNo: e.target.value})} required />
+                <Input placeholder="4242 4242 4242 4242" className="h-12 rounded-xl text-lg font-mono" value={cardInfo.cardNo} onChange={e => setCardInfo({...cardInfo, cardNo: e.target.value.replace(/\s/g, '')})} required />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>有効期限 (月)</Label>
-                  <Input placeholder="01" className="h-12 rounded-xl" value={cardInfo.expireMonth} onChange={e => setCardInfo({...cardInfo, expireMonth: e.target.value})} required />
+                  <Input placeholder="MM (例: 01)" maxLength={2} className="h-12 rounded-xl" value={cardInfo.expireMonth} onChange={e => setCardInfo({...cardInfo, expireMonth: e.target.value})} required />
                 </div>
                 <div className="space-y-2">
                   <Label>有効期限 (年)</Label>
-                  <Input placeholder="28" className="h-12 rounded-xl" value={cardInfo.expireYear} onChange={e => setCardInfo({...cardInfo, expireYear: e.target.value})} required />
+                  <Input placeholder="YYYY (例: 2028)" maxLength={4} className="h-12 rounded-xl" value={cardInfo.expireYear} onChange={e => setCardInfo({...cardInfo, expireYear: e.target.value})} required />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>CVV</Label>
-                  <Input placeholder="123" className="h-12 rounded-xl" value={cardInfo.cvv} onChange={e => setCardInfo({...cardInfo, cvv: e.target.value})} required />
+                  <Label className="flex items-center gap-1">CVV <Info className="h-3 w-3 text-muted-foreground" /></Label>
+                  <Input placeholder="123" maxLength={4} className="h-12 rounded-xl font-mono" value={cardInfo.cvv} onChange={e => setCardInfo({...cardInfo, cvv: e.target.value})} required />
                 </div>
                 <div className="space-y-2">
                   <Label>カード名義人</Label>
-                  <Input placeholder="TARO YAMADA" className="h-12 rounded-xl" value={cardInfo.holderName} onChange={e => setCardInfo({...cardInfo, holderName: e.target.value.toUpperCase()})} required />
+                  <Input placeholder="TARO YAMADA" className="h-12 rounded-xl uppercase" value={cardInfo.holderName} onChange={e => setCardInfo({...cardInfo, holderName: e.target.value.toUpperCase()})} required />
                 </div>
               </div>
-              <div className="pt-4">
-                <Button type="submit" className="w-full h-14 rounded-2xl text-lg font-bold shadow-lg" disabled={isProcessing}>
-                  {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="animate-spin h-5 w-5" /> 決済処理中...</span> : '決済を確定する'}
+              
+              <div className="pt-6">
+                <Button type="submit" className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl shadow-primary/20" disabled={isProcessing}>
+                  {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="animate-spin h-6 w-6" /> 処理中...</span> : '決済を確定する'}
                 </Button>
               </div>
             </form>
           </CardContent>
-          <CardFooter className="bg-secondary/20 p-6 flex justify-center gap-4 text-[10px] text-muted-foreground uppercase">
-            <span className="flex items-center gap-1"><Lock className="h-3 w-3" /> Secure SSL</span>
-            <span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3" /> PCI DSS Compliant</span>
+          <CardFooter className="bg-secondary/20 p-6 flex flex-col gap-4 text-center">
+            <div className="flex justify-center gap-6 opacity-50 grayscale hover:grayscale-0 transition-all">
+              <span className="flex items-center gap-1 text-[9px] font-bold"><Lock className="h-3 w-3" /> Secure SSL</span>
+              <span className="flex items-center gap-1 text-[9px] font-bold"><ShieldCheck className="h-3 w-3" /> PCI DSS Compliant</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              ご入力いただいたカード情報は暗号化され、FirstPay決済システムへ直接送信されます。<br />当サイトのサーバーにカード情報が保存されることはありません。
+            </p>
           </CardFooter>
         </Card>
       </div>

@@ -62,11 +62,11 @@ export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig |
 /**
  * 5.1 & 5.2: Create a card token using FirstPay RSA encryption
  */
-export async function createCardToken(config: FirstPayConfig, card: CardInfo): Promise<{ cardToken: string; issuerUrl?: string }> {
+export async function createCardToken(config: FirstPayConfig, card: CardInfo, phone?: string): Promise<{ cardToken: string; issuerUrl?: string }> {
   const API_BASE = getApiBase(config.mode);
   const headers = getHeaders(config);
 
-  // 1. Get encryption key
+  // 1. Get encryption key (5.1)
   const keyRes = await fetch(`${API_BASE}/token/encryption/key`, { method: "GET", headers });
   if (!keyRes.ok) throw new Error('Failed to fetch encryption key from FirstPay');
   const { keyHash, publicKey } = await keyRes.json();
@@ -78,7 +78,7 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo): P
 
   if (!encryptedData) throw new Error('Encryption failed');
 
-  // 3. Issue token
+  // 3. Issue token (5.2)
   const tokenRes = await fetch(`${API_BASE}/token`, {
     method: "POST",
     headers,
@@ -87,7 +87,10 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo): P
       encryptionKeyHash: keyHash,
       validateUsableCard: true,
       threedsConfiguration: {
-        phone: { number: "09000000000", regionCode: "+81" }
+        phone: { 
+          number: phone?.replace(/[^0-9]/g, '') || "09000000000", 
+          regionCode: "+81" 
+        }
       }
     })
   });
@@ -200,18 +203,4 @@ export async function createRecurring(config: FirstPayConfig, recurringData: {
   const data = await res.json();
   if (data.errors) throw new Error(data.errors[0]?.message || 'Recurring registration failed');
   return data;
-}
-
-/**
- * 5.12: Stop recurring payment
- */
-export async function stopRecurring(config: FirstPayConfig, recurringId: string) {
-  const API_BASE = getApiBase(config.mode);
-  const headers = getHeaders(config);
-
-  const res = await fetch(`${API_BASE}/recurring/${recurringId}`, {
-    method: "DELETE",
-    headers
-  });
-  return await res.json();
 }
