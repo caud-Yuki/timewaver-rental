@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo } from 'react';
@@ -15,8 +14,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Trash2, Edit, Mail, ShieldAlert, Code, Sparkles } from 'lucide-react';
 import { EmailTemplate, UserProfile } from '@/types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { SYSTEM_TEMPLATES, SystemTemplate } from '@/lib/email-defaults';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { SYSTEM_TEMPLATES } from '@/lib/email-defaults';
 import Link from 'next/link';
 
 export default function EmailTemplateManagementPage() {
