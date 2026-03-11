@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import { collection, addDoc, serverTimestamp, doc } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { ShieldCheck, FileUp, ChevronRight, ChevronLeft, CheckCircle2, Loader2 } from 'lucide-react';
-import { Device } from '@/types';
+import { Device, UserProfile } from '@/types';
 
 export default function NewApplicationPage() {
   const [step, setStep] = useState(1);
@@ -34,13 +34,19 @@ export default function NewApplicationPage() {
     return doc(db, 'devices', deviceId);
   }, [db, deviceId]);
 
+  const profileRef = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return doc(db, 'users', user.uid);
+  }, [db, user]);
+
   const { data: device, loading: deviceLoading } = useDoc<Device>(deviceRef as any);
+  const { data: profile } = useDoc<UserProfile>(profileRef as any);
 
   // Form State
   const [rentalType, setRentalType] = useState<'3' | '6' | '12'>('12');
   const [payType, setPayType] = useState<'monthly' | 'full'>('monthly');
   const [zip, setZip] = useState('');
-  const [tel, setTel] = useState('');
+  const [tel, setTel] = useState(profile?.tel || '');
   const [address, setAddress] = useState('');
 
   const nextStep = () => setStep(prev => Math.min(prev + 1, 4));
@@ -48,12 +54,13 @@ export default function NewApplicationPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !db || !device) return;
+    if (!user || !db || !device || !profile) return;
 
     setIsSubmitting(true);
 
     const applicationData = {
       userId: user.uid,
+      userName: `${profile.familyName} ${profile.givenName}`,
       userEmail: user.email || '',
       deviceId: device.id,
       deviceSerialNumber: device.serialNumber,
@@ -69,7 +76,6 @@ export default function NewApplicationPage() {
       updatedAt: serverTimestamp(),
     };
 
-    // Correct pattern for Firestore mutations
     addDoc(collection(db, 'applications'), applicationData)
       .then(() => {
         toast({

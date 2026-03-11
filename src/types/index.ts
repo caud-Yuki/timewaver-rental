@@ -1,25 +1,21 @@
 
 export type DeviceType = "TimeWaver Mobile" | "TimeWaver Mobile Quantum" | "TimeWaver Tabletop" | "TimeWaver Frequency";
 export type DeviceTypeCode = "tw-m" | "tw-mq" | "tw-tt" | "tw-frq";
-export type DeviceStatus = "available" | "active" | "terminated_early" | "terminated";
+export type DeviceStatus = "available" | "active" | "maintenance";
 
 export interface Device {
   id: string;
   serialNumber: string;
   type: DeviceType;
   typeCode: DeviceTypeCode;
-  modules: string[];
+  description: string;
   price: {
     "3m": { full: number; monthly: number };
     "6m": { full: number; monthly: number };
     "12m": { full: number; monthly: number };
   };
   status: DeviceStatus;
-  currentUserId?: string;
-  contractStartAt?: any;
-  contractEndAt?: any;
-  description?: string;
-  imageUrl?: string;
+  createdAt?: any;
 }
 
 export interface Application {
@@ -34,9 +30,9 @@ export interface Application {
   payType: "monthly" | "full";
   payAmount: number;
   status: "pending" | "approved" | "rejected" | "payment_sent" | "completed";
-  identificationImageUrl: string;
-  agreementPdfUrl?: string;
-  paymentLinkId?: string;
+  zip: string;
+  tel: string;
+  address: string;
   createdAt: any;
   updatedAt: any;
 }
@@ -46,12 +42,8 @@ export interface UserProfile {
   email: string;
   familyName: string;
   givenName: string;
-  familyNameKana?: string;
-  givenNameKana?: string;
-  companyName?: string;
-  zipcode?: string;
-  tel?: string;
   role: "user" | "admin";
+  tel?: string;
   createdAt: any;
   updatedAt: any;
 }

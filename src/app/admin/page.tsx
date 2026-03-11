@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -9,9 +10,10 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle, XCircle, Eye, ShieldAlert } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, Eye, ShieldAlert, User as UserIcon, Phone, MapPin } from 'lucide-react';
 import { Application, UserProfile } from '@/types';
 import Link from 'next/link';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 export default function AdminDashboardPage() {
   const { user, loading: authLoading } = useUser();
@@ -25,8 +27,6 @@ export default function AdminDashboardPage() {
 
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
 
-  // CRITICAL: Guard the query so it only runs if the user is confirmed as an admin.
-  // This prevents Permission Denied errors when the component first renders.
   const applicationsQuery = useMemoFirebase(() => {
     if (!db || profile?.role !== 'admin') return null;
     return query(collection(db, 'applications'), orderBy('createdAt', 'desc'));
@@ -47,7 +47,6 @@ export default function AdminDashboardPage() {
         description: `申請のステータスを ${status} に変更しました。`,
       });
     }).catch((error) => {
-      console.error("Error updating status:", error);
       toast({
         variant: "destructive",
         title: "エラーが発生しました",
@@ -115,17 +114,46 @@ export default function AdminDashboardPage() {
                     <TableRow key={app.id}>
                       <TableCell className="text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '不明'}</TableCell>
                       <TableCell>
-                        <div className="font-medium">{app.userEmail}</div>
-                        <div className="text-xs text-muted-foreground">{app.userId}</div>
+                        <div className="font-medium">{app.userName || '名前なし'}</div>
+                        <div className="text-xs text-muted-foreground">{app.userEmail}</div>
                       </TableCell>
                       <TableCell>{app.deviceType}</TableCell>
                       <TableCell>{app.rentalType}ヶ月 / {app.payType === 'monthly' ? '月払い' : '一括'}</TableCell>
                       <TableCell className="text-right space-x-2">
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button size="sm" variant="ghost" className="rounded-lg">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                              <DialogTitle>申請詳細</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4 py-4">
+                              <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div className="space-y-1">
+                                  <span className="text-muted-foreground block">氏名</span>
+                                  <span className="font-bold flex items-center gap-2"><UserIcon className="h-3 w-3" /> {app.userName}</span>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-muted-foreground block">電話番号</span>
+                                  <span className="font-bold flex items-center gap-2"><Phone className="h-3 w-3" /> {app.tel}</span>
+                                </div>
+                                <div className="col-span-2 space-y-1">
+                                  <span className="text-muted-foreground block">配送先住所</span>
+                                  <span className="font-bold flex items-center gap-2"><MapPin className="h-3 w-3" /> 〒{app.zip} {app.address}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <Button size="sm" variant="outline" className="border-rose-200 text-rose-600" onClick={() => handleUpdateStatus(app.id, 'rejected')}>却下</Button>
+                              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => handleUpdateStatus(app.id, 'approved')}>承認する</Button>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
                         <Button size="sm" variant="outline" className="rounded-lg border-emerald-200 text-emerald-600 hover:bg-emerald-50" onClick={() => handleUpdateStatus(app.id, 'approved')}>
                           <CheckCircle className="h-4 w-4 mr-1" /> 承認
-                        </Button>
-                        <Button size="sm" variant="outline" className="rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50" onClick={() => handleUpdateStatus(app.id, 'rejected')}>
-                          <XCircle className="h-4 w-4 mr-1" /> 却下
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -151,14 +179,14 @@ export default function AdminDashboardPage() {
                     <TableHead>ユーザー</TableHead>
                     <TableHead>対象機器</TableHead>
                     <TableHead>ステータス</TableHead>
-                    <TableHead className="text-right">詳細</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {applications.map((app) => (
                     <TableRow key={app.id}>
                       <TableCell className="text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
-                      <TableCell>{app.userEmail}</TableCell>
+                      <TableCell>{app.userName || app.userEmail}</TableCell>
                       <TableCell>{app.deviceType}</TableCell>
                       <TableCell>
                         <Badge variant={app.status === 'approved' ? 'default' : app.status === 'rejected' ? 'destructive' : 'secondary'}>
@@ -166,8 +194,8 @@ export default function AdminDashboardPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button size="sm" variant="ghost" className="rounded-lg">
-                          <Eye className="h-4 w-4" />
+                        <Button size="sm" variant="ghost" className="rounded-lg" onClick={() => handleUpdateStatus(app.id, 'pending')}>
+                          リセット
                         </Button>
                       </TableCell>
                     </TableRow>
