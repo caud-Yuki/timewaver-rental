@@ -1,8 +1,9 @@
+
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,9 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Trash2, Edit, Mail, ShieldAlert, Code } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit, Mail, ShieldAlert, Code, Sparkles } from 'lucide-react';
 import { EmailTemplate, UserProfile } from '@/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { SYSTEM_TEMPLATES, SystemTemplate } from '@/lib/email-defaults';
 import Link from 'next/link';
 
 export default function EmailTemplateManagementPage() {
@@ -40,34 +42,58 @@ export default function EmailTemplateManagementPage() {
     if (!db) return null;
     return query(collection(db, 'emailTemplates'), orderBy('createdAt', 'desc'));
   }, [db]);
-  const { data: templates, loading: templatesLoading } = useCollection<EmailTemplate>(templatesQuery as any);
+  const { data: dbTemplates, loading: templatesLoading } = useCollection<EmailTemplate>(templatesQuery as any);
+
+  // Merge Firestore templates with defaults
+  const allTemplates = useMemo(() => {
+    const combined = [...dbTemplates];
+    
+    SYSTEM_TEMPLATES.forEach(sys => {
+      const exists = dbTemplates.some(t => t.id === sys.id);
+      if (!exists) {
+        combined.push({
+          ...sys,
+          createdAt: { seconds: 0, nanoseconds: 0 } as any, // Mock timestamp for sorting
+          updatedAt: { seconds: 0, nanoseconds: 0 } as any,
+          isDefault: true
+        } as any);
+      }
+    });
+
+    return combined.sort((a, b) => {
+      // System templates at bottom
+      if (a.id.startsWith('sys_') && !b.id.startsWith('sys_')) return 1;
+      if (!a.id.startsWith('sys_') && b.id.startsWith('sys_')) return -1;
+      return 0;
+    });
+  }, [dbTemplates]);
 
   const handleSaveTemplate = async () => {
     if (!db) return;
+    
+    const templateId = currentTemplate.id || `custom_${Date.now()}`;
     const templateData = {
       ...currentTemplate,
+      id: templateId,
       updatedAt: serverTimestamp(),
+      createdAt: currentTemplate.createdAt || serverTimestamp(),
     };
 
-    if (currentTemplate.id) {
-      updateDoc(doc(db, 'emailTemplates', currentTemplate.id), templateData as any)
-        .then(() => {
-          toast({ title: "テンプレートを更新しました" });
-          setIsEditing(false);
-        });
-    } else {
-      addDoc(collection(db, 'emailTemplates'), {
-        ...templateData,
-        createdAt: serverTimestamp(),
-      })
-        .then(() => {
-          toast({ title: "テンプレートを作成しました" });
-          setIsEditing(false);
-        });
-    }
+    // Remove UI-only helper flag
+    delete (templateData as any).isDefault;
+
+    setDoc(doc(db, 'emailTemplates', templateId), templateData as any)
+      .then(() => {
+        toast({ title: "テンプレートを保存しました", description: templateId.startsWith('sys_') ? "システムデフォルトを上書き保存しました。" : "" });
+        setIsEditing(false);
+      });
   };
 
   const handleDelete = async (id: string) => {
+    if (id.startsWith('sys_')) {
+      toast({ variant: "destructive", title: "削除不可", description: "システムデフォルトテンプレートは削除できません。編集して上書きすることは可能です。" });
+      return;
+    }
     if (!db || !confirm('削除しますか？')) return;
     deleteDoc(doc(db, 'emailTemplates', id))
       .then(() => toast({ title: "削除しました" }));
@@ -81,7 +107,10 @@ export default function EmailTemplateManagementPage() {
   return (
     <div className="container mx-auto px-4 py-12 space-y-8">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold font-headline flex items-center gap-2"><Mail className="h-8 w-8 text-primary" /> メールテンプレート管理</h1>
+        <div>
+          <h1 className="text-3xl font-bold font-headline flex items-center gap-2"><Mail className="h-8 w-8 text-primary" /> メールテンプレート管理</h1>
+          <p className="text-muted-foreground text-sm">システムからの自動送信メールの内容を編集します</p>
+        </div>
         <div className="flex gap-2">
           <Link href="/admin">
             <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
@@ -95,6 +124,9 @@ export default function EmailTemplateManagementPage() {
             <DialogContent className="sm:max-w-[700px]">
               <DialogHeader>
                 <DialogTitle>{currentTemplate.id ? 'テンプレート編集' : '新規テンプレート作成'}</DialogTitle>
+                <DialogDescription>
+                  {currentTemplate.id?.startsWith('sys_') && "※システムデフォルトを編集しています。保存するとカスタム設定が優先されます。"}
+                </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -143,27 +175,46 @@ export default function EmailTemplateManagementPage() {
       <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
         <CardContent className="p-0">
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-secondary/5">
               <TableRow>
-                <TableHead>名前</TableHead>
+                <TableHead className="pl-8">テンプレート名</TableHead>
                 <TableHead>タイプ</TableHead>
                 <TableHead>件名</TableHead>
-                <TableHead className="text-right">操作</TableHead>
+                <TableHead>状態</TableHead>
+                <TableHead className="text-right pr-8">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {templates.map(t => (
-                <TableRow key={t.id}>
-                  <TableCell className="font-medium">{t.name}</TableCell>
+              {allTemplates.map(t => (
+                <TableRow key={t.id} className={t.id.startsWith('sys_') ? "bg-muted/5" : ""}>
+                  <TableCell className="pl-8 font-medium">
+                    <div className="flex items-center gap-2">
+                      {t.id.startsWith('sys_') && <Sparkles className="h-3 w-3 text-primary" />}
+                      {t.name}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-[10px] uppercase">{t.type}</Badge>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground line-clamp-1 max-w-xs">{t.subject}</TableCell>
-                  <TableCell className="text-right space-x-2">
-                    <Button variant="ghost" size="icon" onClick={() => { setCurrentTemplate(t); setIsEditing(true); }}>
+                  <TableCell className="text-xs text-muted-foreground line-clamp-1 max-w-[200px]">{t.subject}</TableCell>
+                  <TableCell>
+                    {(t as any).isDefault ? (
+                      <Badge variant="secondary" className="bg-blue-50 text-blue-600 border-blue-100 text-[10px]">システム標準</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px]">カスタム済み</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right pr-8 space-x-2">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => { setCurrentTemplate(t); setIsEditing(true); }}>
                       <Edit className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(t.id)}>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className={`h-8 w-8 rounded-lg ${t.id.startsWith('sys_') ? 'opacity-20 cursor-not-allowed' : 'text-destructive'}`} 
+                      onClick={() => handleDelete(t.id)}
+                      disabled={t.id.startsWith('sys_')}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </TableCell>

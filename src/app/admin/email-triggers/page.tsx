@@ -1,26 +1,27 @@
+
 'use client';
 
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { collection, query, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, doc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Zap, ShieldAlert, Mail, Settings2 } from 'lucide-react';
+import { Loader2, Zap, ShieldAlert, Mail, Settings2, Sparkles } from 'lucide-react';
 import { EmailTemplate, UserProfile } from '@/types';
+import { SYSTEM_TEMPLATES } from '@/lib/email-defaults';
 import Link from 'next/link';
 
 const TRIGGER_POINTS = [
-  { id: 'application_submitted', name: '申込受付時', desc: 'ユーザーが新規申込を送信した直後' },
-  { id: 'application_approved', name: '審査承認時', desc: '管理者が申請を承認した時' },
-  { id: 'application_rejected', name: '審査却下時', desc: '管理者が申請を拒否した時' },
-  { id: 'payment_link_created', name: '決済リンク発行時', desc: '個別の決済リンクが生成された時' },
-  { id: 'payment_completed', name: '決済完了時', desc: '支払いが正常に完了した時' },
-  { id: 'waitlist_device_available', name: 'キャンセル待ち在庫発生時', desc: '対象機器に空きが出た時' },
-  { id: 'welcome_registration', name: '会員登録完了時', desc: '新規ユーザー登録時' },
+  { id: 'welcome_registration', name: '会員登録完了時', desc: '新規ユーザーが登録した直後', sysId: 'sys_welcome_registration' },
+  { id: 'application_submitted', name: '申込受付時', desc: 'ユーザーが新規申込を送信した直後', sysId: 'sys_application_submitted' },
+  { id: 'application_approved', name: '審査承認時', desc: '管理者が申請を承認した時', sysId: 'sys_application_approved' },
+  { id: 'application_rejected', name: '審査却下時', desc: '管理者が申請を却下した時', sysId: 'sys_application_rejected' },
+  { id: 'payment_completed', name: '決済完了時', desc: '支払いが正常に完了した時', sysId: 'sys_payment_completed' },
+  { id: 'waitlist_device_available', name: 'キャンセル待ち在庫発生時', desc: '対象機器に空きが出た時', sysId: 'sys_waitlist_available' },
 ];
 
 export default function EmailTriggersPage() {
@@ -38,7 +39,7 @@ export default function EmailTriggersPage() {
     if (!db) return null;
     return collection(db, 'emailTemplates');
   }, [db]);
-  const { data: templates } = useCollection<EmailTemplate>(templatesQuery as any);
+  const { data: dbTemplates } = useCollection<EmailTemplate>(templatesQuery as any);
 
   const triggersQuery = useMemoFirebase(() => {
     if (!db) return null;
@@ -46,20 +47,40 @@ export default function EmailTriggersPage() {
   }, [db]);
   const { data: activeTriggers } = useCollection<any>(triggersQuery as any);
 
+  // Combine DB templates with System templates for the select options
+  const availableTemplates = useMemo(() => {
+    const list = [...dbTemplates];
+    SYSTEM_TEMPLATES.forEach(sys => {
+      if (!dbTemplates.some(t => t.id === sys.id)) {
+        list.push({ ...sys, name: `[標準] ${sys.name}` } as any);
+      }
+    });
+    return list;
+  }, [dbTemplates]);
+
   const handleUpdateTrigger = async (pointId: string, field: string, value: any) => {
     if (!db) return;
     
-    // Find existing trigger doc or update
+    const triggerId = pointId; // Use trigger point as document ID
     const existing = activeTriggers.find((t: any) => t.triggerPoint === pointId);
     
+    const triggerData = {
+      triggerPoint: pointId,
+      [field]: value,
+      updatedAt: serverTimestamp(),
+    };
+
     if (existing) {
-      updateDoc(doc(db, 'emailTriggers', existing.id), {
-        [field]: value,
-        updatedAt: serverTimestamp(),
-      }).then(() => toast({ title: "トリガーを更新しました" }));
+      updateDoc(doc(db, 'emailTriggers', existing.id), triggerData)
+        .then(() => toast({ title: "トリガーを更新しました" }));
     } else {
-      // In a real app, we'd use addDoc here if not existing, but for MVP we assume triggers are managed
-      toast({ variant: "destructive", title: "トリガーの初期化が必要です" });
+      setDoc(doc(db, 'emailTriggers', triggerId), {
+        ...triggerData,
+        createdAt: serverTimestamp(),
+        enabled: field === 'enabled' ? value : false,
+        templateId: field === 'templateId' ? value : '',
+      })
+        .then(() => toast({ title: "トリガーを設定しました" }));
     }
   };
 
@@ -93,35 +114,53 @@ export default function EmailTriggersPage() {
                 <TableHead className="pl-8">イベント名称</TableHead>
                 <TableHead>説明</TableHead>
                 <TableHead>使用テンプレート</TableHead>
-                <TableHead className="text-center">有効</TableHead>
+                <TableHead className="text-center pr-8">有効</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {TRIGGER_POINTS.map((point) => {
                 const trigger = activeTriggers.find((t: any) => t.triggerPoint === point.id);
+                const currentTemplateId = trigger?.templateId;
+                const isUsingSystemDefault = currentTemplateId?.startsWith('sys_') && !dbTemplates.some(t => t.id === currentTemplateId);
+
                 return (
                   <TableRow key={point.id}>
-                    <TableCell className="pl-8 font-bold text-sm">{point.name}</TableCell>
+                    <TableCell className="pl-8">
+                      <div className="font-bold text-sm">{point.name}</div>
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{point.desc}</TableCell>
                     <TableCell>
-                      <Select 
-                        value={trigger?.templateId || ''} 
-                        onValueChange={(v) => handleUpdateTrigger(point.id, 'templateId', v)}
-                      >
-                        <SelectTrigger className="w-[200px] rounded-lg h-8 text-xs">
-                          <SelectValue placeholder="未設定" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {templates.map(t => (
-                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="flex flex-col gap-1">
+                        <Select 
+                          value={currentTemplateId || ''} 
+                          onValueChange={(v) => handleUpdateTrigger(point.id, 'templateId', v)}
+                        >
+                          <SelectTrigger className="w-[240px] rounded-lg h-9 text-xs">
+                            <SelectValue placeholder="未設定（送信されません）" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableTemplates.map(t => (
+                              <SelectItem key={t.id} value={t.id}>
+                                <div className="flex items-center gap-2">
+                                  {t.id.startsWith('sys_') && <Sparkles className="h-3 w-3 text-primary" />}
+                                  {t.name}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {isUsingSystemDefault && (
+                          <span className="text-[10px] text-blue-500 flex items-center gap-1">
+                            <Sparkles className="h-2.5 w-2.5" /> システム標準を使用中
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
-                    <TableCell className="text-center">
+                    <TableCell className="text-center pr-8">
                       <Switch 
                         checked={trigger?.enabled || false} 
                         onCheckedChange={(checked) => handleUpdateTrigger(point.id, 'enabled', checked)}
+                        disabled={!currentTemplateId}
                       />
                     </TableCell>
                   </TableRow>
@@ -132,13 +171,14 @@ export default function EmailTriggersPage() {
         </CardContent>
       </Card>
 
-      <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100 flex gap-4 items-start">
-        <Settings2 className="h-6 w-6 text-amber-600 shrink-0" />
-        <div className="text-sm text-amber-900">
-          <p className="font-bold mb-1">ご注意</p>
-          <p className="opacity-80">
-            自動トリガーを有効にするには、必ず「使用テンプレート」を選択してください。<br />
-            テンプレート内の変数は、トリガーイベントごとに自動的に置換されます。
+      <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 flex gap-4 items-start">
+        <Settings2 className="h-6 w-6 text-blue-600 shrink-0" />
+        <div className="text-sm text-blue-900">
+          <p className="font-bold mb-1">メールテンプレートの優先順位について</p>
+          <p className="opacity-80 leading-relaxed">
+            「システム標準」のテンプレートは、あらかじめ最適な内容が設定されています。<br />
+            独自の内容に変更したい場合は、<b>「メールテンプレート管理」</b>から対象の標準テンプレートを編集・保存してください。<br />
+            一度保存されると、あなたのカスタム設定が優先的に読み込まれるようになります。
           </p>
         </div>
       </div>
