@@ -3,6 +3,7 @@
 /**
  * @fileOverview FirstPay Payment API Client-side Implementation
  * Handles card tokenization, encryption (RSA), 3DS polling, and transaction management.
+ * All functions respect the global configuration 'mode' (test/production).
  */
 
 import { doc, getDoc, Firestore } from 'firebase/firestore';
@@ -22,12 +23,18 @@ export interface FirstPayConfig {
   mode: 'test' | 'production';
 }
 
+/**
+ * Internal helper to get API Base URL based on mode
+ */
 const getApiBase = (mode: 'test' | 'production') => {
   return mode === "production"
     ? "https://www.api.firstpay.jp"
     : "https://dev.api.firstpay.jp";
 };
 
+/**
+ * Internal helper to get headers for FirstPay API
+ */
 const getHeaders = (config: FirstPayConfig) => {
   return {
     "Content-Type": "application/json",
@@ -61,6 +68,7 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo): P
 
   // 1. Get encryption key
   const keyRes = await fetch(`${API_BASE}/token/encryption/key`, { method: "GET", headers });
+  if (!keyRes.ok) throw new Error('Failed to fetch encryption key from FirstPay');
   const { keyHash, publicKey } = await keyRes.json();
 
   // 2. Encrypt card data
@@ -79,14 +87,13 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo): P
       encryptionKeyHash: keyHash,
       validateUsableCard: true,
       threedsConfiguration: {
-        // Optional: Can be passed from user profile if needed
         phone: { number: "09000000000", regionCode: "+81" }
       }
     })
   });
 
   const data = await tokenRes.json();
-  if (data.errors) throw new Error(data.errors[0]?.message || 'Token generation failed');
+  if (data.errors && data.errors.length > 0) throw new Error(data.errors[0]?.message || 'Token generation failed');
 
   return {
     cardToken: data.cardToken,
@@ -101,7 +108,8 @@ export async function poll3dsStatus(config: FirstPayConfig, cardToken: string): 
   const API_BASE = getApiBase(config.mode);
   const headers = getHeaders(config);
 
-  while (true) {
+  // Poll for up to 10 minutes (300 attempts x 2s)
+  for (let i = 0; i < 300; i++) {
     const res = await fetch(`${API_BASE}/token/${cardToken}/status/three-ds`, { headers });
     const { status, errors } = await res.json();
     if (status === "AVAILABLE") return true;
@@ -111,10 +119,11 @@ export async function poll3dsStatus(config: FirstPayConfig, cardToken: string): 
     }
     await new Promise(r => setTimeout(r, 2000));
   }
+  return false;
 }
 
 /**
- * 5.4 & 5.5: Register or update customer
+ * 5.4: Register customer
  */
 export async function registerCustomer(config: FirstPayConfig, customerData: {
   customerId: string;
@@ -132,7 +141,9 @@ export async function registerCustomer(config: FirstPayConfig, customerData: {
     headers,
     body: JSON.stringify(customerData)
   });
-  return await res.json();
+  const data = await res.json();
+  if (data.errors) throw new Error(data.errors[0]?.message || 'Customer registration failed');
+  return data;
 }
 
 /**
@@ -155,7 +166,9 @@ export async function createCharge(config: FirstPayConfig, chargeData: {
       payTimes: 1
     })
   });
-  return await res.json();
+  const data = await res.json();
+  if (data.errors) throw new Error(data.errors[0]?.message || 'Charge execution failed');
+  return data;
 }
 
 /**
@@ -184,7 +197,9 @@ export async function createRecurring(config: FirstPayConfig, recurringData: {
       notifyCustomerRecurred: false
     })
   });
-  return await res.json();
+  const data = await res.json();
+  if (data.errors) throw new Error(data.errors[0]?.message || 'Recurring registration failed');
+  return data;
 }
 
 /**

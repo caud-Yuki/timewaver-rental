@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Settings, ShieldAlert, Globe, Mail, Phone } from 'lucide-react';
+import { Loader2, Settings, ShieldAlert, Globe, Key, CreditCard } from 'lucide-react';
 import { GlobalSettings, UserProfile } from '@/types';
 import Link from 'next/link';
 
@@ -33,11 +33,18 @@ export default function AdminSettingsPage() {
 
   const [formData, setFormData] = useState<Partial<GlobalSettings>>({
     mode: 'test',
+    firstpay: {
+      apiKey: '',
+      bearerToken: '',
+    }
   });
 
   useEffect(() => {
     if (settings) {
-      setFormData(settings);
+      setFormData({
+        ...settings,
+        firstpay: settings.firstpay || { apiKey: '', bearerToken: '' }
+      });
     }
   }, [settings]);
 
@@ -72,16 +79,17 @@ export default function AdminSettingsPage() {
       </div>
 
       <form onSubmit={handleSave} className="space-y-8">
+        {/* System Mode */}
         <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" /> システムモード</CardTitle>
-            <CardDescription>API連携（FirstPay等）の動作環境を切り替えます</CardDescription>
+            <CardDescription>FirstPay等の決済APIの動作環境を切り替えます</CardDescription>
           </CardHeader>
           <CardContent className="p-6">
             <div className="flex items-center justify-between p-4 bg-secondary/20 rounded-2xl">
               <div>
                 <p className="font-bold">{formData.mode === 'production' ? '本番モード' : 'テストモード'}</p>
-                <p className="text-xs text-muted-foreground">現在は {formData.mode === 'production' ? '実際の決済が行われます' : 'テスト用APIが使用されます'} </p>
+                <p className="text-xs text-muted-foreground">現在は {formData.mode === 'production' ? '実際の決済が行われます' : '開発用・テスト用のURLが使用されます'} </p>
               </div>
               <Switch 
                 checked={formData.mode === 'production'} 
@@ -91,6 +99,47 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
+        {/* FirstPay Config */}
+        <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
+          <CardHeader className="bg-primary/5">
+            <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" /> FirstPay 決済設定</CardTitle>
+            <CardDescription>決済API（FirstPay）の認証情報を入力します</CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 space-y-4">
+            <div className="space-y-2">
+              <Label>FIRSTPAY-PAYMENT-API-KEY</Label>
+              <div className="relative">
+                <Key className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  placeholder="APIキーを入力" 
+                  className="pl-10 rounded-xl"
+                  value={formData.firstpay?.apiKey || ''} 
+                  onChange={e => setFormData({
+                    ...formData, 
+                    firstpay: { ...formData.firstpay!, apiKey: e.target.value }
+                  })} 
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Authorization Bearer (Token)</Label>
+              <div className="relative">
+                <ShieldAlert className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  placeholder="ベアラートークンを入力" 
+                  className="pl-10 rounded-xl"
+                  value={formData.firstpay?.bearerToken || ''} 
+                  onChange={e => setFormData({
+                    ...formData, 
+                    firstpay: { ...formData.firstpay!, bearerToken: e.target.value }
+                  })} 
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Operator Info */}
         <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" /> 運営者情報</CardTitle>
@@ -99,25 +148,25 @@ export default function AdminSettingsPage() {
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>担当者名</Label>
-                <Input value={formData.managerName || ''} onChange={e => setFormData({...formData, managerName: e.target.value})} />
+                <Input value={formData.managerName || ''} onChange={e => setFormData({...formData, managerName: e.target.value})} className="rounded-xl" />
               </div>
               <div className="space-y-2">
                 <Label>担当者メール</Label>
-                <Input type="email" value={formData.managerEmail || ''} onChange={e => setFormData({...formData, managerEmail: e.target.value})} />
+                <Input type="email" value={formData.managerEmail || ''} onChange={e => setFormData({...formData, managerEmail: e.target.value})} className="rounded-xl" />
               </div>
             </div>
             <div className="space-y-2">
               <Label>会社名</Label>
-              <Input value={formData.companyName || ''} onChange={e => setFormData({...formData, companyName: e.target.value})} />
+              <Input value={formData.companyName || ''} onChange={e => setFormData({...formData, companyName: e.target.value})} className="rounded-xl" />
             </div>
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>代表電話番号</Label>
-                <Input value={formData.tel || ''} onChange={e => setFormData({...formData, tel: e.target.value})} />
+                <Input value={formData.tel || ''} onChange={e => setFormData({...formData, tel: e.target.value})} className="rounded-xl" />
               </div>
               <div className="space-y-2">
                 <Label>問合せ電話番号</Label>
-                <Input value={formData.contactNumber || ''} onChange={e => setFormData({...formData, contactNumber: e.target.value})} />
+                <Input value={formData.contactNumber || ''} onChange={e => setFormData({...formData, contactNumber: e.target.value})} className="rounded-xl" />
               </div>
             </div>
           </CardContent>
