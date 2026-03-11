@@ -12,11 +12,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription as UIDialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package, ChevronRight } from 'lucide-react';
 import { Device, DeviceTypeCode, UserProfile } from '@/types';
 import Link from 'next/link';
+
+// Rename UIDialogDescription to avoid conflict if necessary, though CardDescription is imported from card.
+// We use UIDialogDescription to be explicit.
 
 export default function DeviceManagementPage() {
   const { user, loading: authLoading } = useUser();
@@ -243,7 +246,7 @@ export default function DeviceManagementPage() {
           <form onSubmit={handleSaveDevice}>
             <DialogHeader>
               <DialogTitle className="text-2xl font-headline">{editingDevice ? '機器情報の編集' : '新規機器登録'}</DialogTitle>
-              <DialogDescription>機器の基本情報と料金設定を入力してください</DialogDescription>
+              <UIDialogDescription>機器の基本情報と料金設定を入力してください</UIDialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-4 py-6">
               <div className="space-y-2 col-span-2">
