@@ -8,10 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { useAuth } from '@/firebase';
+import { useAuth, useFirestore } from '@/firebase';
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Activity, Mail, Lock, Loader2 } from 'lucide-react';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -19,6 +22,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const auth = useAuth();
+  const db = useFirestore();
   const { toast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -40,10 +44,39 @@ export default function LoginPage() {
   };
 
   const handleGoogleLogin = async () => {
-    if (!auth) return;
+    if (!auth || !db) return;
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      // Check if user profile already exists
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (!userDoc.exists()) {
+        // Create initial profile for first-time Google users
+        const names = user.displayName?.split(' ') || ['User', ''];
+        const profileData = {
+          familyName: names[1] || '',
+          givenName: names[0] || 'User',
+          email: user.email || '',
+          role: 'user',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+
+        setDoc(userDocRef, profileData)
+          .catch(async (error) => {
+            const permissionError = new FirestorePermissionError({
+              path: `users/${user.uid}`,
+              operation: 'create',
+              requestResourceData: profileData,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+          });
+      }
+
       router.push('/');
     } catch (error) {
       toast({

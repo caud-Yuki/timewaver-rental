@@ -45,7 +45,7 @@ export default function RegisterPage() {
         updatedAt: serverTimestamp(),
       };
 
-      // Non-blocking write with contextual error handling
+      // Ensure user profile document is created
       setDoc(doc(db, 'users', user.uid), profileData)
         .then(() => {
           router.push('/');

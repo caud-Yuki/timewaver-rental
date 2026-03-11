@@ -46,11 +46,11 @@ export interface UserProfile {
   email: string;
   familyName: string;
   givenName: string;
-  familyNameKana: string;
-  givenNameKana: string;
+  familyNameKana?: string;
+  givenNameKana?: string;
   companyName?: string;
   zipcode?: string;
-  tel: string;
+  tel?: string;
   role: "user" | "admin";
   createdAt: any;
   updatedAt: any;
