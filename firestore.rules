@@ -9,8 +9,15 @@ service cloud.firestore {
 
     // Applications: Users can read and write only their own applications.
     match /applications/{applicationId} {
+      // Allow creation if logged in and the userId matches the authenticated user.
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      
+      // Allow list and get operations if logged in and the userId in the data matches the authenticated user.
+      // For queries (list), Firestore ensures the query has the matching filter.
+      allow read: if request.auth != null && (resource == null || resource.data.userId == request.auth.uid);
+      
+      // Allow update and delete if owner.
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
     }
 
     // User Profiles: Owners can read and write their own profiles.
