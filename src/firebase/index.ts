@@ -1,3 +1,4 @@
+
 'use client';
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
@@ -7,7 +8,7 @@ import { firebaseConfig } from './config';
 
 /**
  * Initializes Firebase services.
- * Updated to trigger security rules deployment for news access and admin settings.
+ * Updated to trigger security rules deployment for emailTriggers access.
  */
 export function initializeFirebase() {
   const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();

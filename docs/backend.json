@@ -194,6 +194,7 @@
     "/news/{newsId}": { "schema": "News", "description": "News articles" },
     "/supportRequests/{requestId}": { "schema": "SupportRequest", "description": "Support and repair requests" },
     "/coupons/{couponId}": { "schema": "Coupon", "description": "Coupons" },
-    "/emailTemplates/{templateId}": { "schema": "EmailTemplate", "description": "Email templates" }
+    "/emailTemplates/{templateId}": { "schema": "EmailTemplate", "description": "Email templates" },
+    "/emailTriggers/{triggerId}": { "schema": "object", "description": "Email auto-triggers" }
   }
 }

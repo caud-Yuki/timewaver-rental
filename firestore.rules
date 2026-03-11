@@ -50,6 +50,11 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Email Triggers: Admin only.
+    match /emailTriggers/{triggerId} {
+      allow read, write: if isAdmin();
+    }
+
     // Waitlist: Users can create/read their own. Admins can manage all.
     match /waitlist/{waitlistId} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
