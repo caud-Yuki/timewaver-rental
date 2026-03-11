@@ -1,0 +1,72 @@
+
+{
+  "entities": {
+    "Device": {
+      "title": "Device",
+      "description": "A TimeWaver device available for rental",
+      "type": "object",
+      "properties": {
+        "serialNumber": { "type": "string" },
+        "type": { "type": "string" },
+        "typeCode": { "type": "string", "enum": ["tw-m", "tw-mq", "tw-tt", "tw-frq"] },
+        "status": { "type": "string", "enum": ["available", "active", "maintenance"] },
+        "description": { "type": "string" },
+        "price": {
+          "type": "object",
+          "properties": {
+            "3m": { "type": "object", "properties": { "full": { "type": "number" }, "monthly": { "type": "number" } } },
+            "6m": { "type": "object", "properties": { "full": { "type": "number" }, "monthly": { "type": "number" } } },
+            "12m": { "type": "object", "properties": { "full": { "type": "number" }, "monthly": { "type": "number" } } }
+          }
+        },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["serialNumber", "type", "typeCode", "status"]
+    },
+    "Application": {
+      "title": "Application",
+      "description": "A rental application submitted by a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "rentalType": { "type": "number", "enum": [3, 6, 12] },
+        "payType": { "type": "string", "enum": ["monthly", "full"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "deviceId", "rentalType", "payType", "status"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Extended user information",
+      "type": "object",
+      "properties": {
+        "familyName": { "type": "string" },
+        "givenName": { "type": "string" },
+        "familyNameKana": { "type": "string" },
+        "givenNameKana": { "type": "string" },
+        "tel": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] }
+      },
+      "required": ["familyName", "givenName", "role"]
+    }
+  },
+  "auth": {
+    "providers": ["password", "google"]
+  },
+  "firestore": {
+    "/devices/{deviceId}": {
+      "schema": "Device",
+      "description": "Collection of all rental devices"
+    },
+    "/applications/{applicationId}": {
+      "schema": "Application",
+      "description": "Collection of all rental applications"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile data"
+    }
+  }
+}
