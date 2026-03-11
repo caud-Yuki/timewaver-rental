@@ -1,56 +1,115 @@
 
-import React from 'react';
+'use client';
+
+import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
+import { collection, query, where, orderBy } from 'firebase/firestore';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Loader2, Package, Calendar, Settings, MessageSquare, AlertCircle } from 'lucide-react';
+import { Device } from '@/types';
 import Link from 'next/link';
 
-const DevicesPage = () => {
+export default function MyDevicesPage() {
+  const { user, loading: authLoading } = useUser();
+  const db = useFirestore();
+
+  const devicesQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return query(
+      collection(db, 'devices'), 
+      where('currentUserId', '==', user.uid),
+      where('status', '==', 'active')
+    );
+  }, [db, user]);
+
+  const { data: myDevices, loading: devicesLoading } = useCollection<Device>(devicesQuery as any);
+
+  if (authLoading || devicesLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
+    <div className="container mx-auto px-4 py-12 space-y-8">
+      <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-2xl font-bold">マイページ</h1>
-          <p className="text-gray-500">レンタル中の機器と申請状況を確認できます</p>
+          <h1 className="text-3xl font-bold font-headline">マイページ</h1>
+          <p className="text-muted-foreground">現在レンタル中の機器管理</p>
         </div>
-        <Button>新しい機器をレンタルする</Button>
+        <Link href="/devices">
+          <Button className="rounded-xl">新しい機器をレンタルする</Button>
+        </Link>
       </div>
 
-      <div className="flex border-b mb-6">
-        <Link href="/mypage/devices">
-          <Button variant="ghost" className="mr-4 text-blue-600 border-b-2 border-blue-600">レンタル中の機器</Button>
-        </Link>
+      <div className="flex border-b">
+        <Button variant="ghost" className="rounded-none px-8 text-primary border-b-2 border-primary">レンタル中の機器</Button>
         <Link href="/mypage/applications">
-          <Button variant="ghost" className="text-gray-500">申請履歴</Button>
+          <Button variant="ghost" className="rounded-none px-8 text-muted-foreground">申請履歴</Button>
         </Link>
       </div>
 
-      <div className="text-center py-20 border border-dashed rounded-lg">
-        <div className="text-gray-400 mb-4">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0h6m-3-4h.01M9 12h.01" />
-          </svg>
+      {myDevices.length === 0 ? (
+        <Card className="border-dashed border-2 py-20 text-center space-y-4">
+          <Package className="mx-auto h-16 w-16 text-muted-foreground opacity-20" />
+          <h2 className="text-xl font-bold">レンタル中の機器はありません</h2>
+          <p className="text-muted-foreground max-w-xs mx-auto text-sm">
+            現在、有効なレンタル契約はありません。まずは機器一覧から体験してみたいTimeWaverを探してみましょう。
+          </p>
+          <Link href="/devices" className="block">
+            <Button variant="outline" className="rounded-xl">機器一覧を見る</Button>
+          </Link>
+        </Card>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-8">
+          {myDevices.map((device) => (
+            <Card key={device.id} className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-white group hover:shadow-primary/5 transition-all">
+              <CardHeader className="bg-primary/5 p-8">
+                <div className="flex justify-between items-start mb-4">
+                  <Badge variant="outline" className="text-primary border-primary/20 bg-white uppercase">{device.typeCode}</Badge>
+                  <Badge className="bg-emerald-500">利用中</Badge>
+                </div>
+                <CardTitle className="text-2xl font-headline group-hover:text-primary transition-colors">{device.type}</CardTitle>
+                <CardDescription className="font-mono text-[10px]">{device.serialNumber}</CardDescription>
+              </CardHeader>
+              <CardContent className="p-8 space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+                      <Calendar className="h-3 w-3" /> 利用開始日
+                    </span>
+                    <p className="text-sm font-medium">
+                      {device.contractStartAt?.seconds ? new Date(device.contractStartAt.seconds * 1000).toLocaleDateString() : '-'}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+                      <Settings className="h-3 w-3" /> 保守ステータス
+                    </span>
+                    <p className="text-sm font-medium text-emerald-600">正常稼働中</p>
+                  </div>
+                </div>
+                
+                <div className="bg-secondary/20 p-4 rounded-2xl flex items-start gap-3">
+                  <AlertCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                  <p className="text-xs text-muted-foreground leading-normal">
+                    レンタル期間の延長やプラン変更は、契約満了の30日前から可能になります。
+                  </p>
+                </div>
+              </CardContent>
+              <CardFooter className="bg-secondary/10 p-4 grid grid-cols-2 gap-2">
+                <Link href="/mypage/support/ai">
+                  <Button variant="ghost" className="w-full rounded-xl gap-2 h-11 text-xs">
+                    <MessageSquare className="h-4 w-4" /> AIサポート
+                  </Button>
+                </Link>
+                <Link href="/mypage/support/repair">
+                  <Button variant="outline" className="w-full rounded-xl gap-2 h-11 text-xs">
+                    修理・相談
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
+          ))}
         </div>
-        <h2 className="text-xl font-semibold mb-2">現在レンタル中の機器はありません</h2>
-        <p className="text-gray-500 mb-6">TimeWaverの驚異的なテクノロジーを体験してみませんか？</p>
-        <Button variant="outline">機器一覧を見る</Button>
-      </div>
-
-      <div className="mt-8 p-6 bg-gray-100 rounded-lg">
-        <div className="flex items-center">
-          <div className="bg-blue-500 text-white rounded-full p-2 mr-4">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="font-semibold">ご案内</h3>
-            <p className="text-sm text-gray-600">
-              現在、TimeWaverの最新アップデートが提供されています。レンタル中の機器は自動的に反映されます。操作方法についてご不明点がある場合は、AIコンシェルジュにお気軽にご相談ください。
-            </p>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
-};
-
-export default DevicesPage;
+}

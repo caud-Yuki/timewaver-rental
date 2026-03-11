@@ -1,12 +1,230 @@
-import React from 'react';
 
-const ApplyNewPage = () => {
+'use client';
+
+import { useState, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
+import { doc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import { useToast } from '@/hooks/use-toast';
+import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle } from 'lucide-react';
+import { Device, UserProfile } from '@/types';
+import Link from 'next/link';
+
+function ApplyForm() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { user } = useUser();
+  const db = useFirestore();
+  const { toast } = useToast();
+  
+  const deviceId = searchParams.get('deviceId');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const deviceRef = useMemoFirebase(() => {
+    if (!db || !deviceId) return null;
+    return doc(db, 'devices', deviceId);
+  }, [db, deviceId]);
+  const { data: device, loading: deviceLoading } = useDoc<Device>(deviceRef as any);
+
+  const profileRef = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return doc(db, 'users', user.uid);
+  }, [db, user]);
+  const { data: profile } = useDoc<UserProfile>(profileRef as any);
+
+  const [formData, setFormData] = useState({
+    rentalType: 12, // Default to 12 months
+    payType: 'monthly' as 'monthly' | 'full',
+    tel: '',
+    zip: '',
+    address: '',
+  });
+
+  const calculateAmount = () => {
+    if (!device) return 0;
+    const tier = `${formData.rentalType}m` as keyof Device['price'];
+    return formData.payType === 'monthly' ? device.price[tier].monthly : device.price[tier].full;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !device || !db) return;
+    setIsSubmitting(true);
+
+    const applicationData = {
+      userId: user.uid,
+      userName: `${profile?.familyName} ${profile?.givenName}`,
+      userEmail: user.email,
+      deviceId: device.id,
+      deviceSerialNumber: device.serialNumber,
+      deviceType: device.type,
+      rentalType: formData.rentalType,
+      payType: formData.payType,
+      payAmount: calculateAmount(),
+      status: 'pending',
+      tel: formData.tel || profile?.tel || '',
+      zip: formData.zip || profile?.zipcode || '',
+      address: formData.address || profile?.address1 || '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    addDoc(collection(db, 'applications'), applicationData)
+      .then(() => {
+        toast({ title: "申請を送信しました", description: "管理者による審査をお待ちください（1〜3営業日）" });
+        router.push('/mypage/applications');
+      })
+      .finally(() => setIsSubmitting(false));
+  };
+
+  if (deviceLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+  if (!deviceId || !device) return <div className="text-center py-20"><AlertCircle className="mx-auto h-12 w-12 text-destructive mb-4" /><p>対象の機器が見つかりませんでした。</p></div>;
+
   return (
-    <div>
-      <h1>New Application</h1>
-      {/* TODO: Implement new application form UI */}
+    <div className="container mx-auto px-4 py-12 max-w-4xl">
+      <div className="mb-12 text-center space-y-4">
+        <h1 className="text-4xl font-bold font-headline">レンタル利用申請</h1>
+        <p className="text-muted-foreground">選択された機器の審査・配送手続きを開始します</p>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          <Card className="border-none shadow-xl rounded-[2.5rem] overflow-hidden bg-white">
+            <CardHeader className="bg-primary/5 pb-8 pt-10">
+              <CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-6 w-6 text-primary" /> 申請情報の入力</CardTitle>
+              <CardDescription>契約期間と支払い方法を選択してください</CardDescription>
+            </CardHeader>
+            <CardContent className="p-8">
+              <form onSubmit={handleSubmit} className="space-y-8">
+                <div className="space-y-4">
+                  <Label className="text-base font-bold">レンタル期間</Label>
+                  <RadioGroup 
+                    defaultValue="12" 
+                    onValueChange={(v) => setFormData({...formData, rentalType: parseInt(v)})}
+                    className="grid grid-cols-3 gap-4"
+                  >
+                    {[3, 6, 12].map((m) => (
+                      <div key={m}>
+                        <RadioGroupItem value={m.toString()} id={`r${m}`} className="peer sr-only" />
+                        <Label
+                          htmlFor={`r${m}`}
+                          className="flex flex-col items-center justify-between rounded-2xl border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer"
+                        >
+                          <span className="text-sm font-bold">{m}ヶ月</span>
+                          <span className="text-xs text-muted-foreground">¥{device.price[`${m}m` as keyof Device['price']].monthly.toLocaleString()}/月</span>
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+
+                <div className="space-y-4">
+                  <Label className="text-base font-bold">お支払い方法</Label>
+                  <Select 
+                    value={formData.payType} 
+                    onValueChange={(v: any) => setFormData({...formData, payType: v})}
+                  >
+                    <SelectTrigger className="h-12 rounded-xl">
+                      <SelectValue placeholder="支払い方法を選択" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">月々払い（クレジットカード）</SelectItem>
+                      <SelectItem value="full">期間分一括払い</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-4">
+                  <Label className="text-base font-bold">配送・ご連絡先情報</Label>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="zip">郵便番号</Label>
+                      <Input id="zip" placeholder="123-4567" className="rounded-xl" value={formData.zip} onChange={e => setFormData({...formData, zip: e.target.value})} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="tel">電話番号</Label>
+                      <Input id="tel" placeholder="090-0000-0000" className="rounded-xl" value={formData.tel} onChange={e => setFormData({...formData, tel: e.target.value})} required />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="address">配送先住所</Label>
+                    <Input id="address" placeholder="東京都渋谷区..." className="rounded-xl" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} required />
+                  </div>
+                </div>
+
+                <Button type="submit" size="lg" className="w-full h-14 rounded-2xl text-lg font-bold shadow-xl" disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="animate-spin" /> : '利用規約に同意して申請する'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-6">
+          <Card className="border-none shadow-lg rounded-[2.5rem] bg-secondary/20 sticky top-24">
+            <CardHeader>
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">お申し込み内容</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex gap-4 items-center">
+                <div className="h-16 w-16 bg-white rounded-2xl flex items-center justify-center shadow-sm">
+                  <Package className="h-8 w-8 text-primary" />
+                </div>
+                <div>
+                  <h4 className="font-bold">{device.type}</h4>
+                  <p className="text-[10px] text-muted-foreground font-mono">{device.serialNumber}</p>
+                </div>
+              </div>
+              
+              <Separator className="bg-white/50" />
+              
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">プラン</span>
+                  <span className="font-bold">{formData.rentalType}ヶ月 / {formData.payType === 'monthly' ? '月次' : '一括'}</span>
+                </div>
+                <div className="flex justify-between items-end mt-4">
+                  <span className="text-sm font-bold">お支払い合計金額</span>
+                  <div className="text-right">
+                    <span className="text-2xl font-bold text-primary">¥{calculateAmount().toLocaleString()}</span>
+                    <span className="text-xs text-muted-foreground block">
+                      {formData.payType === 'monthly' ? '(初回分)' : '(全額分)'} (税込)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white/50 p-4 rounded-2xl space-y-2 text-[10px] text-muted-foreground">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck className="h-3 w-3 text-emerald-500 shrink-0" />
+                  <span>審査承認後に決済リンクをお送りします。</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-3 w-3 text-amber-500 shrink-0" />
+                  <span>配送は決済完了後、通常7営業日以内に行われます。</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
-};
+}
 
-export default ApplyNewPage;
+export default function ApplyNewPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>}>
+      <ApplyForm />
+    </Suspense>
+  );
+}

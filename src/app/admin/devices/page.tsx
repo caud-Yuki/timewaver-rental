@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -45,7 +46,6 @@ export default function DeviceManagementPage() {
   }, [db, user]);
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
 
-  // Gated query to prevent permission errors before role is confirmed
   const devicesQuery = useMemoFirebase(() => {
     if (!db || !profile || profile.role !== 'admin') return null;
     return collection(db, 'devices');
@@ -101,8 +101,8 @@ export default function DeviceManagementPage() {
       updatedAt: serverTimestamp(),
     };
 
-    if (editingDevice) {
-      updateDoc(doc(db, 'devices', editingDevice.id!), deviceData)
+    if (editingDevice?.id) {
+      updateDoc(doc(db, 'devices', editingDevice.id), deviceData as any)
         .then(() => {
           toast({ title: "機器情報を更新しました" });
           setIsDialogOpen(false);
