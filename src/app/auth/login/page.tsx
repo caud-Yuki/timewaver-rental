@@ -12,7 +12,7 @@ import { useAuth, useFirestore } from '@/firebase';
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
-import { Activity, Mail, Lock, Loader2 } from 'lucide-react';
+import { Activity, Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -54,6 +54,7 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       const provider = new GoogleAuthProvider();
+      // Force account selection to avoid auto-login issues during testing
       provider.setCustomParameters({
         prompt: 'select_account'
       });
@@ -61,6 +62,7 @@ export default function LoginPage() {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
+      // Check if profile exists, create if not
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
 
@@ -96,7 +98,7 @@ export default function LoginPage() {
         errorMessage = 'ログインがキャンセルされました。';
       } else if (error.code === 'auth/unauthorized-domain') {
         const domain = typeof window !== 'undefined' ? window.location.hostname : '現在のドメイン';
-        errorMessage = `このドメイン（${domain}）は承認されていません。FirebaseコンソールのAuthentication設定で「承認済みドメイン」に追加してください。`;
+        errorMessage = `このドメイン（${domain}）は承認されていません。FirebaseコンソールのAuthentication設定で「承認済みドメイン」にこのドメインを追加してください。`;
       } else if (error.code === 'auth/operation-not-allowed') {
         errorMessage = 'Googleログインが有効になっていません。FirebaseコンソールでGoogleプロバイダーを有効にしてください。';
       }
@@ -163,6 +165,7 @@ export default function LoginPage() {
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'ログイン'}
             </Button>
           </form>
+
           <div className="relative my-8">
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t" />
@@ -171,6 +174,7 @@ export default function LoginPage() {
               <span className="bg-white px-2 text-muted-foreground">または</span>
             </div>
           </div>
+
           <Button variant="outline" className="w-full h-12 rounded-xl border-secondary" onClick={handleGoogleLogin} disabled={isLoading}>
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin mr-2" />
@@ -196,6 +200,16 @@ export default function LoginPage() {
             )}
             Googleでログイン
           </Button>
+
+          {typeof window !== 'undefined' && (
+            <div className="mt-6 p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3 items-start">
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-[10px] text-amber-800 leading-normal">
+                Googleログインに失敗する場合は、Firebaseコンソールの「承認済みドメイン」に以下を追加してください：<br/>
+                <code className="font-bold bg-amber-100 px-1 rounded">{window.location.hostname}</code>
+              </div>
+            </div>
+          )}
         </CardContent>
         <CardFooter className="bg-secondary/20 p-6 flex justify-center">
           <p className="text-sm text-muted-foreground">
