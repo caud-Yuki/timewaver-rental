@@ -54,7 +54,6 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      // Force account selection to improve reliability in some environments
       provider.setCustomParameters({
         prompt: 'select_account'
       });
@@ -62,7 +61,6 @@ export default function LoginPage() {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
-      // Check if user profile already exists
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
 
@@ -92,13 +90,13 @@ export default function LoginPage() {
       
       let errorMessage = 'Googleアカウントでのログインに失敗しました。';
       
-      // Handle specific Firebase Auth error codes
       if (error.code === 'auth/popup-blocked') {
         errorMessage = 'ポップアップがブロックされました。ブラウザの設定でポップアップを許可してください。';
       } else if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
         errorMessage = 'ログインがキャンセルされました。';
       } else if (error.code === 'auth/unauthorized-domain') {
-        errorMessage = 'このドメインは承認されていません。FirebaseコンソールのAuthentication設定でドメイン（現在のURL）を承認してください。';
+        const domain = typeof window !== 'undefined' ? window.location.hostname : '現在のドメイン';
+        errorMessage = `このドメイン（${domain}）は承認されていません。FirebaseコンソールのAuthentication設定で「承認済みドメイン」に追加してください。`;
       } else if (error.code === 'auth/operation-not-allowed') {
         errorMessage = 'Googleログインが有効になっていません。FirebaseコンソールでGoogleプロバイダーを有効にしてください。';
       }
