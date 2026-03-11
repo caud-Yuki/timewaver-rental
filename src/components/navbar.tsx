@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Activity, User, LogOut, Menu, ShieldCheck } from 'lucide-react';
+import { Activity, User, LogOut, Menu, ShieldCheck, LayoutDashboard, Package } from 'lucide-react';
 import { useUser, useAuth, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { signOut } from 'firebase/auth';
 import { doc } from 'firebase/firestore';
@@ -83,15 +83,15 @@ export function Navbar() {
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem asChild>
-                  <Link href="/mypage/devices">
-                    <User className="mr-2 h-4 w-4" />
+                  <Link href="/mypage">
+                    <LayoutDashboard className="mr-2 h-4 w-4" />
                     <span>マイページ</span>
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/mypage/support/ai">
-                    <Activity className="mr-2 h-4 w-4" />
-                    <span>AIサポート</span>
+                  <Link href="/mypage/devices">
+                    <Package className="mr-2 h-4 w-4" />
+                    <span>マイデバイス</span>
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
