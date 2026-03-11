@@ -7,7 +7,7 @@ import { firebaseConfig } from './config';
 
 /**
  * Initializes Firebase services.
- * Small modification to trigger security rules watcher and apply new public access rules.
+ * Updated to trigger security rules deployment for news access and admin settings.
  */
 export function initializeFirebase() {
   const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();

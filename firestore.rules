@@ -7,8 +7,19 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    // User Profiles: Owners can read and write their own profiles.
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     // Devices: Public read access for the catalog. Admins can write.
     match /devices/{deviceId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // News: Public read access for published news. Admins can write.
+    match /news/{newsId} {
       allow read: if true;
       allow write: if isAdmin();
     }
@@ -29,9 +40,19 @@ service cloud.firestore {
       );
     }
 
-    // User Profiles: Owners can read and write their own profiles.
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    // Support Requests: Users can read/create their own. Admins can manage all.
+    match /supportRequests/{requestId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null && (
+        isAdmin() || 
+        (resource != null && resource.data.userId == request.auth.uid)
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // Global Settings: Admin only access.
+    match /settings/global {
+      allow read, write: if isAdmin();
     }
   }
 }
