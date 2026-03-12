@@ -74,9 +74,10 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Global Settings: Admin only access.
+    // Global Settings: Admins can write. Authenticated users can read (needed for payment config).
     match /settings/global {
-      allow read, write: if isAdmin();
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
     }
   }
 }
