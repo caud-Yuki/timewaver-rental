@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -21,9 +22,10 @@ import {
   Mail,
   Clock,
   ChevronRight,
-  Zap
+  Zap,
+  AlertTriangle
 } from 'lucide-react';
-import { Application, UserProfile } from '@/types';
+import { Application, UserProfile, GlobalSettings } from '@/types';
 import Link from 'next/link';
 
 export default function AdminDashboardPage() {
@@ -44,6 +46,14 @@ export default function AdminDashboardPage() {
   }, [db, profile?.role]);
 
   const { data: recentApplications, loading: appsLoading } = useCollection<Application>(applicationsQuery as any);
+
+  const settingsRef = useMemoFirebase(() => {
+    if (!db || profile?.role !== 'admin') return null;
+    return doc(db, 'settings', 'global');
+  }, [db, profile?.role]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
+
+  const isConfigured = !!(settings?.firstpay?.apiKey && settings?.firstpay?.bearerToken);
 
   const adminModules = [
     { title: '機器管理', desc: '在庫とステータス', icon: Package, href: '/admin/devices', color: 'text-blue-500', bg: 'bg-blue-50' },
@@ -84,6 +94,25 @@ export default function AdminDashboardPage() {
           <p className="text-muted-foreground">全てのレンタル申請と機器の管理を行っています</p>
         </div>
       </div>
+
+      {!isConfigured && (
+        <Card className="border-none shadow-xl bg-amber-50 border-amber-200">
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-amber-900">決済設定が未完了です</h3>
+                <p className="text-sm text-amber-700">FirstPayのAPIキーが設定されていないため、ユーザーが決済を行うことができません。</p>
+              </div>
+            </div>
+            <Link href="/admin/settings">
+              <Button className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl">設定へ移動</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Admin Modules Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">

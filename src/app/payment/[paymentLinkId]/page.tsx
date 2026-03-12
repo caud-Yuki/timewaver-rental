@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ export default function PaymentPage() {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
   const [cardInfo, setCardInfo] = useState({
     cardNo: '',
     expireMonth: '',
@@ -57,6 +59,18 @@ export default function PaymentPage() {
   }, [db, user]);
   const { data: profile } = useDoc<UserProfile>(profileRef as any);
 
+  // Check configuration on load
+  useEffect(() => {
+    const checkConfig = async () => {
+      if (!db) return;
+      const config = await getFirstPayConfig(db);
+      if (!config || !config.apiKey) {
+        setConfigError('決済システムの初期設定が完了していません。管理者にお問い合わせください。');
+      }
+    };
+    checkConfig();
+  }, [db]);
+
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !paymentLink || !profile || !user || !application) {
@@ -70,7 +84,7 @@ export default function PaymentPage() {
     try {
       // 1. Get FirstPay Config
       const config = await getFirstPayConfig(db);
-      if (!config) throw new Error('Payment system configuration not found. Please contact support.');
+      if (!config) throw new Error('決済設定が見つかりません。');
 
       // 2. Tokenize Card (includes RSA encryption internally)
       console.log('[PAYMENT_DEBUG] Stage 1: Card Tokenization');
@@ -190,6 +204,19 @@ export default function PaymentPage() {
   };
 
   if (linkLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-12 w-12 text-primary" /></div>;
+
+  if (configError) {
+    return (
+      <div className="container mx-auto px-4 py-20 flex justify-center">
+        <Card className="w-full max-w-md p-8 text-center space-y-4">
+          <AlertTriangle className="h-12 w-12 text-destructive mx-auto" />
+          <h1 className="text-2xl font-bold">決済不可</h1>
+          <p className="text-muted-foreground">{configError}</p>
+          <Button className="w-full" variant="outline" onClick={() => router.push('/mypage')}>マイページに戻る</Button>
+        </Card>
+      </div>
+    );
+  }
 
   if (!paymentLink || paymentLink.status !== 'pending') {
     return (
