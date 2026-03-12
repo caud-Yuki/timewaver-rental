@@ -59,8 +59,12 @@ export default function PaymentPage() {
 
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !paymentLink || !profile || !user || !application) return;
+    if (!db || !paymentLink || !profile || !user || !application) {
+      console.warn('[PAYMENT_DEBUG] Data missing for payment:', { db:!!db, link:!!paymentLink, profile:!!profile, user:!!user, app:!!application });
+      return;
+    }
 
+    console.log('[PAYMENT_DEBUG] --- Payment Process Started ---');
     setIsProcessing(true);
 
     try {
@@ -69,18 +73,22 @@ export default function PaymentPage() {
       if (!config) throw new Error('Payment system configuration not found. Please contact support.');
 
       // 2. Tokenize Card (includes RSA encryption internally)
+      console.log('[PAYMENT_DEBUG] Stage 1: Card Tokenization');
       const { cardToken, issuerUrl } = await createCardToken(config, cardInfo, profile.tel);
       
       // 3. Handle 3DS if required
       if (issuerUrl) {
+        console.log('[PAYMENT_DEBUG] Stage 2: 3DS Authentication Required');
         toast({ title: "本人認証が必要です", description: "別ウィンドウで開かれたカード会社の認証を完了してください。" });
         const authWindow = window.open(issuerUrl, '_blank', 'width=600,height=600');
         const isAuthOk = await poll3dsStatus(config, cardToken);
         if (!isAuthOk) throw new Error('3DS認証に失敗したか、キャンセルされました。');
         if (authWindow) authWindow.close();
+        console.log('[PAYMENT_DEBUG] Stage 2: 3DS Auth Passed');
       }
 
       // 4. Register/Update FirstPay Customer
+      console.log('[PAYMENT_DEBUG] Stage 3: Customer Registration');
       const customerId = profile.customerId || `CUST-${user.uid.substring(0, 8)}-${Date.now().toString(36)}`;
       await registerCustomer(config, {
         customerId,
@@ -96,6 +104,7 @@ export default function PaymentPage() {
 
       // 5. Execute Charge (Full) or Recurring (Monthly)
       if (paymentLink.payType === 'full') {
+        console.log('[PAYMENT_DEBUG] Stage 4: One-time Charge (Full Pay)');
         const paymentId = `PAY-${Date.now()}`;
         const chargeResult = await createCharge(config, {
           customerId,
@@ -105,6 +114,7 @@ export default function PaymentPage() {
         });
         transactionId = chargeResult.paymentId;
       } else {
+        console.log('[PAYMENT_DEBUG] Stage 4: Recurring Registration (Monthly Pay)');
         const recId = `REC-${Date.now().toString(36)}`;
         const recResult = await createRecurring(config, {
           reccuringId: recId,
@@ -119,6 +129,7 @@ export default function PaymentPage() {
       }
 
       // 6. Create Subscription Record
+      console.log('[PAYMENT_DEBUG] Stage 5: Recording Subscription in Firestore');
       const subscriptionData = {
         userId: user.uid,
         deviceId: paymentLink.deviceId,
@@ -137,6 +148,7 @@ export default function PaymentPage() {
       await addDoc(collection(db, 'subscriptions'), subscriptionData);
 
       // 7. Update User Profile with customer info
+      console.log('[PAYMENT_DEBUG] Stage 6: Updating User Profile');
       await updateDoc(doc(db, 'users', user.uid), {
         customerId,
         cardToken,
@@ -144,6 +156,7 @@ export default function PaymentPage() {
       });
 
       // 8. Update Firestore Statuses
+      console.log('[PAYMENT_DEBUG] Stage 7: Final Status Updates');
       await updateDoc(doc(db, 'paymentLinks', paymentLink.id), {
         status: 'used',
         updatedAt: serverTimestamp(),
@@ -161,9 +174,11 @@ export default function PaymentPage() {
         updatedAt: serverTimestamp(),
       });
 
+      console.log('[PAYMENT_DEBUG] --- Payment Process Completed Successfully ---');
       setIsCompleted(true);
       toast({ title: "決済が完了しました", description: "ご契約ありがとうございました！" });
     } catch (error: any) {
+      console.error('[PAYMENT_DEBUG] !!! Critical Error in Payment Flow !!!', error);
       toast({
         variant: "destructive",
         title: "決済エラー",
