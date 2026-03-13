@@ -1,9 +1,11 @@
+
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
+import { useUser, useFirestore, useDoc, useMemoFirebase, useStorage } from '@/firebase';
 import { doc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,11 +23,14 @@ function ApplyForm() {
   const router = useRouter();
   const { user } = useUser();
   const db = useFirestore();
+  const storage = useStorage();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const deviceId = searchParams.get('deviceId');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [idFileUploaded, setIdFileUploaded] = useState(false);
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string>('');
 
   const deviceRef = useMemoFirebase(() => {
     if (!db || !deviceId) return null;
@@ -53,14 +58,34 @@ function ApplyForm() {
     return formData.payType === 'monthly' ? device.price[tier].monthly : device.price[tier].full;
   };
 
-  const handleSimulateUpload = () => {
-    // Simulate a secure upload to Firebase Storage
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user || !storage) return;
+
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      // Create a unique path for the identity document
+      const fileExt = file.name.split('.').pop();
+      const fileName = `id_${Date.now()}.${fileExt}`;
+      const storageRef = ref(storage, `identifications/${user.uid}/${fileName}`);
+      
+      // Actual upload to Firebase Storage
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(snapshot.ref);
+      
+      setUploadedFileUrl(downloadUrl);
       setIdFileUploaded(true);
-      setIsSubmitting(false);
       toast({ title: "書類をアップロードしました" });
-    }, 1500);
+    } catch (error: any) {
+      console.error("Storage Error:", error);
+      toast({ 
+        variant: "destructive", 
+        title: "アップロード失敗", 
+        description: "ファイルのアップロードに失敗しました。通信環境を確認してください。" 
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -87,7 +112,7 @@ function ApplyForm() {
       tel: formData.tel || profile?.tel || '',
       zip: formData.zip || profile?.zipcode || '',
       address: formData.address || profile?.address1 || '',
-      identificationImageUrl: 'https://picsum.photos/seed/id-card/800/500', // Mock URL
+      identificationImageUrl: uploadedFileUrl,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -162,12 +187,21 @@ function ApplyForm() {
                 <div className="space-y-4">
                   <Label className="text-base font-bold">本人確認書類の提出</Label>
                   <p className="text-xs text-muted-foreground">運転免許証、パスポート、マイナンバーカードのいずれかをアップロードしてください。</p>
+                  
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    ref={fileInputRef} 
+                    accept="image/*,application/pdf"
+                    onChange={handleFileUpload}
+                  />
+
                   <div className="border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-4 bg-slate-50 transition-colors hover:bg-slate-100">
                     {idFileUploaded ? (
                       <div className="flex flex-col items-center gap-2 text-emerald-600">
                         <FileCheck className="h-12 w-12" />
                         <p className="text-sm font-bold">書類を受領しました</p>
-                        <Button type="button" variant="ghost" size="sm" onClick={() => setIdFileUploaded(false)}>変更する</Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => { setIdFileUploaded(false); fileInputRef.current?.click(); }}>変更する</Button>
                       </div>
                     ) : (
                       <>
@@ -175,7 +209,13 @@ function ApplyForm() {
                           <Camera className="h-6 w-6" />
                         </div>
                         <div className="text-center">
-                          <Button type="button" variant="outline" className="rounded-xl mb-2" onClick={handleSimulateUpload} disabled={isSubmitting}>
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            className="rounded-xl mb-2" 
+                            onClick={() => fileInputRef.current?.click()} 
+                            disabled={isSubmitting}
+                          >
                             {isSubmitting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : "ファイルを選択してアップロード"}
                           </Button>
                           <p className="text-[10px] text-muted-foreground">JPG, PNG, PDF (最大 10MB)</p>

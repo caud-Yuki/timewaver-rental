@@ -4,19 +4,20 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { getStorage } from 'firebase/storage';
 import { firebaseConfig } from './config';
 
 /**
  * Initializes Firebase services.
- * Updated to ensure all Firestore collections (including settings and subscriptions) 
- * are correctly indexed and accessible via the client SDK.
+ * Updated to include Firebase Storage for document and image handling.
  */
 export function initializeFirebase() {
   const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
   const firestore = getFirestore(app);
   const auth = getAuth(app);
+  const storage = getStorage(app);
 
-  return { app, firestore, auth };
+  return { app, firestore, auth, storage };
 }
 
 export * from './provider';
