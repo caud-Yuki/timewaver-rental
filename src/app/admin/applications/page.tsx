@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -36,14 +35,18 @@ import {
   Phone, 
   ExternalLink,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  UserCheck
 } from 'lucide-react';
 import { Application, UserProfile } from '@/types';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 function ApplicationDetailModal({ application }: { application: Application }) {
   const db = useFirestore();
+  const [activeDoc, setActiveDoc] = useState<'agreement' | 'id'>('id'); // Default to ID for verification
+
   const userProfileRef = useMemoFirebase(() => {
     if (!db || !application.userId) return null;
     return doc(db, 'users', application.userId);
@@ -56,8 +59,10 @@ function ApplicationDetailModal({ application }: { application: Application }) {
     window.location.href = `mailto:${application.userEmail}?subject=${subject}`;
   };
 
+  const currentDocUrl = activeDoc === 'agreement' ? application.agreementPdfUrl : application.identificationImageUrl;
+
   return (
-    <DialogContent className="max-w-5xl h-[90vh] flex flex-col p-0 overflow-hidden rounded-[2.5rem]">
+    <DialogContent className="max-w-6xl h-[90vh] flex flex-col p-0 overflow-hidden rounded-[2.5rem]">
       <DialogHeader className="p-8 bg-primary/5 border-b shrink-0">
         <div className="flex justify-between items-center">
           <div className="space-y-1">
@@ -75,15 +80,28 @@ function ApplicationDetailModal({ application }: { application: Application }) {
       </DialogHeader>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Document Viewer */}
-        <div className="w-1/2 bg-slate-100 p-6 flex flex-col gap-4 border-r overflow-y-auto">
-          <h3 className="font-bold text-sm flex items-center gap-2">
-            <FileText className="h-4 w-4 text-primary" /> 同意書 / 本人確認書類
-          </h3>
-          {application.agreementPdfUrl || application.identificationImageUrl ? (
+        {/* Left: Document Viewer with Switcher */}
+        <div className="w-3/5 bg-slate-100 p-6 flex flex-col gap-4 border-r overflow-y-auto">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-sm flex items-center gap-2">
+              <FileText className="h-4 w-4 text-primary" /> 提出書類プレビュー
+            </h3>
+            <Tabs value={activeDoc} onValueChange={(v: any) => setActiveDoc(v)} className="w-fit">
+              <TabsList className="bg-white/50 rounded-lg h-9 border">
+                <TabsTrigger value="id" className="text-[10px] px-3 h-7 rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                  <UserCheck className="h-3 w-3 mr-1" /> 本人確認書類
+                </TabsTrigger>
+                <TabsTrigger value="agreement" className="text-[10px] px-3 h-7 rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                  <FileText className="h-3 w-3 mr-1" /> 同意書
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
+          {currentDocUrl ? (
             <div className="flex-1 min-h-[400px] bg-white rounded-2xl shadow-inner border overflow-hidden relative">
               <iframe 
-                src={application.agreementPdfUrl || application.identificationImageUrl} 
+                src={currentDocUrl} 
                 className="w-full h-full border-none"
                 title="Document Preview"
               />
@@ -91,25 +109,21 @@ function ApplicationDetailModal({ application }: { application: Application }) {
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed">
               <AlertTriangle className="h-12 w-12 text-slate-300 mb-2" />
-              <p className="text-xs text-slate-400">書類がアップロードされていません</p>
+              <p className="text-xs text-slate-400">
+                {activeDoc === 'id' ? "本人確認書類がアップロードされていません" : "同意書がまだアップロードされていません"}
+              </p>
             </div>
           )}
+          
           <div className="flex gap-2">
-            {application.agreementPdfUrl && (
-              <Button variant="secondary" className="flex-1 rounded-xl text-xs h-9" asChild>
-                <a href={application.agreementPdfUrl} target="_blank" rel="noopener noreferrer">同意書を全画面で開く</a>
-              </Button>
-            )}
-            {application.identificationImageUrl && (
-              <Button variant="outline" className="flex-1 rounded-xl text-xs h-9" asChild>
-                <a href={application.identificationImageUrl} target="_blank" rel="noopener noreferrer">身分証を全画面で開く</a>
-              </Button>
-            )}
+            <Button variant="secondary" className="flex-1 rounded-xl text-xs h-9" disabled={!currentDocUrl} asChild>
+              <a href={currentDocUrl} target="_blank" rel="noopener noreferrer">全画面で開く</a>
+            </Button>
           </div>
         </div>
 
         {/* Right: Applicant Info */}
-        <div className="w-1/2 p-8 overflow-y-auto space-y-8">
+        <div className="w-2/5 p-8 overflow-y-auto space-y-8">
           <section className="space-y-4">
             <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
               <UserIcon className="h-3 w-3" /> 申請者プロフィール
@@ -120,7 +134,8 @@ function ApplicationDetailModal({ application }: { application: Application }) {
               <div className="grid grid-cols-2 gap-y-4 gap-x-6">
                 <div className="space-y-1">
                   <p className="text-[10px] text-muted-foreground">お名前（ふりがな）</p>
-                  <p className="text-sm font-medium">{profile.familyName} {profile.givenName} ({profile.familyNameKana} {profile.givenNameKana})</p>
+                  <p className="text-sm font-medium">{profile.familyName} {profile.givenName}</p>
+                  <p className="text-[10px] text-muted-foreground">({profile.familyNameKana} {profile.givenNameKana})</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-[10px] text-muted-foreground">電話番号</p>
@@ -128,7 +143,8 @@ function ApplicationDetailModal({ application }: { application: Application }) {
                 </div>
                 <div className="space-y-1 col-span-2">
                   <p className="text-[10px] text-muted-foreground">住所</p>
-                  <p className="text-sm font-medium">〒{profile.zipcode} {profile.address1} {profile.address2}</p>
+                  <p className="text-sm font-medium">〒{profile.zipcode}</p>
+                  <p className="text-xs">{profile.address1} {profile.address2}</p>
                 </div>
                 {profile.companyName && (
                   <div className="space-y-1 col-span-2">
@@ -247,7 +263,7 @@ export default function AdminApplicationsPage() {
                 <TableHead className="pl-8 py-5">申請者名 / メール</TableHead>
                 <TableHead>申請日</TableHead>
                 <TableHead>対象機器 / シリアル</TableHead>
-                <TableHead>同意書</TableHead>
+                <TableHead>身分証/同意書</TableHead>
                 <TableHead>ステータス</TableHead>
                 <TableHead className="text-right pr-8">操作</TableHead>
               </TableRow>
@@ -267,15 +283,18 @@ export default function AdminApplicationsPage() {
                     <div className="text-[10px] font-mono text-muted-foreground">{app.deviceSerialNumber}</div>
                   </TableCell>
                   <TableCell>
-                    {app.agreementPdfUrl ? (
-                      <Badge variant="secondary" className="bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px]">
-                        受領済み
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                        未受領
-                      </Badge>
-                    )}
+                    <div className="flex gap-1">
+                      {app.identificationImageUrl ? (
+                        <Badge variant="secondary" className="bg-blue-50 text-blue-600 border-blue-100 text-[10px]">ID済</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-muted-foreground">ID未</Badge>
+                      )}
+                      {app.agreementPdfUrl ? (
+                        <Badge variant="secondary" className="bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px]">同意済</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-muted-foreground">同意未</Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Select 

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, Suspense } from 'react';
@@ -13,7 +12,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle } from 'lucide-react';
+import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck } from 'lucide-react';
 import { Device, UserProfile } from '@/types';
 import Link from 'next/link';
 
@@ -26,6 +25,7 @@ function ApplyForm() {
   
   const deviceId = searchParams.get('deviceId');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [idFileUploaded, setIdFileUploaded] = useState(false);
 
   const deviceRef = useMemoFirebase(() => {
     if (!db || !deviceId) return null;
@@ -40,7 +40,7 @@ function ApplyForm() {
   const { data: profile } = useDoc<UserProfile>(profileRef as any);
 
   const [formData, setFormData] = useState({
-    rentalType: 12, // Default to 12 months
+    rentalType: 12,
     payType: 'monthly' as 'monthly' | 'full',
     tel: '',
     zip: '',
@@ -53,9 +53,24 @@ function ApplyForm() {
     return formData.payType === 'monthly' ? device.price[tier].monthly : device.price[tier].full;
   };
 
+  const handleSimulateUpload = () => {
+    // Simulate a secure upload to Firebase Storage
+    setIsSubmitting(true);
+    setTimeout(() => {
+      setIdFileUploaded(true);
+      setIsSubmitting(false);
+      toast({ title: "書類をアップロードしました" });
+    }, 1500);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !device || !db) return;
+    if (!idFileUploaded) {
+      toast({ variant: "destructive", title: "本人確認書類が必要です", description: "身分証明書のアップロードを完了してください。" });
+      return;
+    }
+
     setIsSubmitting(true);
 
     const applicationData = {
@@ -72,6 +87,7 @@ function ApplyForm() {
       tel: formData.tel || profile?.tel || '',
       zip: formData.zip || profile?.zipcode || '',
       address: formData.address || profile?.address1 || '',
+      identificationImageUrl: 'https://picsum.photos/seed/id-card/800/500', // Mock URL
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -144,6 +160,34 @@ function ApplyForm() {
                 <Separator />
 
                 <div className="space-y-4">
+                  <Label className="text-base font-bold">本人確認書類の提出</Label>
+                  <p className="text-xs text-muted-foreground">運転免許証、パスポート、マイナンバーカードのいずれかをアップロードしてください。</p>
+                  <div className="border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-4 bg-slate-50 transition-colors hover:bg-slate-100">
+                    {idFileUploaded ? (
+                      <div className="flex flex-col items-center gap-2 text-emerald-600">
+                        <FileCheck className="h-12 w-12" />
+                        <p className="text-sm font-bold">書類を受領しました</p>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setIdFileUploaded(false)}>変更する</Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                          <Camera className="h-6 w-6" />
+                        </div>
+                        <div className="text-center">
+                          <Button type="button" variant="outline" className="rounded-xl mb-2" onClick={handleSimulateUpload} disabled={isSubmitting}>
+                            {isSubmitting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : "ファイルを選択してアップロード"}
+                          </Button>
+                          <p className="text-[10px] text-muted-foreground">JPG, PNG, PDF (最大 10MB)</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-4">
                   <Label className="text-base font-bold">配送・ご連絡先情報</Label>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -157,11 +201,11 @@ function ApplyForm() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="address">配送先住所</Label>
-                    <Input id="address" placeholder="東京都渋谷区..." className="rounded-xl" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} required />
+                    <Input id="address" placeholder="東京都...市区町村...番地" className="rounded-xl" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} required />
                   </div>
                 </div>
 
-                <Button type="submit" size="lg" className="w-full h-14 rounded-2xl text-lg font-bold shadow-xl" disabled={isSubmitting}>
+                <Button type="submit" size="lg" className="w-full h-14 rounded-2xl text-lg font-bold shadow-xl" disabled={isSubmitting || !idFileUploaded}>
                   {isSubmitting ? <Loader2 className="animate-spin" /> : '利用規約に同意して申請する'}
                 </Button>
               </form>
