@@ -8,10 +8,164 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle, XCircle, ShieldAlert, FileText, Send, Mail } from 'lucide-react';
+import { 
+  Loader2, 
+  FileText, 
+  Send, 
+  Mail, 
+  CheckCircle2, 
+  XCircle, 
+  Eye, 
+  User as UserIcon, 
+  MapPin, 
+  Phone, 
+  ExternalLink,
+  ShieldCheck,
+  AlertTriangle
+} from 'lucide-react';
 import { Application, UserProfile } from '@/types';
 import Link from 'next/link';
+import { Separator } from '@/components/ui/separator';
+
+function ApplicationDetailModal({ application }: { application: Application }) {
+  const db = useFirestore();
+  const userProfileRef = useMemoFirebase(() => {
+    if (!db || !application.userId) return null;
+    return doc(db, 'users', application.userId);
+  }, [db, application.userId]);
+  
+  const { data: profile, loading } = useDoc<UserProfile>(userProfileRef as any);
+
+  const handleEmailUser = () => {
+    const subject = encodeURIComponent(`【ChronoRent】レンタル申請について - ${application.deviceType}`);
+    window.location.href = `mailto:${application.userEmail}?subject=${subject}`;
+  };
+
+  return (
+    <DialogContent className="max-w-5xl h-[90vh] flex flex-col p-0 overflow-hidden rounded-[2.5rem]">
+      <DialogHeader className="p-8 bg-primary/5 border-b shrink-0">
+        <div className="flex justify-between items-center">
+          <div className="space-y-1">
+            <DialogTitle className="text-2xl font-headline flex items-center gap-2">
+              申請詳細: {application.userName}
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground flex items-center gap-2">
+              <Mail className="h-3 w-3" /> {application.userEmail}
+            </p>
+          </div>
+          <Button variant="outline" className="rounded-xl" onClick={handleEmailUser}>
+            <Mail className="h-4 w-4 mr-2" /> メール作成
+          </Button>
+        </div>
+      </DialogHeader>
+
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: Document Viewer */}
+        <div className="w-1/2 bg-slate-100 p-6 flex flex-col gap-4 border-r overflow-y-auto">
+          <h3 className="font-bold text-sm flex items-center gap-2">
+            <FileText className="h-4 w-4 text-primary" /> 同意書 / 本人確認書類
+          </h3>
+          {application.agreementPdfUrl || application.identificationImageUrl ? (
+            <div className="flex-1 min-h-[400px] bg-white rounded-2xl shadow-inner border overflow-hidden relative">
+              <iframe 
+                src={application.agreementPdfUrl || application.identificationImageUrl} 
+                className="w-full h-full border-none"
+                title="Document Preview"
+              />
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed">
+              <AlertTriangle className="h-12 w-12 text-slate-300 mb-2" />
+              <p className="text-xs text-slate-400">書類がアップロードされていません</p>
+            </div>
+          )}
+          <div className="flex gap-2">
+            {application.agreementPdfUrl && (
+              <Button variant="secondary" className="flex-1 rounded-xl text-xs h-9" asChild>
+                <a href={application.agreementPdfUrl} target="_blank" rel="noopener noreferrer">同意書を全画面で開く</a>
+              </Button>
+            )}
+            {application.identificationImageUrl && (
+              <Button variant="outline" className="flex-1 rounded-xl text-xs h-9" asChild>
+                <a href={application.identificationImageUrl} target="_blank" rel="noopener noreferrer">身分証を全画面で開く</a>
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Applicant Info */}
+        <div className="w-1/2 p-8 overflow-y-auto space-y-8">
+          <section className="space-y-4">
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <UserIcon className="h-3 w-3" /> 申請者プロフィール
+            </h3>
+            {loading ? (
+              <div className="flex justify-center py-4"><Loader2 className="animate-spin h-5 w-5 text-primary" /></div>
+            ) : profile ? (
+              <div className="grid grid-cols-2 gap-y-4 gap-x-6">
+                <div className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground">お名前（ふりがな）</p>
+                  <p className="text-sm font-medium">{profile.familyName} {profile.givenName} ({profile.familyNameKana} {profile.givenNameKana})</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground">電話番号</p>
+                  <p className="text-sm font-medium">{profile.tel || '-'}</p>
+                </div>
+                <div className="space-y-1 col-span-2">
+                  <p className="text-[10px] text-muted-foreground">住所</p>
+                  <p className="text-sm font-medium">〒{profile.zipcode} {profile.address1} {profile.address2}</p>
+                </div>
+                {profile.companyName && (
+                  <div className="space-y-1 col-span-2">
+                    <p className="text-[10px] text-muted-foreground">会社名</p>
+                    <p className="text-sm font-medium">{profile.companyName}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-destructive">プロフィールの取得に失敗しました</p>
+            )}
+          </section>
+
+          <Separator />
+
+          <section className="space-y-4">
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <ShieldCheck className="h-3 w-3" /> 申請内容
+            </h3>
+            <div className="bg-secondary/20 p-4 rounded-2xl grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <p className="text-[10px] text-muted-foreground">対象機器</p>
+                <p className="text-sm font-bold">{application.deviceType}</p>
+                <p className="text-[10px] font-mono text-muted-foreground">S/N: {application.deviceSerialNumber}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] text-muted-foreground">プラン</p>
+                <p className="text-sm font-bold">{application.rentalType}ヶ月 / {application.payType === 'monthly' ? '月次' : '一括'}</p>
+                <p className="text-xs text-primary font-bold">¥{application.payAmount.toLocaleString()}</p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </DialogContent>
+  );
+}
 
 export default function AdminApplicationsPage() {
   const { user, loading: authLoading } = useUser();
@@ -22,7 +176,7 @@ export default function AdminApplicationsPage() {
     if (!db || !user) return null;
     return doc(db, 'users', user.uid);
   }, [db, user]);
-  const { data: profile } = useDoc<UserProfile>(profileRef as any);
+  const { data: adminProfile } = useDoc<UserProfile>(profileRef as any);
 
   const applicationsQuery = useMemoFirebase(() => {
     if (!db) return null;
@@ -66,17 +220,19 @@ export default function AdminApplicationsPage() {
       });
   };
 
-  if (authLoading || (profile && profile.role !== 'admin' && !authLoading)) {
-    if (profile?.role !== 'admin') return <div className="text-center py-20"><ShieldAlert className="mx-auto h-12 w-12 text-destructive mb-4" /> 管理者権限が必要です</div>;
-    return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+  if (authLoading || (adminProfile && adminProfile.role !== 'admin' && !authLoading)) {
+    if (adminProfile?.role !== 'admin' && !authLoading) return <div className="text-center py-20">アクセス権限がありません</div>;
+    return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   }
 
   return (
     <div className="container mx-auto px-4 py-12 space-y-8">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold font-headline flex items-center gap-2"><FileText className="h-8 w-8 text-primary" /> 申請管理</h1>
-          <p className="text-muted-foreground">全てのレンタル申込履歴と審査管理</p>
+          <h1 className="text-3xl font-bold font-headline flex items-center gap-3">
+            <FileText className="h-8 w-8 text-primary" /> 申請管理
+          </h1>
+          <p className="text-muted-foreground">レンタル申込の審査とステータス管理</p>
         </div>
         <Link href="/admin">
           <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
@@ -88,43 +244,79 @@ export default function AdminApplicationsPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-secondary/10">
-                <TableHead className="pl-8">申請日</TableHead>
-                <TableHead>ユーザー</TableHead>
-                <TableHead>機器</TableHead>
-                <TableHead>プラン</TableHead>
+                <TableHead className="pl-8 py-5">申請者名 / メール</TableHead>
+                <TableHead>申請日</TableHead>
+                <TableHead>対象機器 / シリアル</TableHead>
+                <TableHead>同意書</TableHead>
                 <TableHead>ステータス</TableHead>
                 <TableHead className="text-right pr-8">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {applications.map((app) => (
-                <TableRow key={app.id}>
-                  <TableCell className="pl-8 text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
-                  <TableCell>
-                    <div className="font-medium text-sm">{app.userName}</div>
+                <TableRow key={app.id} className="group hover:bg-muted/5 transition-colors">
+                  <TableCell className="pl-8">
+                    <div className="font-bold text-sm">{app.userName}</div>
                     <div className="text-[10px] text-muted-foreground">{app.userEmail}</div>
                   </TableCell>
-                  <TableCell className="text-sm">{app.deviceType}</TableCell>
-                  <TableCell className="text-xs">{app.rentalType}ヶ月 / {app.payType === 'monthly' ? '月次' : '一括'}</TableCell>
-                  <TableCell>
-                    <Badge variant={app.status === 'completed' ? 'default' : app.status === 'pending' ? 'secondary' : 'outline'} className="text-[10px]">
-                      {app.status}
-                    </Badge>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}
                   </TableCell>
-                  <TableCell className="text-right pr-8 space-x-2">
-                    {app.status === 'pending' && (
-                      <>
-                        <Button size="sm" variant="outline" className="h-8 text-emerald-600 hover:bg-emerald-50 rounded-lg" onClick={() => handleUpdateStatus(app.id, 'approved')}>
-                          承認
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-8 text-destructive rounded-lg" onClick={() => handleUpdateStatus(app.id, 'rejected')}>
-                          拒否
-                        </Button>
-                      </>
+                  <TableCell>
+                    <div className="text-sm font-medium">{app.deviceType}</div>
+                    <div className="text-[10px] font-mono text-muted-foreground">{app.deviceSerialNumber}</div>
+                  </TableCell>
+                  <TableCell>
+                    {app.agreementPdfUrl ? (
+                      <Badge variant="secondary" className="bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px]">
+                        受領済み
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                        未受領
+                      </Badge>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <Select 
+                      value={app.status} 
+                      onValueChange={(v: any) => handleUpdateStatus(app.id, v)}
+                    >
+                      <SelectTrigger className="w-[130px] h-8 text-[10px] rounded-lg">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">審査中</SelectItem>
+                        <SelectItem value="approved">承認</SelectItem>
+                        <SelectItem value="rejected">却下</SelectItem>
+                        <SelectItem value="payment_sent">決済リンク送信済</SelectItem>
+                        <SelectItem value="completed">決済完了</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell className="text-right pr-8 space-x-1">
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" title="詳細を表示">
+                          <Eye className="h-4 w-4 text-primary" />
+                        </Button>
+                      </DialogTrigger>
+                      <ApplicationDetailModal application={app} />
+                    </Dialog>
+
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 rounded-lg" 
+                      title="メールを送信"
+                      onClick={() => window.location.href = `mailto:${app.userEmail}?subject=${encodeURIComponent(`【ChronoRent】申請内容の確認 - ${app.deviceType}`)}`}
+                    >
+                      <Mail className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+
                     {app.status === 'approved' && (
-                      <Button size="sm" className="h-8 rounded-lg" onClick={() => handleCreatePaymentLink(app)}>
-                        <Send className="h-3 w-3 mr-1" /> 決済リンク
+                      <Button size="sm" className="h-8 rounded-lg bg-emerald-500 hover:bg-emerald-600" onClick={() => handleCreatePaymentLink(app)}>
+                        <Send className="h-3.5 w-3.5 mr-1" /> 決済リンク
                       </Button>
                     )}
                   </TableCell>
@@ -132,7 +324,9 @@ export default function AdminApplicationsPage() {
               ))}
               {applications.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-20 text-muted-foreground">申請履歴はありません</TableCell>
+                  <TableCell colSpan={6} className="text-center py-24 text-muted-foreground italic">
+                    現在、進行中の申請はありません
+                  </TableCell>
                 </TableRow>
               )}
             </TableBody>
