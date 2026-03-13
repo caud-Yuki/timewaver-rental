@@ -58,7 +58,7 @@ export interface PaymentLink {
   currentlyPayAmount?: number;
   recurringDayOfMonth?: 1 | 15;
   maxExecutionNumber?: number;
-  payTimes?: number;
+  payTimes?: 1;
   status: "pending" | "used" | "expired";
   expiresAt?: Timestamp;
   createdAt: Timestamp;
@@ -98,8 +98,8 @@ export interface UserProfile {
   email: string;
   familyName: string;
   givenName: string;
-  familyNameKana?: string;
-  givenNameKana?: string;
+  familyNameKana: string;
+  givenNameKana: string;
   companyName?: string;
   zipcode?: string;
   prefectureCode?: string;

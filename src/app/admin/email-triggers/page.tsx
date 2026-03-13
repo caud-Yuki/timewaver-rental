@@ -16,12 +16,15 @@ import { SYSTEM_TEMPLATES } from '@/lib/email-defaults';
 import Link from 'next/link';
 
 const TRIGGER_POINTS = [
-  { id: 'welcome_registration', name: '会員登録完了時', desc: '新規ユーザーが登録した直後', sysId: 'sys_welcome_registration' },
-  { id: 'application_submitted', name: '申込受付時', desc: 'ユーザーが新規申込を送信した直後', sysId: 'sys_application_submitted' },
+  { id: 'application_submitted', name: '申込送信時', desc: 'ユーザーが申込を送信した時', sysId: 'sys_application_submitted' },
   { id: 'application_approved', name: '審査承認時', desc: '管理者が申請を承認した時', sysId: 'sys_application_approved' },
-  { id: 'application_rejected', name: '審査却下時', desc: '管理者が申請を却下した時', sysId: 'sys_application_rejected' },
+  { id: 'application_rejected', name: '審査却下時', desc: '管理者が申請を却却した時', sysId: 'sys_application_rejected' },
   { id: 'payment_completed', name: '決済完了時', desc: '支払いが正常に完了した時', sysId: 'sys_payment_completed' },
-  { id: 'waitlist_device_available', name: 'キャンセル待ち在庫発生時', desc: '対象機器に空きが出た時', sysId: 'sys_waitlist_available' },
+  { id: 'payment_failed', name: '決済失敗時', desc: '月次決済に失敗した時', sysId: 'sys_payment_failed' },
+  { id: 'contract_expired', name: '契約終了時', desc: '契約期間が終了した時', sysId: 'sys_contract_expired' },
+  { id: 'news_published', name: 'ニュース公開時', desc: '新しいお知らせを公開した時', sysId: 'sys_news_published' },
+  { id: 'waitlist_device_available', name: '在庫確保時', desc: 'キャンセル待ち対象に空きが出た時', sysId: 'sys_waitlist_available' },
+  { id: 'welcome_registration', name: '会員登録時', desc: '新規ユーザーが登録した時', sysId: 'sys_welcome_registration' },
 ];
 
 export default function EmailTriggersPage() {
@@ -47,7 +50,6 @@ export default function EmailTriggersPage() {
   }, [db]);
   const { data: activeTriggers } = useCollection<any>(triggersQuery as any);
 
-  // Combine DB templates with System templates for the select options
   const availableTemplates = useMemo(() => {
     const list = [...dbTemplates];
     SYSTEM_TEMPLATES.forEach(sys => {
@@ -61,7 +63,7 @@ export default function EmailTriggersPage() {
   const handleUpdateTrigger = async (pointId: string, field: string, value: any) => {
     if (!db) return;
     
-    const triggerId = pointId; // Use trigger point as document ID
+    const triggerId = pointId;
     const existing = activeTriggers.find((t: any) => t.triggerPoint === pointId);
     
     const triggerData = {
@@ -99,9 +101,6 @@ export default function EmailTriggersPage() {
         <div className="flex gap-2">
           <Link href="/admin">
             <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
-          </Link>
-          <Link href="/admin/email-templates">
-            <Button variant="outline" className="rounded-xl"><Mail className="mr-2 h-4 w-4" /> テンプレート管理へ</Button>
           </Link>
         </div>
       </div>
@@ -151,7 +150,7 @@ export default function EmailTriggersPage() {
                         </Select>
                         {isUsingSystemDefault && (
                           <span className="text-[10px] text-blue-500 flex items-center gap-1">
-                            <Sparkles className="h-2.5 w-2.5" /> システム標準を使用中
+                            <Sparkles className="h-2.5 w-2.5" /> システム標準
                           </span>
                         )}
                       </div>
@@ -170,18 +169,6 @@ export default function EmailTriggersPage() {
           </Table>
         </CardContent>
       </Card>
-
-      <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 flex gap-4 items-start">
-        <Settings2 className="h-6 w-6 text-blue-600 shrink-0" />
-        <div className="text-sm text-blue-900">
-          <p className="font-bold mb-1">メールテンプレートの優先順位について</p>
-          <p className="opacity-80 leading-relaxed">
-            「システム標準」のテンプレートは、あらかじめ最適な内容が設定されています。<br />
-            独自の内容に変更したい場合は、<b>「メールテンプレート管理」</b>から対象の標準テンプレートを編集・保存してください。<br />
-            一度保存されると、あなたのカスタム設定が優先的に読み込まれるようになります。
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

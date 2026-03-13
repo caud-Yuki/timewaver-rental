@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, User, Building2, MapPin, Phone, Mail, FileText } from 'lucide-react';
 import { UserProfile } from '@/types';
@@ -71,19 +72,19 @@ export default function ProfilePage() {
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label>姓</Label>
-                <Input value={formData.familyName || ''} onChange={e => setFormData({...formData, familyName: e.target.value})} className="rounded-xl" />
+                <Input value={formData.familyName || ''} onChange={e => setFormData({...formData, familyName: e.target.value})} className="rounded-xl" placeholder="山田" required />
               </div>
               <div className="space-y-2">
                 <Label>名</Label>
-                <Input value={formData.givenName || ''} onChange={e => setFormData({...formData, givenName: e.target.value})} className="rounded-xl" />
+                <Input value={formData.givenName || ''} onChange={e => setFormData({...formData, givenName: e.target.value})} className="rounded-xl" placeholder="太郎" required />
               </div>
               <div className="space-y-2">
                 <Label>姓（ふりがな）</Label>
-                <Input value={formData.familyNameKana || ''} onChange={e => setFormData({...formData, familyNameKana: e.target.value})} className="rounded-xl" />
+                <Input value={formData.familyNameKana || ''} onChange={e => setFormData({...formData, familyNameKana: e.target.value})} className="rounded-xl" placeholder="やまだ" required />
               </div>
               <div className="space-y-2">
                 <Label>名（ふりがな）</Label>
-                <Input value={formData.givenNameKana || ''} onChange={e => setFormData({...formData, givenNameKana: e.target.value})} className="rounded-xl" />
+                <Input value={formData.givenNameKana || ''} onChange={e => setFormData({...formData, givenNameKana: e.target.value})} className="rounded-xl" placeholder="たろう" required />
               </div>
             </div>
             <div className="space-y-2">
@@ -112,17 +113,21 @@ export default function ProfilePage() {
                 <Input value={formData.zipcode || ''} onChange={e => setFormData({...formData, zipcode: e.target.value})} className="rounded-xl" placeholder="123-4567" />
               </div>
               <div className="space-y-2">
+                <Label>都道府県コード (01-48)</Label>
+                <Input value={formData.prefectureCode || ''} onChange={e => setFormData({...formData, prefectureCode: e.target.value})} className="rounded-xl" placeholder="13" maxLength={2} />
+              </div>
+              <div className="space-y-2">
                 <Label>電話番号</Label>
                 <div className="relative">
                   <Phone className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input value={formData.tel || ''} onChange={e => setFormData({...formData, tel: e.target.value})} className="pl-10 rounded-xl" placeholder="090-0000-0000" />
+                  <Input value={formData.tel || ''} onChange={e => setFormData({...formData, tel: e.target.value})} className="pl-10 rounded-xl" placeholder="090-0000-0000" required />
                 </div>
               </div>
               <div className="space-y-2 col-span-2">
-                <Label>住所</Label>
+                <Label>市区町村・番地</Label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input value={formData.address1 || ''} onChange={e => setFormData({...formData, address1: e.target.value})} className="pl-10 rounded-xl mb-2" placeholder="東京都渋谷区..." />
+                  <Input value={formData.address1 || ''} onChange={e => setFormData({...formData, address1: e.target.value})} className="pl-10 rounded-xl mb-2" placeholder="東京都渋谷区神南1-1-1" />
                   <Input value={formData.address2 || ''} onChange={e => setFormData({...formData, address2: e.target.value})} className="pl-10 rounded-xl" placeholder="建物名・部屋番号" />
                 </div>
               </div>
