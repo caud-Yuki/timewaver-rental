@@ -9,8 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Settings, ShieldAlert, Globe, Key, CreditCard } from 'lucide-react';
+import { Loader2, Settings, ShieldAlert, Globe, Key, CreditCard, CheckCircle2, AlertTriangle, Info } from 'lucide-react';
 import { GlobalSettings, UserProfile } from '@/types';
+import { getFirstPayConfig, createCardToken } from '@/lib/firstpay';
 import Link from 'next/link';
 
 export default function AdminSettingsPage() {
@@ -18,6 +19,7 @@ export default function AdminSettingsPage() {
   const db = useFirestore();
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
 
   const profileRef = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -66,6 +68,50 @@ export default function AdminSettingsPage() {
       .finally(() => setIsSaving(false));
   };
 
+  const handleTestConnection = async () => {
+    if (!formData.firstpay?.apiKey || !formData.firstpay?.bearerToken) {
+      toast({ variant: "destructive", title: "入力不足", description: "APIキーとトークンを入力してください。" });
+      return;
+    }
+
+    setIsTesting(true);
+    try {
+      // We test the connection by trying to fetch the encryption key
+      const config = {
+        apiKey: formData.firstpay.apiKey,
+        bearerToken: formData.firstpay.bearerToken,
+        mode: formData.mode || 'test'
+      };
+      
+      // Attempt a simple tokenization-related call to verify credentials
+      // We'll mock a card token request just to see if the headers are accepted
+      const API_BASE = config.mode === "production" ? "https://www.api.firstpay.jp" : "https://dev.api.firstpay.jp";
+      const res = await fetch(`${API_BASE}/token/encryption/key`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "FIRSTPAY-PAYMENT-API-KEY": config.apiKey,
+          "Authorization": `Bearer ${config.bearerToken}`
+        }
+      });
+
+      if (res.ok) {
+        toast({ title: "接続成功", description: "FirstPay APIとの通信に成功しました。" });
+      } else {
+        const errorData = await res.json();
+        throw new Error(errorData.errors?.[0]?.message || '認証に失敗しました。');
+      }
+    } catch (error: any) {
+      toast({ 
+        variant: "destructive", 
+        title: "接続失敗", 
+        description: error.message || "APIキーまたはトークンが正しくない可能性があります。" 
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
   if (profile?.role !== 'admin') return <div className="text-center py-20">アクセス権限がありません</div>;
 
@@ -89,7 +135,9 @@ export default function AdminSettingsPage() {
             <div className="flex items-center justify-between p-4 bg-secondary/20 rounded-2xl">
               <div>
                 <p className="font-bold">{formData.mode === 'production' ? '本番モード' : 'テストモード'}</p>
-                <p className="text-xs text-muted-foreground">現在は {formData.mode === 'production' ? '実際の決済が行われます' : '開発用・テスト用のURLが使用されます'} </p>
+                <p className="text-xs text-muted-foreground">
+                  現在は {formData.mode === 'production' ? '実売上が発生する本番環境' : '開発・テスト用のダミー環境'} が使用されます。
+                </p>
               </div>
               <Switch 
                 checked={formData.mode === 'production'} 
@@ -101,13 +149,29 @@ export default function AdminSettingsPage() {
 
         {/* FirstPay Config */}
         <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
-          <CardHeader className="bg-primary/5">
-            <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" /> FirstPay 決済設定</CardTitle>
-            <CardDescription>決済API（FirstPay）の認証情報を入力します</CardDescription>
+          <CardHeader className="bg-primary/5 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" /> FirstPay 決済設定</CardTitle>
+              <CardDescription>決済プロバイダーから提供された認証情報を入力します</CardDescription>
+            </div>
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm" 
+              className="rounded-xl" 
+              onClick={handleTestConnection}
+              disabled={isTesting}
+            >
+              {isTesting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+              接続テスト
+            </Button>
           </CardHeader>
-          <CardContent className="p-6 space-y-4">
+          <CardContent className="p-6 space-y-6">
             <div className="space-y-2">
-              <Label>FIRSTPAY-PAYMENT-API-KEY</Label>
+              <Label className="flex items-center gap-2">
+                FIRSTPAY-PAYMENT-API-KEY
+                <TooltipProvider><Tooltip><TooltipTrigger><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger><TooltipContent>FirstPay管理画面から取得できる公開用のAPIキーです。</TooltipContent></Tooltip></TooltipProvider>
+              </Label>
               <div className="relative">
                 <Key className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input 
@@ -120,14 +184,20 @@ export default function AdminSettingsPage() {
                   })} 
                 />
               </div>
+              <p className="text-[10px] text-muted-foreground ml-1">※この値はすべてのリクエストヘッダーに含まれます。</p>
             </div>
+
             <div className="space-y-2">
-              <Label>Authorization Bearer (Token)</Label>
+              <Label className="flex items-center gap-2">
+                Authorization Bearer (Token)
+                <TooltipProvider><Tooltip><TooltipTrigger><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger><TooltipContent>FirstPay管理画面から取得できるシークレットトークンです。通常は固定の値を入力します。</TooltipContent></Tooltip></TooltipProvider>
+              </Label>
               <div className="relative">
                 <ShieldAlert className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input 
                   placeholder="ベアラートークンを入力" 
                   className="pl-10 rounded-xl"
+                  type="password"
                   value={formData.firstpay?.bearerToken || ''} 
                   onChange={e => setFormData({
                     ...formData, 
@@ -135,6 +205,7 @@ export default function AdminSettingsPage() {
                   })} 
                 />
               </div>
+              <p className="text-[10px] text-muted-foreground ml-1">※決済処理の認証に使用される静的なシークレットキーです。</p>
             </div>
           </CardContent>
         </Card>
@@ -143,6 +214,7 @@ export default function AdminSettingsPage() {
         <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" /> 運営者情報</CardTitle>
+            <CardDescription>特定商取引法に基づく表記やメール送信時に使用されます</CardDescription>
           </CardHeader>
           <CardContent className="p-6 space-y-4">
             <div className="grid md:grid-cols-2 gap-4">
@@ -181,3 +253,10 @@ export default function AdminSettingsPage() {
     </div>
   );
 }
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
