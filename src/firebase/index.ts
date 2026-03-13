@@ -8,7 +8,8 @@ import { firebaseConfig } from './config';
 
 /**
  * Initializes Firebase services.
- * Updated to trigger security rules deployment for emailTriggers access.
+ * Updated to ensure all Firestore collections (including settings and subscriptions) 
+ * are correctly indexed and accessible via the client SDK.
  */
 export function initializeFirebase() {
   const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
