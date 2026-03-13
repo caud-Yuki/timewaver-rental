@@ -52,15 +52,18 @@ export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig |
   console.log('[PAYMENT_DEBUG] Fetching FirstPay config from Firestore...');
   const settingsRef = doc(db, 'settings', 'global');
   const snap = await getDoc(settingsRef);
+  
   if (!snap.exists()) {
-    console.error('[PAYMENT_DEBUG] Config document not found at settings/global');
+    console.warn('[PAYMENT_DEBUG] Global settings document not found. This is expected if the admin has not set up the platform yet.');
     return null;
   }
+  
   const data = snap.data();
   if (!data.firstpay) {
-    console.error('[PAYMENT_DEBUG] FirstPay field missing in global settings');
+    console.warn('[PAYMENT_DEBUG] FirstPay configuration fields missing in global settings.');
     return null;
   }
+  
   console.log('[PAYMENT_DEBUG] Config retrieved successfully');
   return {
     apiKey: data.firstpay.apiKey || '',
