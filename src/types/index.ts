@@ -69,6 +69,7 @@ export interface Subscription {
   userId: string;
   deviceId: string;
   payType: "monthly" | "full";
+  rentalMonths: number;
   startAt: Timestamp;
   endAt: Timestamp;
   recurringId?: string;
@@ -92,6 +93,7 @@ export interface Waitlist {
   status: "waiting" | "notified" | "scheduled" | "cancelled";
   scheduledNotifyAt?: Timestamp;
   createdAt: Timestamp;
+  updatedAt?: Timestamp;
 }
 
 export interface UserProfile {

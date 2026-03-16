@@ -104,6 +104,7 @@
         "userId": { "type": "string" },
         "deviceId": { "type": "string" },
         "payType": { "type": "string", "enum": ["monthly", "full"] },
+        "rentalMonths": { "type": "number", "enum": [3, 6, 12] },
         "startAt": { "type": "string", "format": "date-time" },
         "endAt": { "type": "string", "format": "date-time" },
         "recurringId": { "type": "string" },
@@ -128,7 +129,8 @@
         "deviceType": { "type": "string" },
         "status": { "type": "string", "enum": ["waiting", "notified", "scheduled", "cancelled"] },
         "scheduledNotifyAt": { "type": "string", "format": "date-time" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       }
     },
     "GlobalSettings": {
