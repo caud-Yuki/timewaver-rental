@@ -207,7 +207,14 @@
         "address": { "type": "string" },
         "tel": { "type": "string" },
         "mode": { "type": "string", "enum": ["test", "production"] },
-        "firstpay": {
+        "firstpayTest": {
+          "type": "object",
+          "properties": {
+            "apiKey": { "type": "string" },
+            "bearerToken": { "type": "string" }
+          }
+        },
+        "firstpayProd": {
           "type": "object",
           "properties": {
             "apiKey": { "type": "string" },

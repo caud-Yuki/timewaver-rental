@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -12,12 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Settings, ShieldAlert, Globe, Key, CreditCard, CheckCircle2, AlertTriangle, Info, ShieldCheck } from 'lucide-react';
 import { GlobalSettings, UserProfile } from '@/types';
-import { 
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import Link from 'next/link';
 
 export default function AdminSettingsPage() {
@@ -47,9 +42,13 @@ export default function AdminSettingsPage() {
     managerEmail: '',
     companyName: '',
     tel: '',
-    contactNumber: ''
+    contactNumber: '',
+    representativeName: '',
+    zipcode: '',
+    address: ''
   });
 
+  // Only update formData when settings are loaded to prevent overwriting user input during a save
   useEffect(() => {
     if (settings) {
       setFormData({
@@ -62,8 +61,13 @@ export default function AdminSettingsPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || profile?.role !== 'admin') return;
+    if (!db || profile?.role !== 'admin') {
+      toast({ variant: "destructive", title: "権限エラー", description: "管理者としてログインしているか確認してください。" });
+      return;
+    }
+    
     setIsSaving(true);
+    console.log('[SETTINGS_DEBUG] Saving settings to Firestore:', formData);
 
     setDoc(doc(db, 'settings', 'global'), {
       ...formData,
@@ -71,9 +75,11 @@ export default function AdminSettingsPage() {
     }, { merge: true })
       .then(() => {
         toast({ title: "設定を保存しました" });
+        console.log('[SETTINGS_DEBUG] Save successful');
       })
-      .catch(() => {
-        toast({ variant: "destructive", title: "保存に失敗しました" });
+      .catch((error) => {
+        console.error('[SETTINGS_DEBUG] Save failed:', error);
+        toast({ variant: "destructive", title: "保存に失敗しました", description: error.message });
       })
       .finally(() => setIsSaving(false));
   };
@@ -120,7 +126,7 @@ export default function AdminSettingsPage() {
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
-  if (profile?.role !== 'admin') return <div className="text-center py-20">アクセス権限がありません</div>;
+  if (profile?.role !== 'admin') return <div className="text-center py-20">アクセス権限がありません（ロール: {profile?.role || '未設定'}）</div>;
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl space-y-8">
