@@ -60,13 +60,12 @@ export default function PaymentPage() {
   }, [db, user]);
   const { data: profile } = useDoc<UserProfile>(profileRef as any);
 
-  // Check configuration on load
   useEffect(() => {
     const checkConfig = async () => {
       if (!db) return;
       const config = await getFirstPayConfig(db);
-      if (!config || !config.apiKey) {
-        setConfigError('決済システムの初期設定が完了していません。管理者にお問い合わせください。');
+      if (!config) {
+        setConfigError('決済システムの設定が完了していません。管理者にお問い合わせください。');
       }
     };
     checkConfig();
@@ -74,43 +73,27 @@ export default function PaymentPage() {
 
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !paymentLink || !profile || !user || !application) {
-      console.warn('[PAYMENT_DEBUG] Data missing for payment:', { db:!!db, link:!!paymentLink, profile:!!profile, user:!!user, app:!!application });
-      return;
-    }
+    if (!db || !paymentLink || !profile || !user || !application) return;
 
-    console.log('[PAYMENT_DEBUG] --- Payment Process Started ---');
     setIsProcessing(true);
-
     try {
-      // 1. Get FirstPay Config
       const config = await getFirstPayConfig(db);
       if (!config) throw new Error('決済設定が見つかりません。');
 
-      // 2. Tokenize Card (includes RSA encryption internally)
-      console.log('[PAYMENT_DEBUG] Stage 1: Card Tokenization');
+      // 1. RSA Key Acquisition & Card Tokenization (Step 2 & 3)
       const tokenResult = await createCardToken(config, cardInfo, profile.tel);
-      
-      if (!tokenResult.cardToken) {
-        console.error('[PAYMENT_DEBUG] Token missing from gateway response:', tokenResult);
-        throw new Error('カードトークンの取得に失敗しました。');
-      }
-      
       const { cardToken, issuerUrl } = tokenResult;
       
-      // 3. Handle 3DS if required
+      // 2. 3DS Authentication if required
       if (issuerUrl) {
-        console.log('[PAYMENT_DEBUG] Stage 2: 3DS Authentication Required');
-        toast({ title: "本人認証が必要です", description: "別ウィンドウで開かれたカード会社の認証を完了してください。" });
+        toast({ title: "本人認証が必要です", description: "別ウィンドウで認証を完了してください。" });
         window.open(issuerUrl, '_blank', 'width=600,height=600');
         const isAuthOk = await poll3dsStatus(config, cardToken);
-        if (!isAuthOk) throw new Error('3DS認証に失敗したか、キャンセルされました。');
-        console.log('[PAYMENT_DEBUG] Stage 2: 3DS Auth Passed');
+        if (!isAuthOk) throw new Error('3DS認証に失敗しました。');
       }
 
-      // 4. Register/Update FirstPay Customer
-      console.log('[PAYMENT_DEBUG] Stage 3: Customer Registration');
-      const customerId = profile.customerId || `CUST-${user.uid.substring(0, 8)}-${Date.now().toString(36)}`;
+      // 3. Member Registration (Step 1 in docs)
+      const customerId = profile.customerId || `CUST-${user.uid.substring(0, 8)}-${Date.now()}`;
       await registerCustomer(config, {
         customerId,
         cardToken,
@@ -123,40 +106,38 @@ export default function PaymentPage() {
       let transactionId = '';
       let recurringId = '';
 
-      // 5. Execute Charge (Full) or Recurring (Monthly)
+      // 4. Pattern Branching (Step 4-A or 4-B)
       if (paymentLink.payType === 'full') {
-        console.log('[PAYMENT_DEBUG] Stage 4: One-time Charge (Full Pay)');
         const paymentId = `PAY-${Date.now()}`;
         const chargeResult = await createCharge(config, {
           customerId,
           paymentId,
-          paymentName: `Full Rental: ${paymentLink.deviceName}`,
+          paymentName: `Rental: ${paymentLink.deviceName}`,
           amount: paymentLink.payAmount
         });
         transactionId = chargeResult.paymentId;
       } else {
-        console.log('[PAYMENT_DEBUG] Stage 4: Recurring Registration (Monthly Pay)');
-        const recId = `REC-${Date.now().toString(36)}`;
+        const recId = `REC-${Date.now()}`;
         const recResult = await createRecurring(config, {
           reccuringId: recId,
           paymentName: `Monthly Rental: ${paymentLink.deviceName}`,
           customerId,
           startAt: new Date().toISOString().split('T')[0],
           payAmount: paymentLink.payAmount,
+          currentlyPayAmount: paymentLink.payAmount, // First month charge
           maxExecutionNumber: application.rentalType,
-          recurringDayOfMonth: paymentLink.recurringDayOfMonth || 1
+          recurringDayOfMonth: new Date().getDate() > 28 ? 28 : new Date().getDate()
         });
         recurringId = recResult.reccuringId;
       }
 
-      // 6. Create Subscription Record (Non-blocking)
-      console.log('[PAYMENT_DEBUG] Stage 5: Recording Subscription in Firestore');
+      // 5. Update Firestore (Background Sync)
       const subscriptionData = {
         userId: user.uid,
         deviceId: paymentLink.deviceId,
         payType: paymentLink.payType,
         startAt: serverTimestamp(),
-        endAt: serverTimestamp(), // Placeholder
+        endAt: serverTimestamp(), // Admin will adjust actual contract end
         recurringId: recurringId || null,
         paymentId: transactionId || null,
         customerId: customerId,
@@ -168,73 +149,35 @@ export default function PaymentPage() {
       };
       
       addDoc(collection(db, 'subscriptions'), subscriptionData)
-        .catch(async () => {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({
-            path: 'subscriptions',
-            operation: 'create',
-            requestResourceData: subscriptionData,
-          } satisfies SecurityRuleContext));
-        });
+        .catch(() => errorEmitter.emit('permission-error', new FirestorePermissionError({ path: 'subscriptions', operation: 'create' })));
 
-      // 7. Update User Profile with customer info (Non-blocking)
-      console.log('[PAYMENT_DEBUG] Stage 6: Updating User Profile');
-      const userUpdateData = {
-        customerId,
-        cardToken: cardToken || null, // Ensure no undefined value
-        updatedAt: serverTimestamp()
-      };
-      updateDoc(doc(db, 'users', user.uid), userUpdateData)
-        .catch(async () => {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({
-            path: `users/${user.uid}`,
-            operation: 'update',
-            requestResourceData: userUpdateData,
-          } satisfies SecurityRuleContext));
-        });
+      updateDoc(doc(db, 'users', user.uid), { customerId, updatedAt: serverTimestamp() })
+        .catch(() => errorEmitter.emit('permission-error', new FirestorePermissionError({ path: `users/${user.uid}`, operation: 'update' })));
 
-      // 8. Update Firestore Statuses (Non-blocking)
-      console.log('[PAYMENT_DEBUG] Stage 7: Final Status Updates');
-      
-      const linkUpdateRef = doc(db, 'paymentLinks', paymentLink.id);
-      updateDoc(linkUpdateRef, { status: 'used', updatedAt: serverTimestamp() })
-        .catch(async () => {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({ path: linkUpdateRef.path, operation: 'update' }));
-        });
+      updateDoc(doc(db, 'paymentLinks', paymentLink.id), { status: 'used', updatedAt: serverTimestamp() })
+        .catch(() => errorEmitter.emit('permission-error', new FirestorePermissionError({ path: `paymentLinks/${paymentLink.id}`, operation: 'update' })));
 
-      const appUpdateRef = doc(db, 'applications', paymentLink.applicationId);
-      updateDoc(appUpdateRef, { status: 'completed', updatedAt: serverTimestamp() })
-        .catch(async () => {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({ path: appUpdateRef.path, operation: 'update' }));
-        });
+      updateDoc(doc(db, 'applications', paymentLink.applicationId), { status: 'completed', updatedAt: serverTimestamp() })
+        .catch(() => errorEmitter.emit('permission-error', new FirestorePermissionError({ path: `applications/${paymentLink.applicationId}`, operation: 'update' })));
 
-      const deviceUpdateRef = doc(db, 'devices', paymentLink.deviceId);
-      const deviceUpdateData = {
-        status: 'active',
-        currentUserId: user.uid,
-        contractStartAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-      updateDoc(deviceUpdateRef, deviceUpdateData)
-        .catch(async () => {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({ path: deviceUpdateRef.path, operation: 'update', requestResourceData: deviceUpdateData }));
-        });
+      updateDoc(doc(db, 'devices', paymentLink.deviceId), { status: 'active', currentUserId: user.uid, contractStartAt: serverTimestamp(), updatedAt: serverTimestamp() })
+        .catch(() => errorEmitter.emit('permission-error', new FirestorePermissionError({ path: `devices/${paymentLink.deviceId}`, operation: 'update' })));
 
-      console.log('[PAYMENT_DEBUG] --- Payment Process Completed Successfully ---');
       setIsCompleted(true);
-      toast({ title: "決済が完了しました", description: "ご契約ありがとうございました！" });
+      toast({ title: "決済が完了しました" });
     } catch (error: any) {
-      console.error('[PAYMENT_DEBUG] !!! Critical Error in Payment Flow !!!', error);
+      console.error('[PAYMENT_DEBUG]', error);
       toast({
         variant: "destructive",
         title: "決済エラー",
-        description: error.message || "お支払い処理に失敗しました。カード情報を確認してください。",
+        description: error.message || "お支払い処理に失敗しました。",
       });
     } finally {
       setIsProcessing(false);
     }
   };
 
-  if (linkLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-12 w-12 text-primary" /></div>;
+  if (linkLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
 
   if (configError) {
     return (
@@ -255,7 +198,7 @@ export default function PaymentPage() {
         <Card className="w-full max-w-md p-8 text-center space-y-4">
           <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto" />
           <h1 className="text-2xl font-bold">リンクが無効です</h1>
-          <p className="text-muted-foreground">この決済リンクは既に使用されているか、期限が切れています。</p>
+          <p className="text-muted-foreground">このリンクは既に使用されているか、期限が切れています。</p>
           <Button className="w-full" onClick={() => router.push('/')}>トップに戻る</Button>
         </Card>
       </div>
@@ -270,8 +213,8 @@ export default function PaymentPage() {
             <CheckCircle2 className="h-12 w-12" />
           </div>
           <h1 className="text-3xl font-bold font-headline">🎉 完了！</h1>
-          <p className="text-muted-foreground">決済が正常に完了しました。<br />デバイスの発送準備を開始いたします。</p>
-          <Button className="w-full h-14 rounded-2xl text-lg font-bold" onClick={() => router.push('/mypage/devices')}>マイページへ移動</Button>
+          <p className="text-muted-foreground">決済が正常に完了しました。<br />発送準備を開始いたします。</p>
+          <Button className="w-full h-14 rounded-2xl text-lg font-bold" onClick={() => router.push('/mypage/devices')}>マイデバイスへ移動</Button>
         </Card>
       </div>
     );
@@ -281,9 +224,9 @@ export default function PaymentPage() {
     <div className="container mx-auto px-4 py-12 flex justify-center">
       <div className="w-full max-w-lg space-y-8">
         <div className="text-center space-y-2">
-          <div className="flex justify-center mb-4"><Activity className="h-10 w-10 text-primary" /></div>
+          <Activity className="h-10 w-10 text-primary mx-auto mb-4" />
           <h1 className="text-3xl font-bold font-headline">決済手続き</h1>
-          <p className="text-muted-foreground">安全な決済システム（FirstPay）で処理されます</p>
+          <p className="text-muted-foreground">安全なFirstPay決済システムで処理されます</p>
         </div>
 
         <Card className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-white">
@@ -291,7 +234,7 @@ export default function PaymentPage() {
             <div className="flex justify-between items-start mb-4">
               <div>
                 <CardTitle className="flex items-center gap-2"><CreditCard className="h-6 w-6 text-primary" /> カード情報の入力</CardTitle>
-                <CardDescription>暗号化により、お客様のカード情報は保護されます。</CardDescription>
+                <CardDescription>情報は暗号化され保護されます。</CardDescription>
               </div>
               <Badge variant="outline" className="bg-white text-lg py-4 px-4 font-bold">¥{paymentLink.payAmount?.toLocaleString()}</Badge>
             </div>
@@ -302,23 +245,22 @@ export default function PaymentPage() {
               <p className="font-bold text-lg">{paymentLink.deviceName}</p>
               <div className="flex gap-2 mt-2">
                 <Badge variant="secondary" className="bg-white">{paymentLink.payType === 'monthly' ? '月々払い' : '一括払い'}</Badge>
-                {paymentLink.payType === 'monthly' && <Badge variant="secondary" className="bg-white">{application?.rentalType}ヶ月間</Badge>}
               </div>
             </div>
 
             <form onSubmit={handlePayment} className="space-y-4">
               <div className="space-y-2">
                 <Label>カード番号</Label>
-                <Input placeholder="4242 4242 4242 4242" className="h-12 rounded-xl text-lg font-mono" value={cardInfo.cardNo} onChange={e => setCardInfo({...cardInfo, cardNo: e.target.value.replace(/\s/g, '')})} required />
+                <Input placeholder="0000 0000 0000 0000" className="h-12 rounded-xl text-lg font-mono" value={cardInfo.cardNo} onChange={e => setCardInfo({...cardInfo, cardNo: e.target.value.replace(/\s/g, '')})} required />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>有効期限 (月)</Label>
-                  <Input placeholder="MM (例: 01)" maxLength={2} className="h-12 rounded-xl" value={cardInfo.expireMonth} onChange={e => setCardInfo({...cardInfo, expireMonth: e.target.value})} required />
+                  <Input placeholder="MM" maxLength={2} className="h-12 rounded-xl" value={cardInfo.expireMonth} onChange={e => setCardInfo({...cardInfo, expireMonth: e.target.value})} required />
                 </div>
                 <div className="space-y-2">
                   <Label>有効期限 (年)</Label>
-                  <Input placeholder="YYYY (例: 2028)" maxLength={4} className="h-12 rounded-xl" value={cardInfo.expireYear} onChange={e => setCardInfo({...cardInfo, expireYear: e.target.value})} required />
+                  <Input placeholder="YYYY" maxLength={4} className="h-12 rounded-xl" value={cardInfo.expireYear} onChange={e => setCardInfo({...cardInfo, expireYear: e.target.value})} required />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -340,13 +282,11 @@ export default function PaymentPage() {
             </form>
           </CardContent>
           <CardFooter className="bg-secondary/20 p-6 flex flex-col gap-4 text-center">
-            <div className="flex justify-center gap-6 opacity-50 grayscale hover:grayscale-0 transition-all">
+            <div className="flex justify-center gap-6 opacity-50 grayscale">
               <span className="flex items-center gap-1 text-[9px] font-bold"><Lock className="h-3 w-3" /> Secure SSL</span>
-              <span className="flex items-center gap-1 text-[9px] font-bold"><ShieldCheck className="h-3 w-3" /> PCI DSS Compliant</span>
+              <span className="flex items-center gap-1 text-[9px] font-bold"><ShieldCheck className="h-3 w-3" /> PCI DSS</span>
             </div>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              ご入力いただいたカード情報は暗号化され、FirstPay決済システムへ直接送信されます。<br />当サイトのサーバーにカード情報が保存されることはありません。
-            </p>
+            <p className="text-[10px] text-muted-foreground">カード情報は直接決済システムへ送信され、当サイトには保存されません。</p>
           </CardFooter>
         </Card>
       </div>
