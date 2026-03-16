@@ -1,9 +1,9 @@
 
 'use client';
 
-import { useState, Suspense, useRef } from 'react';
+import { useState, Suspense, useRef, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useUser, useFirestore, useDoc, useMemoFirebase, useStorage } from '@/firebase';
+import { useUser, useFirestore, useDoc, useMemoFirebase, useStorage, useCollection } from '@/firebase';
 import { doc, collection, addDoc, serverTimestamp, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck } from 'lucide-react';
-import { Device, UserProfile } from '@/types';
+import { Device, UserProfile, Waitlist } from '@/types';
 import Link from 'next/link';
 
 function ApplyForm() {
@@ -43,6 +43,32 @@ function ApplyForm() {
     return doc(db, 'users', user.uid);
   }, [db, user]);
   const { data: profile } = useDoc<UserProfile>(profileRef as any);
+
+  // Check if someone else is processing this device
+  const processingQuery = useMemoFirebase(() => {
+    if (!db || !deviceId) return null;
+    return query(
+      collection(db, 'waitlist'),
+      where('deviceId', '==', deviceId),
+      where('status', '==', 'processing')
+    );
+  }, [db, deviceId]);
+  const { data: processingWaitlist, loading: processingLoading } = useCollection<Waitlist>(processingQuery as any);
+
+  useEffect(() => {
+    if (!processingLoading && processingWaitlist.length > 0 && user) {
+      // If there is a processing entry and it's NOT mine, block application
+      const someoneElseProcessing = processingWaitlist.some(p => p.userId !== user.uid);
+      if (someoneElseProcessing) {
+        toast({ 
+          variant: "destructive", 
+          title: "アクセス制限", 
+          description: "現在、他の方がこの機器の申し込み手続きを優先的に行っています。" 
+        });
+        router.push('/mypage/devices');
+      }
+    }
+  }, [processingWaitlist, processingLoading, user, router, toast]);
 
   const [formData, setFormData] = useState({
     rentalType: 12,
@@ -137,7 +163,7 @@ function ApplyForm() {
     }
   };
 
-  if (deviceLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+  if (deviceLoading || processingLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   if (!deviceId || !device) return <div className="text-center py-20"><AlertCircle className="mx-auto h-12 w-12 text-destructive mb-4" /><p>対象の機器が見つかりませんでした。</p></div>;
 
   return (

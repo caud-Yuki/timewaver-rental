@@ -72,7 +72,7 @@ export default function MyDevicesPage() {
   }, [db, user]);
   const { data: applications, loading: appsLoading } = useCollection<Application>(appsQuery as any);
 
-  // 3. Waitlist Entries - Updated to include 'processing'
+  // 3. Waitlist Entries - User's own entries
   const waitlistQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return query(
@@ -83,14 +83,24 @@ export default function MyDevicesPage() {
   }, [db, user]);
   const { data: waitlist, loading: waitlistLoading } = useCollection<Waitlist>(waitlistQuery as any);
 
-  // 4. All Devices (to check waitlist availability)
+  // 4. Global Processing Entries - To check if someone else is currently applying
+  const processingWaitlistQuery = useMemoFirebase(() => {
+    if (!db) return null;
+    return query(
+      collection(db, 'waitlist'),
+      where('status', '==', 'processing')
+    );
+  }, [db]);
+  const { data: globalProcessingEntries } = useCollection<Waitlist>(processingWaitlistQuery as any);
+
+  // 5. All Devices (to check waitlist availability)
   const allDevicesQuery = useMemoFirebase(() => {
     if (!db) return null;
     return collection(db, 'devices');
   }, [db]);
   const { data: allDevices } = useCollection<Device>(allDevicesQuery as any);
 
-  // 5. Active Subscriptions
+  // 6. Active Subscriptions
   const subsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return query(
@@ -134,6 +144,18 @@ export default function MyDevicesPage() {
 
   const handleStartApplication = async (waitlistId: string, deviceId: string) => {
     if (!db) return;
+    
+    // Safety check: is anyone else already processing?
+    const alreadyProcessing = globalProcessingEntries.some(p => p.deviceId === deviceId);
+    if (alreadyProcessing) {
+      toast({ 
+        variant: "destructive", 
+        title: "手続き中", 
+        description: "現在、他の方がこの機器の申し込み手続きを行っています。しばらくしてから再度ご確認ください。" 
+      });
+      return;
+    }
+
     updateDoc(doc(db, 'waitlist', waitlistId), {
       status: 'processing',
       updatedAt: serverTimestamp()
@@ -344,17 +366,19 @@ export default function MyDevicesPage() {
                 {waitlist.map((item) => {
                   const targetDevice = allDevices.find(d => d.id === item.deviceId);
                   const isAvailable = targetDevice?.status === 'available';
-                  const isProcessing = item.status === 'processing';
+                  const isMeProcessing = item.status === 'processing';
+                  // Check if ANY user other than me is processing this specific device
+                  const isOtherUserProcessing = globalProcessingEntries?.some(p => p.deviceId === item.deviceId && p.userId !== user.uid);
 
                   return (
-                    <Card key={item.id} className={`border-none shadow-lg rounded-[2rem] transition-all ${isAvailable ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-slate-50'}`}>
+                    <Card key={item.id} className={`border-none shadow-lg rounded-[2rem] transition-all ${isAvailable && !isOtherUserProcessing ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-slate-50'}`}>
                       <CardHeader className="p-6">
                         <div className="flex justify-between items-start mb-2">
                           <Badge 
-                            variant={isAvailable ? "default" : "secondary"} 
-                            className={isAvailable ? "bg-emerald-500 animate-pulse" : ""}
+                            variant={isAvailable && !isOtherUserProcessing ? "default" : "secondary"} 
+                            className={isAvailable && !isOtherUserProcessing ? "bg-emerald-500 animate-pulse" : ""}
                           >
-                            {isAvailable ? "在庫確保！" : "待機中"}
+                            {isAvailable ? (isOtherUserProcessing ? "手続中" : "在庫確保！") : "待機中"}
                           </Badge>
                         </div>
                         <CardTitle className="text-md">{item.deviceType}</CardTitle>
@@ -365,22 +389,31 @@ export default function MyDevicesPage() {
                       <CardContent className="px-6 pb-6 pt-0">
                         {isAvailable ? (
                           <div className="space-y-3">
-                            <p className="text-[10px] text-emerald-700 font-bold leading-tight">
-                              {isProcessing 
-                                ? "申し込み手続きを開始しました。"
-                                : "ご希望の機器に空きが出ました。今すぐお申し込みいただけます。"}
-                            </p>
-                            {isProcessing ? (
-                              <Button disabled className="w-full h-10 rounded-xl bg-slate-400 shadow-md font-bold text-xs">
-                                順番を待ち <Clock className="ml-1 h-3 w-3" />
-                              </Button>
+                            {isMeProcessing ? (
+                              <>
+                                <p className="text-[10px] text-emerald-700 font-bold leading-tight">
+                                  申し込み手続きを開始しました。
+                                </p>
+                                <Button disabled className="w-full h-10 rounded-xl bg-slate-400 shadow-md font-bold text-xs">
+                                  順番を待ち <Clock className="ml-1 h-3 w-3" />
+                                </Button>
+                              </>
+                            ) : isOtherUserProcessing ? (
+                              <p className="text-[10px] text-muted-foreground leading-tight italic">
+                                現在、他の方が手続きを進めています。
+                              </p>
                             ) : (
-                              <Button 
-                                className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 shadow-md font-bold text-xs"
-                                onClick={() => handleStartApplication(item.id, item.deviceId)}
-                              >
-                                今すぐ申し込む <ArrowRight className="ml-1 h-3 w-3" />
-                              </Button>
+                              <>
+                                <p className="text-[10px] text-emerald-700 font-bold leading-tight">
+                                  ご希望の機器に空きが出ました。今すぐお申し込みいただけます。
+                                </p>
+                                <Button 
+                                  className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 shadow-md font-bold text-xs"
+                                  onClick={() => handleStartApplication(item.id, item.deviceId)}
+                                >
+                                  今すぐ申し込む <ArrowRight className="ml-1 h-3 w-3" />
+                                </Button>
+                              </>
                             )}
                           </div>
                         ) : (
