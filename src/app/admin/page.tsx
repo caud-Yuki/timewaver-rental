@@ -1,9 +1,23 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { collection, query, orderBy, updateDoc, doc, serverTimestamp, addDoc, limit } from 'firebase/firestore';
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  updateDoc, 
+  doc, 
+  serverTimestamp, 
+  addDoc, 
+  limit, 
+  getDocs, 
+  where, 
+  writeBatch, 
+  Timestamp 
+} from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +37,8 @@ import {
   Clock,
   ChevronRight,
   Zap,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCcw
 } from 'lucide-react';
 import { Application, UserProfile, GlobalSettings } from '@/types';
 import Link from 'next/link';
@@ -33,6 +48,7 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const db = useFirestore();
   const { toast } = useToast();
+  const [isReconciling, setIsReconciling] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -46,6 +62,58 @@ export default function AdminDashboardPage() {
   }, [db, user]);
 
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
+
+  // Reconciliation logic: Check for expired subscriptions and release devices
+  useEffect(() => {
+    if (db && profile?.role === 'admin' && !isReconciling) {
+      const reconcile = async () => {
+        setIsReconciling(true);
+        try {
+          const now = new Date();
+          const q = query(
+            collection(db, 'subscriptions'),
+            where('status', '==', 'active'),
+            where('endAt', '<', Timestamp.fromDate(now))
+          );
+          
+          const snapshot = await getDocs(q);
+          
+          if (!snapshot.empty) {
+            const batch = writeBatch(db);
+            
+            snapshot.docs.forEach(subDoc => {
+              const subData = subDoc.data();
+              // 1. Complete the subscription
+              batch.update(doc(db, 'subscriptions', subDoc.id), { 
+                status: 'completed', 
+                updatedAt: serverTimestamp() 
+              });
+              
+              // 2. Release the device
+              batch.update(doc(db, 'devices', subData.deviceId), { 
+                status: 'available', 
+                currentUserId: null, 
+                contractStartAt: null, 
+                contractEndAt: null,
+                updatedAt: serverTimestamp() 
+              });
+            });
+
+            await batch.commit();
+            toast({ 
+              title: "自動ステータス更新", 
+              description: `${snapshot.size}件の契約満了を確認し、機器を在庫（利用可能）に戻しました。` 
+            });
+          }
+        } catch (err) {
+          console.error("Reconciliation Error:", err);
+        } finally {
+          setIsReconciling(false);
+        }
+      };
+      reconcile();
+    }
+  }, [db, profile?.role, toast]);
 
   const applicationsQuery = useMemoFirebase(() => {
     if (!db || profile?.role !== 'admin') return null;
@@ -100,6 +168,12 @@ export default function AdminDashboardPage() {
           </h1>
           <p className="text-muted-foreground">全てのレンタル申請と機器の管理を行っています</p>
         </div>
+        {isReconciling && (
+          <div className="flex items-center gap-2 text-xs font-medium text-primary animate-pulse bg-primary/5 px-4 py-2 rounded-full border border-primary/20">
+            <RefreshCcw className="h-3 w-3 animate-spin" />
+            契約状況を同期中...
+          </div>
+        )}
       </div>
 
       {!isConfigured && (
@@ -125,7 +199,7 @@ export default function AdminDashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {adminModules.map((module) => (
           <Link key={module.href} href={module.href}>
-            <Card className="hover:shadow-xl transition-all duration-300 border-none rounded-3xl group cursor-pointer h-full">
+            <Card className="hover:shadow-xl transition-all duration-300 border-none rounded-3xl group cursor-pointer h-full bg-white">
               <CardContent className="p-6 flex flex-col items-center text-center space-y-3">
                 <div className={`p-4 rounded-2xl ${module.bg} ${module.color} group-hover:scale-110 transition-transform`}>
                   <module.icon className="h-6 w-6" />
