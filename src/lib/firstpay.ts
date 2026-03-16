@@ -1,3 +1,4 @@
+
 'use client';
 
 /**
@@ -47,6 +48,7 @@ const getHeaders = (config: FirstPayConfig) => {
 
 /**
  * Fetches the global FirstPay configuration from Firestore
+ * Updated to support separate Test and Production credential fields.
  */
 export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig | null> {
   console.log('[PAYMENT_DEBUG] Fetching FirstPay config from Firestore...');
@@ -54,21 +56,29 @@ export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig |
   const snap = await getDoc(settingsRef);
   
   if (!snap.exists()) {
-    console.warn('[PAYMENT_DEBUG] Global settings document not found. This is expected if the admin has not set up the platform yet.');
+    console.warn('[PAYMENT_DEBUG] Global settings document not found.');
     return null;
   }
   
   const data = snap.data();
-  if (!data.firstpay) {
-    console.warn('[PAYMENT_DEBUG] FirstPay configuration fields missing in global settings.');
+  const mode = data.mode || 'test';
+  
+  // Select correct credential set based on mode
+  const creds = mode === 'production' ? data.firstpayProd : data.firstpayTest;
+  
+  // Fallback for legacy single 'firstpay' field if others are missing
+  const activeCreds = creds || data.firstpay;
+
+  if (!activeCreds || !activeCreds.apiKey) {
+    console.warn(`[PAYMENT_DEBUG] FirstPay credentials missing for mode: ${mode}`);
     return null;
   }
   
-  console.log('[PAYMENT_DEBUG] Config retrieved successfully');
+  console.log(`[PAYMENT_DEBUG] Config retrieved successfully for ${mode} mode`);
   return {
-    apiKey: data.firstpay.apiKey || '',
-    bearerToken: data.firstpay.bearerToken || '',
-    mode: data.mode || 'test',
+    apiKey: activeCreds.apiKey || '',
+    bearerToken: activeCreds.bearerToken || '',
+    mode: mode as 'test' | 'production',
   };
 }
 

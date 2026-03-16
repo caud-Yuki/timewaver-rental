@@ -182,7 +182,11 @@ export interface GlobalSettings {
   address: string;
   tel: string;
   mode: "test" | "production";
-  firstpay?: {
+  firstpayTest?: {
+    apiKey: string;
+    bearerToken: string;
+  };
+  firstpayProd?: {
     apiKey: string;
     bearerToken: string;
   };
