@@ -48,7 +48,6 @@ export default function AdminSettingsPage() {
 
   useEffect(() => {
     if (settings && !hasLoadedRef.current) {
-      console.log('[SETTINGS_DEBUG] Initializing form with Firestore data:', settings);
       setFormData(prev => ({
         ...prev,
         ...settings,
@@ -89,8 +88,6 @@ export default function AdminSettingsPage() {
       updatedAt: serverTimestamp(),
     };
 
-    console.log('[SETTINGS_DEBUG] Saving to settings/global:', dataToSave);
-
     setDoc(doc(db, 'settings', 'global'), dataToSave, { merge: true })
       .then(() => {
         toast({ title: "設定を保存しました" });
@@ -112,7 +109,6 @@ export default function AdminSettingsPage() {
     setIsTesting(true);
     try {
       const API_BASE = formData.mode === "production" ? "https://www.api.firstpay.jp" : "https://dev.api.firstpay.jp";
-      console.log(`[SETTINGS_DEBUG] Testing connection to ${API_BASE}`);
       
       const res = await fetch(`${API_BASE}/token/encryption/key`, {
         method: "GET",
@@ -127,7 +123,6 @@ export default function AdminSettingsPage() {
         toast({ title: "接続成功", description: "FirstPayとの通信に成功しました。" });
       } else {
         const errorText = await res.text();
-        console.error('[SETTINGS_DEBUG] Connection test failed:', errorText);
         throw new Error(`認証失敗 (${res.status})`);
       }
     } catch (error: any) {

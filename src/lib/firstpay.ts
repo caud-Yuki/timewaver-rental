@@ -2,10 +2,7 @@
 
 /**
  * @fileOverview FirstPay Payment API Client-side Implementation
- * 1. RSA Key Acquisition (GET /token/encryption/key)
- * 2. Token Generation (POST /token) - ONLY API-KEY required
- * 3. Member Registration (POST /customer)
- * 4. Execute Payment (POST /charge or /recurring)
+ * Refined to match strict formatting requirements for encryptedData.
  */
 
 import { doc, getDoc, Firestore } from 'firebase/firestore';
@@ -41,22 +38,23 @@ const getHeaders = (config: FirstPayConfig) => {
 };
 
 /**
- * Helper to parse gateway errors intelligently
+ * Intelligent error parser for FirstPay gateway responses.
  */
 const parseGatewayError = (data: any, status: number) => {
-  // 1. Look for standard errors array
   if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
     return data.errors[0].message || 'API Error';
   }
   
-  // 2. Look for field-specific errors (e.g., encryptedData: ["..."])
-  const fieldErrors = Object.keys(data).filter(k => Array.isArray(data[k]));
-  if (fieldErrors.length > 0) {
-    const firstField = fieldErrors[0];
-    return `${firstField}: ${data[firstField][0]}`;
+  // Look for field-specific validation errors (e.g., { encryptedData: ["error message"] })
+  for (const key in data) {
+    if (Array.isArray(data[key]) && data[key].length > 0) {
+      return `${key}: ${data[key][0]}`;
+    }
+    if (typeof data[key] === 'string' && !['cardToken', 'keyHash', 'publicKey'].includes(key)) {
+      return `${key}: ${data[key]}`;
+    }
   }
 
-  // 3. Fallback
   return `Gateway Error (${status})`;
 };
 
@@ -87,8 +85,7 @@ export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig |
 export async function createCardToken(config: FirstPayConfig, card: CardInfo): Promise<{ cardToken: string; issuerUrl?: string }> {
   const API_BASE = getApiBase(config.mode);
   
-  // 1. RSA Key Acquisition (Requires API-KEY + Auth header)
-  console.log('[PAYMENT_DEBUG] Step 1: Fetching RSA Encryption Key...');
+  // 1. RSA Key Acquisition
   const keyRes = await fetch(`${API_BASE}/token/encryption/key`, { 
     method: "GET", 
     headers: getHeaders(config) 
@@ -96,7 +93,7 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo): P
   
   if (!keyRes.ok) {
     const errText = await keyRes.text();
-    console.error(`[PAYMENT_DEBUG] RSA Key Fetch Failed [Status: ${keyRes.status}]:`, errText);
+    console.error(`[PAYMENT_DEBUG] RSA Key Fetch Failed [${keyRes.status}]:`, errText);
     throw new Error(`暗号化キー取得失敗 (${keyRes.status})`);
   }
   
@@ -104,26 +101,30 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo): P
   const { keyHash, publicKey } = keyData;
 
   if (!keyHash || !publicKey) {
-    console.error('[PAYMENT_DEBUG] RSA Key response missing fields:', keyData);
-    throw new Error('暗号化キーのレスポンスが不正です。');
+    throw new Error('Invalid encryption key response from gateway');
   }
 
-  // 2. Encrypt Card Info
+  // 2. Encrypt Card Info with strict formatting
   const encrypt = new JSEncrypt();
   encrypt.setPublicKey(publicKey);
+  
+  // Ensure strict formatting as per documentation: MM, yyyy, digits only
+  const formattedMonth = card.expireMonth.replace(/\D/g, '').padStart(2, '0');
+  const formattedYear = card.expireYear.replace(/\D/g, '');
+  const fullYear = formattedYear.length === 2 ? `20${formattedYear}` : formattedYear;
+
   const jsonToEncrypt = JSON.stringify({
-    cardNo: card.cardNo.replace(/\s/g, ''),
-    expireMonth: card.expireMonth.padStart(2, '0'),
-    expireYear: card.expireYear.length === 2 ? `20${card.expireYear}` : card.expireYear, // Ensure yyyy
-    holderName: card.holderName.trim().toUpperCase(),
-    cvv: card.cvv.trim()
+    cardNo: card.cardNo.replace(/\D/g, ''),
+    expireMonth: formattedMonth,
+    expireYear: fullYear,
+    holderName: card.holderName.trim().toUpperCase().substring(0, 50),
+    cvv: card.cvv.replace(/\D/g, '')
   });
   
   const encryptedData = encrypt.encrypt(jsonToEncrypt);
   if (!encryptedData) throw new Error('カード情報の暗号化に失敗しました。');
 
-  // 3. Token Generation (Requires ONLY API-KEY)
-  console.log('[PAYMENT_DEBUG] Step 2: Issuing Card Token...');
+  // 3. Token Generation (Auth header NOT required here as per docs)
   const tokenRes = await fetch(`${API_BASE}/token`, {
     method: "POST",
     headers: {
@@ -132,7 +133,7 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo): P
     },
     body: JSON.stringify({
       encryptedData,
-      encryptionKeyHash: keyHash.trim(),
+      encryptionKeyHash: keyHash, // Map keyHash from response to encryptionKeyHash in request
       validateUsableCard: false 
     })
   });
@@ -145,8 +146,6 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo): P
     throw new Error(`${errorMsg} (${tokenRes.status})`);
   }
 
-  console.log('[PAYMENT_DEBUG] Token issued successfully:', data.cardToken);
-
   return {
     cardToken: data.cardToken,
     issuerUrl: data.threedsConfiguration?.issuerUrl
@@ -157,7 +156,6 @@ export async function poll3dsStatus(config: FirstPayConfig, cardToken: string): 
   const API_BASE = getApiBase(config.mode);
   const headers = getHeaders(config);
 
-  console.log('[PAYMENT_DEBUG] Polling 3DS status...');
   for (let i = 0; i < 300; i++) {
     const res = await fetch(`${API_BASE}/token/${cardToken}/status/three-ds`, { headers });
     const resData = await res.json();
@@ -180,7 +178,10 @@ export async function registerCustomer(config: FirstPayConfig, customerData: {
   const res = await fetch(`${API_BASE}/customer`, {
     method: "POST",
     headers: getHeaders(config),
-    body: JSON.stringify(customerData)
+    body: JSON.stringify({
+      ...customerData,
+      tel: customerData.tel.replace(/[^\d-]/g, '') // Only digits and hyphens
+    })
   });
   
   const data = await res.json();

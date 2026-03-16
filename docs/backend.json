@@ -1,4 +1,3 @@
-
 {
   "entities": {
     "UserProfile": {
@@ -116,96 +115,17 @@
       },
       "required": ["userId", "deviceId", "payType", "status", "customerId"]
     },
-    "Waitlist": {
-      "title": "Waitlist",
-      "description": "Device waitlist entry",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string" },
-        "userName": { "type": "string" },
-        "userEmail": { "type": "string" },
-        "deviceId": { "type": "string" },
-        "deviceType": { "type": "string" },
-        "status": { "type": "string", "enum": ["waiting", "notified", "cancelled"] }
-      }
-    },
-    "Coupon": {
-      "title": "Coupon",
-      "description": "Discount coupon",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "code": { "type": "string" },
-        "discountType": { "type": "string", "enum": ["percentage", "fixed"] },
-        "discountValue": { "type": "number" },
-        "status": { "type": "string", "enum": ["active", "inactive"] },
-        "expiresAt": { "type": "string", "format": "date-time" },
-        "maxUsesPerUser": { "type": "number" },
-        "maxTotalUsers": { "type": "number" },
-        "currentUsageCount": { "type": "number" }
-      }
-    },
-    "News": {
-      "title": "News",
-      "description": "News article",
-      "type": "object",
-      "properties": {
-        "title": { "type": "string" },
-        "body": { "type": "string" },
-        "status": { "type": "string", "enum": ["published", "draft"] },
-        "publishedAt": { "type": "string", "format": "date-time" }
-      }
-    },
-    "EmailTemplate": {
-      "title": "EmailTemplate",
-      "description": "Email template",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "subject": { "type": "string" },
-        "body": { "type": "string" },
-        "type": { "type": "string", "enum": ["application", "transaction", "news", "waiting", "general"] }
-      }
-    },
-    "EmailTrigger": {
-      "title": "EmailTrigger",
-      "description": "System email trigger",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "triggerPoint": { "type": "string" },
-        "templateId": { "type": "string" },
-        "enabled": { "type": "boolean" }
-      }
-    },
-    "SupportRequest": {
-      "title": "SupportRequest",
-      "description": "Support or repair request",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string" },
-        "userName": { "type": "string" },
-        "userEmail": { "type": "string" },
-        "deviceId": { "type": "string" },
-        "type": { "type": "string", "enum": ["repair", "support"] },
-        "description": { "type": "string" },
-        "imageUrls": { "type": "array", "items": { "type": "string" } },
-        "status": { "type": "string", "enum": ["open", "in_progress", "resolved"] }
-      }
-    },
     "GlobalSettings": {
       "title": "GlobalSettings",
-      "description": "Global platform settings",
+      "description": "Global platform settings including FirstPay credentials",
       "type": "object",
       "properties": {
         "managerName": { "type": "string" },
         "managerEmail": { "type": "string" },
-        "contactNumber": { "type": "string" },
-        "representativeName": { "type": "string" },
         "companyName": { "type": "string" },
+        "tel": { "type": "string" },
         "zipcode": { "type": "string" },
         "address": { "type": "string" },
-        "tel": { "type": "string" },
         "mode": { "type": "string", "enum": ["test", "production"] },
         "firstpayTest": {
           "type": "object",
@@ -220,7 +140,8 @@
             "apiKey": { "type": "string" },
             "bearerToken": { "type": "string" }
           }
-        }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
       }
     }
   },
@@ -233,12 +154,6 @@
     "/applications/{applicationId}": { "schema": "Application", "description": "Rental applications" },
     "/paymentLinks/{paymentLinkId}": { "schema": "PaymentLink", "description": "Secure payment links" },
     "/subscriptions/{subscriptionId}": { "schema": "Subscription", "description": "Active subscriptions" },
-    "/waitlist/{waitlistId}": { "schema": "Waitlist", "description": "Device waitlists" },
-    "/settings/global": { "schema": "GlobalSettings", "description": "Global settings" },
-    "/news/{newsId}": { "schema": "News", "description": "News articles" },
-    "/supportRequests/{requestId}": { "schema": "SupportRequest", "description": "Support requests" },
-    "/coupons/{couponId}": { "schema": "Coupon", "description": "Coupons" },
-    "/emailTemplates/{templateId}": { "schema": "EmailTemplate", "description": "Email templates" },
-    "/emailTriggers/{triggerId}": { "schema": "EmailTrigger", "description": "Email triggers" }
+    "/settings/global": { "schema": "GlobalSettings", "description": "Global settings" }
   }
 }
