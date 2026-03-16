@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -11,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, orderBy } from 'firebase/firestore';
-import { Activity, Cpu, CheckCircle2, Clock, Loader2, AlertCircle } from 'lucide-react';
+import { Activity, Cpu, CheckCircle2, Clock, Loader2, AlertCircle, Timer } from 'lucide-react';
 import { Device, DeviceTypeCode } from '@/types';
 
 export default function DeviceListPage() {
