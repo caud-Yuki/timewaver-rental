@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useDoc, useFirestore, useMemoFirebase, useCollection } from '@/firebase';
+import { useDoc, useFirestore, useMemoFirebase, useCollection, useUser } from '@/firebase';
 import { doc, collection, query, where } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +22,7 @@ export default function DeviceDetailPage() {
   const params = useParams();
   const router = useRouter();
   const db = useFirestore();
+  const { user } = useUser();
   const id = params.id as string;
 
   const [intent, setIntent] = useState('');
@@ -35,15 +36,15 @@ export default function DeviceDetailPage() {
 
   const { data: device, loading } = useDoc<Device>(deviceRef as any);
 
-  // Fetch waitlist count for this device
+  // Fetch waitlist count for this device - only if authenticated
   const waitlistQuery = useMemoFirebase(() => {
-    if (!db || !id) return null;
+    if (!db || !id || !user) return null;
     return query(
       collection(db, 'waitlist'),
       where('deviceId', '==', id),
       where('status', '==', 'waiting')
     );
-  }, [db, id]);
+  }, [db, id, user]);
   const { data: waitlistItems } = useCollection<Waitlist>(waitlistQuery as any);
 
   const handleVisualize = async () => {
@@ -163,9 +164,11 @@ export default function DeviceDetailPage() {
               ) : (
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none px-3 py-1">キャンセル待ち受付中</Badge>
-                  <span className="text-xs font-bold text-amber-600 flex items-center gap-1 bg-amber-50 px-2 py-1 rounded-full border border-amber-100">
-                    <Users className="h-3 w-3" /> 現在 {waitlistCount} 名が空き待ち中です
-                  </span>
+                  {user && (
+                    <span className="text-xs font-bold text-amber-600 flex items-center gap-1 bg-amber-50 px-2 py-1 rounded-full border border-amber-100">
+                      <Users className="h-3 w-3" /> 現在 {waitlistCount} 名が空き待ち中です
+                    </span>
+                  )}
                 </div>
               )}
             </div>

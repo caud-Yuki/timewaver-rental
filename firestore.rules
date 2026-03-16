@@ -15,7 +15,6 @@ service cloud.firestore {
     }
 
     // Devices: Public read access for the catalog. Admins can write.
-    // 決済完了時、認証済みユーザーがステータス更新（active化）を行える。
     match /devices/{deviceId} {
       allow read: if true;
       allow update: if request.auth != null
@@ -68,10 +67,11 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
-    // Waitlist: Users can create/read their own. Admins can manage all.
+    // Waitlist: Users can create their own.
+    // Allowing authenticated users to read entries to support the "people waiting" counter.
     match /waitlist/{waitlistId} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow read: if request.auth != null && (isAdmin() || (resource != null && resource.data.userId == request.auth.uid));
+      allow read: if request.auth != null;
       allow update, delete: if isAdmin();
     }
 
