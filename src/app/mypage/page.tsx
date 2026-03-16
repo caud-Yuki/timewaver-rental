@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { doc } from 'firebase/firestore';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,7 +23,14 @@ import { UserProfile } from '@/types';
 
 export default function MyPageDashboard() {
   const { user, loading: authLoading } = useUser();
+  const router = useRouter();
   const db = useFirestore();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/auth/login');
+    }
+  }, [user, authLoading, router]);
 
   const profileRef = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -33,6 +42,8 @@ export default function MyPageDashboard() {
   if (authLoading || profileLoading) {
     return <div className="flex items-center justify-center min-h-screen"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
+
+  if (!user) return null;
 
   const userModules = [
     { 

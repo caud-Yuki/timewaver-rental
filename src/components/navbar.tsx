@@ -1,7 +1,7 @@
 "use client";
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Activity, User, LogOut, Menu, ShieldCheck, LayoutDashboard, Package, Newspaper } from 'lucide-react';
 import { useUser, useAuth, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
@@ -20,6 +20,7 @@ import { UserProfile } from '@/types';
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user } = useUser();
   const auth = useAuth();
   const db = useFirestore();
@@ -34,6 +35,7 @@ export function Navbar() {
   const handleSignOut = async () => {
     if (auth) {
       await signOut(auth);
+      router.push('/');
     }
   };
 

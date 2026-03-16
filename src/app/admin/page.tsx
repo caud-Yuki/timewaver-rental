@@ -1,7 +1,7 @@
-
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { collection, query, orderBy, updateDoc, doc, serverTimestamp, addDoc, limit } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -30,8 +30,15 @@ import Link from 'next/link';
 
 export default function AdminDashboardPage() {
   const { user, loading: authLoading } = useUser();
+  const router = useRouter();
   const db = useFirestore();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/auth/login');
+    }
+  }, [user, authLoading, router]);
 
   const profileRef = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -53,7 +60,7 @@ export default function AdminDashboardPage() {
   }, [db, profile?.role]);
   const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
 
-  const isConfigured = !!(settings?.firstpay?.apiKey && settings?.firstpay?.bearerToken);
+  const isConfigured = !!(settings?.firstpayTest?.apiKey || settings?.firstpayProd?.apiKey);
 
   const adminModules = [
     { title: '機器管理', desc: '在庫とステータス', icon: Package, href: '/admin/devices', color: 'text-blue-500', bg: 'bg-blue-50' },
