@@ -35,13 +35,16 @@ const getApiBase = (mode: 'test' | 'production') => {
 };
 
 /**
- * Internal helper to get headers for FirstPay API
+ * Internal helper to get headers for FirstPay API.
+ * Handles bearer token format robustly.
  */
 const getHeaders = (config: FirstPayConfig) => {
+  // Ensure we don't double-prepend "Bearer "
+  const rawToken = config.bearerToken.replace(/^Bearer\s+/i, '');
   return {
     "Content-Type": "application/json",
     "FIRSTPAY-PAYMENT-API-KEY": config.apiKey,
-    "Authorization": `Bearer ${config.bearerToken}`
+    "Authorization": `Bearer ${rawToken}`
   };
 };
 
@@ -54,7 +57,7 @@ export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig |
   const snap = await getDoc(settingsRef);
   
   if (!snap.exists()) {
-    console.warn('[PAYMENT_DEBUG] Global settings document not found at settings/global');
+    console.warn('[PAYMENT_DEBUG] Config document not found at settings/global');
     return null;
   }
   
@@ -85,13 +88,22 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
 
   console.log('[PAYMENT_DEBUG] Step 5.1: Fetching RSA Encryption Key...');
   const keyRes = await fetch(`${API_BASE}/token/encryption/key`, { method: "GET", headers });
+  
   if (!keyRes.ok) {
     const errText = await keyRes.text();
-    console.error(`[PAYMENT_DEBUG] RSA Key Fetch Failed: ${keyRes.status}`, errText);
-    throw new Error('Failed to fetch encryption key from FirstPay');
+    console.error(`[PAYMENT_DEBUG] RSA Key Fetch Failed [Status: ${keyRes.status}]:`, errText);
+    throw new Error(`Failed to fetch encryption key: ${keyRes.status}`);
   }
-  const { keyHash, publicKey } = await keyRes.json();
-  console.log('[PAYMENT_DEBUG] RSA Key retrieved. Hash:', keyHash);
+
+  const keyData = await keyRes.json();
+  const { encryptionKeyHash, publicKey } = keyData;
+  
+  if (!encryptionKeyHash || !publicKey) {
+    console.error('[PAYMENT_DEBUG] RSA Key response missing fields:', keyData);
+    throw new Error('Invalid encryption key response from gateway');
+  }
+
+  console.log('[PAYMENT_DEBUG] RSA Key retrieved. Hash:', encryptionKeyHash);
 
   console.log('[PAYMENT_DEBUG] Encrypting card data...');
   const encrypt = new JSEncrypt();
@@ -100,7 +112,7 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
 
   if (!encryptedData) {
     console.error('[PAYMENT_DEBUG] RSA Encryption failed locally');
-    throw new Error('Encryption failed');
+    throw new Error('Local encryption failed');
   }
 
   console.log('[PAYMENT_DEBUG] Step 5.2: Issuing Card Token...');
@@ -109,7 +121,7 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
     headers,
     body: JSON.stringify({
       encryptedData,
-      encryptionKeyHash: keyHash,
+      encryptionKeyHash,
       validateUsableCard: true,
       threedsConfiguration: {
         phone: { 
@@ -122,8 +134,8 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
 
   const data = await tokenRes.json();
   if (!tokenRes.ok || (data.errors && data.errors.length > 0)) {
-    console.error('[PAYMENT_DEBUG] Token Generation Failed:', data.errors || data);
-    throw new Error(data.errors?.[0]?.message || 'Token generation failed');
+    console.error(`[PAYMENT_DEBUG] Token Generation Failed [Status: ${tokenRes.status}]:`, data.errors || data);
+    throw new Error(data.errors?.[0]?.message || `Token generation failed (${tokenRes.status})`);
   }
 
   console.log('[PAYMENT_DEBUG] Token response received. cardToken:', data.cardToken);
@@ -184,7 +196,7 @@ export async function registerCustomer(config: FirstPayConfig, customerData: {
   });
   const data = await res.json();
   if (!res.ok || data.errors) {
-    console.error('[PAYMENT_DEBUG] Customer Registration Failed:', data.errors || data);
+    console.error(`[PAYMENT_DEBUG] Customer Registration Failed [Status: ${res.status}]:`, data.errors || data);
     throw new Error(data.errors?.[0]?.message || 'Customer registration failed');
   }
   console.log('[PAYMENT_DEBUG] Customer Registration Success');
@@ -214,7 +226,7 @@ export async function createCharge(config: FirstPayConfig, chargeData: {
   });
   const data = await res.json();
   if (!res.ok || data.errors) {
-    console.error('[PAYMENT_DEBUG] Charge Execution Failed:', data.errors || data);
+    console.error(`[PAYMENT_DEBUG] Charge Execution Failed [Status: ${res.status}]:`, data.errors || data);
     throw new Error(data.errors?.[0]?.message || 'Charge execution failed');
   }
   console.log('[PAYMENT_DEBUG] Charge Success. Status:', data.paymentStatus);
@@ -250,7 +262,7 @@ export async function createRecurring(config: FirstPayConfig, recurringData: {
   });
   const data = await res.json();
   if (!res.ok || data.errors) {
-    console.error('[PAYMENT_DEBUG] Recurring Registration Failed:', data.errors || data);
+    console.error(`[PAYMENT_DEBUG] Recurring Registration Failed [Status: ${res.status}]:`, data.errors || data);
     throw new Error(data.errors?.[0]?.message || 'Recurring registration failed');
   }
   console.log('[PAYMENT_DEBUG] Recurring Success. Next run:', data.nextRecurringAt);
