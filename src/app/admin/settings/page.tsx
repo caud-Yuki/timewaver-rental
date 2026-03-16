@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -21,6 +21,7 @@ export default function AdminSettingsPage() {
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   const profileRef = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -48,38 +49,51 @@ export default function AdminSettingsPage() {
     address: ''
   });
 
-  // Only update formData when settings are loaded to prevent overwriting user input during a save
+  // Load initial settings from Firestore only ONCE to prevent overwriting user edits
   useEffect(() => {
-    if (settings) {
+    if (settings && !hasLoadedRef.current) {
+      console.log('[SETTINGS_DEBUG] Initializing form with Firestore data:', settings);
       setFormData({
         ...settings,
         firstpayTest: settings.firstpayTest || { apiKey: '', bearerToken: '' },
         firstpayProd: settings.firstpayProd || { apiKey: '', bearerToken: '' }
       });
+      hasLoadedRef.current = true;
     }
   }, [settings]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || profile?.role !== 'admin') {
+    if (!db) return;
+
+    if (profile?.role !== 'admin') {
+      console.error('[SETTINGS_DEBUG] Save aborted: User is not admin', profile?.role);
       toast({ variant: "destructive", title: "権限エラー", description: "管理者としてログインしているか確認してください。" });
       return;
     }
     
     setIsSaving(true);
-    console.log('[SETTINGS_DEBUG] Saving settings to Firestore:', formData);
-
-    setDoc(doc(db, 'settings', 'global'), {
+    
+    // Explicitly prepare the data to ensure correct structure
+    const dataToSave = {
       ...formData,
       updatedAt: serverTimestamp(),
-    }, { merge: true })
+    };
+
+    console.log('[SETTINGS_DEBUG] Attempting to save to settings/global:', dataToSave);
+
+    setDoc(doc(db, 'settings', 'global'), dataToSave, { merge: true })
       .then(() => {
-        toast({ title: "設定を保存しました" });
         console.log('[SETTINGS_DEBUG] Save successful');
+        toast({ title: "設定を保存しました" });
       })
       .catch((error) => {
-        console.error('[SETTINGS_DEBUG] Save failed:', error);
-        toast({ variant: "destructive", title: "保存に失敗しました", description: error.message });
+        console.error('[SETTINGS_DEBUG] Save failed with Firestore error:', error);
+        toast({ 
+          variant: "destructive", 
+          title: "保存に失敗しました", 
+          description: error.message || "セキュリティルールにより拒否された可能性があります。" 
+        });
       })
       .finally(() => setIsSaving(false));
   };
@@ -99,6 +113,8 @@ export default function AdminSettingsPage() {
     setIsTesting(true);
     try {
       const API_BASE = formData.mode === "production" ? "https://www.api.firstpay.jp" : "https://dev.api.firstpay.jp";
+      console.log(`[SETTINGS_DEBUG] Testing connection to ${API_BASE}`);
+      
       const res = await fetch(`${API_BASE}/token/encryption/key`, {
         method: "GET",
         headers: {
@@ -125,13 +141,29 @@ export default function AdminSettingsPage() {
     }
   };
 
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
-  if (profile?.role !== 'admin') return <div className="text-center py-20">アクセス権限がありません（ロール: {profile?.role || '未設定'}）</div>;
+  if (loading && !hasLoadedRef.current) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+  
+  if (profile && profile.role !== 'admin') {
+    return (
+      <div className="container mx-auto px-4 py-20 text-center space-y-4">
+        <ShieldAlert className="h-16 w-16 text-destructive mx-auto" />
+        <h1 className="text-2xl font-bold">アクセス権限がありません</h1>
+        <p className="text-muted-foreground">現在のアカウントのロール: <Badge variant="outline">{profile.role || '不明'}</Badge></p>
+        <p className="text-xs">Firestoreの users/{user?.uid} ドキュメントの role が "admin" になっているか確認してください。</p>
+        <Link href="/admin"><Button variant="outline">ダッシュボードへ</Button></Link>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl space-y-8">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold font-headline">基本設定</h1>
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold font-headline">基本設定</h1>
+          <p className="text-xs text-muted-foreground flex items-center gap-1">
+            <ShieldCheck className="h-3 w-3" /> 管理者として認証済み
+          </p>
+        </div>
         <Link href="/admin">
           <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
         </Link>
@@ -276,25 +308,25 @@ export default function AdminSettingsPage() {
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label>運営担当者名</Label>
-                <Input value={formData.managerName || ''} onChange={e => setFormData({...formData, managerName: e.target.value})} className="rounded-xl" placeholder="山田 太郎" />
+                <Input value={formData.managerName || ''} onChange={e => setFormData({...formData, managerName: e.target.value})} className="rounded-xl" placeholder="寺岡佑記" />
               </div>
               <div className="space-y-2">
                 <Label>担当者メールアドレス</Label>
-                <Input type="email" value={formData.managerEmail || ''} onChange={e => setFormData({...formData, managerEmail: e.target.value})} className="rounded-xl" placeholder="admin@example.com" />
+                <Input type="email" value={formData.managerEmail || ''} onChange={e => setFormData({...formData, managerEmail: e.target.value})} className="rounded-xl" placeholder="eigyo@timewaver.jp" />
               </div>
             </div>
             <div className="space-y-2">
               <Label>会社名 / 団体名</Label>
-              <Input value={formData.companyName || ''} onChange={e => setFormData({...formData, companyName: e.target.value})} className="rounded-xl" placeholder="株式会社クロノレント" />
+              <Input value={formData.companyName || ''} onChange={e => setFormData({...formData, companyName: e.target.value})} className="rounded-xl" placeholder="株式会社カウデザイン" />
             </div>
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label>代表電話番号</Label>
-                <Input value={formData.tel || ''} onChange={e => setFormData({...formData, tel: e.target.value})} className="rounded-xl" placeholder="03-0000-0000" />
+                <Input value={formData.tel || ''} onChange={e => setFormData({...formData, tel: e.target.value})} className="rounded-xl" placeholder="03-6427-9427" />
               </div>
               <div className="space-y-2">
                 <Label>カスタマーサポート電話番号</Label>
-                <Input value={formData.contactNumber || ''} onChange={e => setFormData({...formData, contactNumber: e.target.value})} className="rounded-xl" placeholder="0120-000-000" />
+                <Input value={formData.contactNumber || ''} onChange={e => setFormData({...formData, contactNumber: e.target.value})} className="rounded-xl" placeholder="03-6427-9427" />
               </div>
             </div>
           </CardContent>
