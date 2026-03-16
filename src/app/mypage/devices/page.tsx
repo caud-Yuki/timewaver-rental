@@ -1,26 +1,53 @@
+
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where, orderBy } from 'firebase/firestore';
+import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase, useStorage } from '@/firebase';
+import { collection, query, where, orderBy, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Package, Calendar, Settings, MessageSquare, AlertCircle, Clock, CheckCircle2, ArrowRight } from 'lucide-react';
-import { Device, Application, Waitlist } from '@/types';
+import { 
+  Loader2, 
+  Package, 
+  Calendar, 
+  Settings, 
+  MessageSquare, 
+  AlertCircle, 
+  Clock, 
+  CheckCircle2, 
+  ArrowRight,
+  Upload,
+  UserCheck
+} from 'lucide-react';
+import { Device, Application, Waitlist, GlobalSettings } from '@/types';
+import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 
 export default function MyDevicesPage() {
   const { user, loading: authLoading } = useUser();
   const router = useRouter();
   const db = useFirestore();
+  const storage = useStorage();
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
       router.push('/auth/login');
     }
   }, [user, authLoading, router]);
+
+  // Settings for Mode check
+  const settingsRef = useMemoFirebase(() => {
+    if (!db) return null;
+    return doc(db, 'settings', 'global');
+  }, [db]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
 
   // 1. Active Devices
   const devicesQuery = useMemoFirebase(() => {
@@ -55,6 +82,50 @@ export default function MyDevicesPage() {
   }, [db, user]);
   const { data: waitlist, loading: waitlistLoading } = useCollection<Waitlist>(waitlistQuery as any);
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user || !storage || !selectedAppId || !db) return;
+
+    setIsUploading(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `id_retry_${Date.now()}.${fileExt}`;
+      const storageRef = ref(storage, `identifications/${user.uid}/${fileName}`);
+      
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(snapshot.ref);
+      
+      await updateDoc(doc(db, 'applications', selectedAppId), {
+        identificationImageUrl: downloadUrl,
+        updatedAt: serverTimestamp()
+      });
+
+      toast({ title: "本人確認書類をアップロードしました" });
+      setSelectedAppId(null);
+    } catch (error: any) {
+      toast({ 
+        variant: "destructive", 
+        title: "アップロード失敗", 
+        description: "ファイルのアップロードに失敗しました。" 
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const isRenewalEligible = (device: Device) => {
+    if (!settings) return false;
+    if (settings.mode === 'test') return true;
+    
+    if (!device.contractEndAt) return false;
+    const end = device.contractEndAt.toDate();
+    const now = new Date();
+    const oneMonthBefore = new Date(end);
+    oneMonthBefore.setMonth(oneMonthBefore.getMonth() - 1);
+    
+    return now >= oneMonthBefore;
+  };
+
   if (authLoading || !user) {
     return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   }
@@ -76,6 +147,14 @@ export default function MyDevicesPage() {
           <Button size="lg" className="rounded-2xl font-bold shadow-lg">新しい機器を探す</Button>
         </Link>
       </div>
+
+      <input 
+        type="file" 
+        className="hidden" 
+        ref={fileInputRef} 
+        accept="image/*,application/pdf"
+        onChange={handleFileUpload}
+      />
 
       {!hasAnyContent ? (
         <Card className="border-dashed border-2 py-32 text-center space-y-6 rounded-[3rem] bg-secondary/5">
@@ -120,6 +199,14 @@ export default function MyDevicesPage() {
                           </p>
                         </div>
                         <div className="space-y-1">
+                          <span className="text-[10px] text-destructive uppercase font-bold flex items-center gap-1">
+                            <Calendar className="h-3 w-3" /> 利用終了日
+                          </span>
+                          <p className="font-medium text-destructive">
+                            {device.contractEndAt?.seconds ? new Date(device.contractEndAt.seconds * 1000).toLocaleDateString() : '未設定'}
+                          </p>
+                        </div>
+                        <div className="space-y-1 col-span-2 pt-2">
                           <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
                             <Settings className="h-3 w-3" /> 保守状況
                           </span>
@@ -136,9 +223,13 @@ export default function MyDevicesPage() {
                       <Link href="/mypage/support/repair">
                         <Button variant="outline" className="w-full rounded-xl h-11 text-xs">修理依頼</Button>
                       </Link>
-                      <Link href={`/apply/renew?deviceId=${device.id}`}>
-                        <Button variant="secondary" className="w-full rounded-xl h-11 text-xs">契約更新</Button>
-                      </Link>
+                      {isRenewalEligible(device) ? (
+                        <Link href={`/apply/renew?deviceId=${device.id}`}>
+                          <Button variant="secondary" className="w-full rounded-xl h-11 text-xs font-bold text-primary bg-white hover:bg-primary/5">契約更新</Button>
+                        </Link>
+                      ) : (
+                        <Button variant="secondary" disabled className="w-full rounded-xl h-11 text-[10px] opacity-50">更新期間外</Button>
+                      )}
                     </CardFooter>
                   </Card>
                 ))}
@@ -169,6 +260,24 @@ export default function MyDevicesPage() {
                         <span className="text-muted-foreground">申請日</span>
                         <span>{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</span>
                       </div>
+
+                      {!app.identificationImageUrl && app.status === 'pending' && (
+                        <div className="bg-red-50 border border-red-100 p-4 rounded-2xl space-y-3">
+                          <div className="flex items-center gap-2 text-red-600">
+                            <AlertCircle className="h-4 w-4" />
+                            <span className="text-[10px] font-bold">本人確認書類が未提出です</span>
+                          </div>
+                          <Button 
+                            className="w-full h-10 rounded-xl bg-red-500 hover:bg-red-600 text-xs font-bold shadow-sm"
+                            disabled={isUploading && selectedAppId === app.id}
+                            onClick={() => { setSelectedAppId(app.id); fileInputRef.current?.click(); }}
+                          >
+                            {isUploading && selectedAppId === app.id ? <Loader2 className="animate-spin h-3 w-3 mr-2" /> : <Upload className="h-3 w-3 mr-2" />}
+                            書類をアップロード
+                          </Button>
+                        </div>
+                      )}
+
                       {app.status === 'payment_sent' && app.paymentLinkId && (
                         <Link href={`/payment/${app.paymentLinkId}`}>
                           <Button className="w-full h-11 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold shadow-lg">
