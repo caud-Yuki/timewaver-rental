@@ -5,8 +5,8 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
-import { doc } from 'firebase/firestore';
+import { useDoc, useFirestore, useMemoFirebase, useCollection } from '@/firebase';
+import { doc, collection, query, where } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,8 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
-import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2 } from 'lucide-react';
-import { Device, DeviceTypeCode } from '@/types';
+import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2, Users } from 'lucide-react';
+import { Device, DeviceTypeCode, Waitlist } from '@/types';
 import { visualizeField, VisualizeFieldOutput } from '@/ai/flows/visualize-field-flow';
 
 export default function DeviceDetailPage() {
@@ -34,6 +34,17 @@ export default function DeviceDetailPage() {
   }, [db, id]);
 
   const { data: device, loading } = useDoc<Device>(deviceRef as any);
+
+  // Fetch waitlist count for this device
+  const waitlistQuery = useMemoFirebase(() => {
+    if (!db || !id) return null;
+    return query(
+      collection(db, 'waitlist'),
+      where('deviceId', '==', id),
+      where('status', '==', 'waiting')
+    );
+  }, [db, id]);
+  const { data: waitlistItems } = useCollection<Waitlist>(waitlistQuery as any);
 
   const handleVisualize = async () => {
     if (!intent.trim()) return;
@@ -75,6 +86,9 @@ export default function DeviceDetailPage() {
     return hint?.imageUrl || 'https://picsum.photos/seed/placeholder/800/600';
   };
 
+  const isAvailable = device.status === 'available';
+  const waitlistCount = waitlistItems?.length || 0;
+
   return (
     <div className="container mx-auto px-4 py-12">
       <Button variant="ghost" onClick={() => router.back()} className="mb-8 rounded-xl">
@@ -100,9 +114,7 @@ export default function DeviceDetailPage() {
                 <Sparkles className="h-5 w-5 text-primary" />
                 フィールドの可視化体験
               </CardTitle>
-              <CardHeader>
-                <CardDescription>TimeWaverが分析する「情報場」のイメージをAIで生成します。</CardDescription>
-              </CardHeader>
+              <CardDescription>TimeWaverが分析する「情報場」のイメージをAIで生成します。</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {visualization ? (
@@ -144,23 +156,28 @@ export default function DeviceDetailPage() {
 
         <div className="space-y-8">
           <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase">{device.typeCode}</Badge>
-              {device.status === 'available' ? (
-                <Badge className="bg-emerald-500 hover:bg-emerald-600 border-none">利用可能</Badge>
+            <div className="flex flex-wrap items-center gap-3 mb-4">
+              <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase px-3 py-1">{device.typeCode}</Badge>
+              {isAvailable ? (
+                <Badge className="bg-emerald-500 hover:bg-emerald-600 border-none px-3 py-1">利用可能</Badge>
               ) : (
-                <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none">キャンセル待ち受付中</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none px-3 py-1">キャンセル待ち受付中</Badge>
+                  <span className="text-xs font-bold text-amber-600 flex items-center gap-1 bg-amber-50 px-2 py-1 rounded-full border border-amber-100">
+                    <Users className="h-3 w-3" /> 現在 {waitlistCount} 名が空き待ち中です
+                  </span>
+                </div>
               )}
             </div>
             <h1 className="font-headline text-4xl font-bold mb-4">{device.type}</h1>
-            <p className="text-muted-foreground leading-relaxed">{device.description}</p>
+            <p className="text-muted-foreground leading-relaxed text-lg">{device.description}</p>
           </div>
 
           <Separator />
 
           <Tabs defaultValue="12m" className="w-full">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg">料金プランを選択</h3>
+              <h3 className="font-bold text-lg">料金プラン</h3>
               <TabsList className="bg-secondary/50 rounded-xl p-1">
                 <TabsTrigger value="3m" className="rounded-lg">3ヶ月</TabsTrigger>
                 <TabsTrigger value="6m" className="rounded-lg">6ヶ月</TabsTrigger>
@@ -185,11 +202,19 @@ export default function DeviceDetailPage() {
           </Tabs>
 
           <div className="space-y-4 pt-4">
-            <Link href={`/apply/new?deviceId=${device.id}`} className="block">
-              <Button className="w-full h-14 rounded-2xl text-lg font-bold shadow-xl shadow-primary/20" disabled={device.status !== 'available'}>
-                {device.status === 'available' ? 'この機器を申し込む' : '空き通知を受け取る'}
-              </Button>
-            </Link>
+            {isAvailable ? (
+              <Link href={`/apply/new?deviceId=${device.id}`} className="block">
+                <Button className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl shadow-primary/20">
+                  この機器を申し込む
+                </Button>
+              </Link>
+            ) : (
+              <Link href={`/apply/waitlist?deviceId=${device.id}`} className="block">
+                <Button variant="secondary" className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl bg-amber-500 hover:bg-amber-600 text-white border-none">
+                  <Clock className="mr-2 h-6 w-6" /> 空き通知を受け取る
+                </Button>
+              </Link>
+            )}
           </div>
 
           <div className="bg-secondary/20 rounded-2xl p-6 space-y-4">
