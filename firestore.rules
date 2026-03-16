@@ -17,11 +17,17 @@ service cloud.firestore {
     // Devices: Public read access for the catalog. Admins can write.
     match /devices/{deviceId} {
       allow read: if true;
-      allow update: if request.auth != null
-        && request.resource.data.status == 'active'
-        && request.resource.data.currentUserId == request.auth.uid;
       allow create, delete: if isAdmin();
-      allow update: if isAdmin();
+      allow update: if isAdmin() || (
+        request.auth != null && (
+          // 1. User locks an available device to start application
+          (resource.data.status == 'available' && request.resource.data.status == 'processing' && request.resource.data.currentUserId == request.auth.uid) ||
+          // 2. User releases a processing device (timeout or back button)
+          (resource.data.status == 'processing' && resource.data.currentUserId == request.auth.uid && request.resource.data.status == 'available') ||
+          // 3. User completes payment and activates device
+          (resource.data.status == 'processing' && resource.data.currentUserId == request.auth.uid && request.resource.data.status == 'active')
+        )
+      );
     }
 
     // News: Public read access for published news. Admins can write.
@@ -68,7 +74,6 @@ service cloud.firestore {
     }
 
     // Waitlist: Users can create their own.
-    // Allowing authenticated users to read entries to support the "people waiting" counter.
     match /waitlist/{waitlistId} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow read: if request.auth != null;
