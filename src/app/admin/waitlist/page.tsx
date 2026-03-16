@@ -1,8 +1,9 @@
+
 'use client';
 
 import { useState, useMemo } from 'react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { collection, query, orderBy, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, orderBy, doc, deleteDoc, updateDoc, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,9 +19,11 @@ import {
   ArrowLeft,
   Package,
   CheckCircle2,
-  Users
+  Users,
+  Send,
+  CalendarClock
 } from 'lucide-react';
-import { Waitlist, UserProfile, Device } from '@/types';
+import { Waitlist, UserProfile, Device, GlobalSettings } from '@/types';
 import Link from 'next/link';
 
 export default function WaitlistManagementPage() {
@@ -28,8 +31,8 @@ export default function WaitlistManagementPage() {
   const db = useFirestore();
   const { toast } = useToast();
   
-  // State to handle which device's waitlist we are looking at
   const [selectedDeviceId, setSelectedDevice] = useState<string | null>(null);
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false);
 
   const profileRef = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -37,21 +40,24 @@ export default function WaitlistManagementPage() {
   }, [db, user]);
   const { data: profile } = useDoc<UserProfile>(profileRef as any);
 
-  // Fetch all devices to show the "Market" overview
+  const settingsRef = useMemoFirebase(() => {
+    if (!db) return null;
+    return doc(db, 'settings', 'global');
+  }, [db]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
+
   const devicesQuery = useMemoFirebase(() => {
     if (!db) return null;
     return query(collection(db, 'devices'), orderBy('typeCode', 'asc'));
   }, [db]);
   const { data: devices, loading: devicesLoading } = useCollection<Device>(devicesQuery as any);
 
-  // Fetch all waitlist entries to calculate counts and show details
   const waitlistQuery = useMemoFirebase(() => {
     if (!db) return null;
     return query(collection(db, 'waitlist'), orderBy('createdAt', 'asc'));
   }, [db]);
   const { data: fullWaitlist, loading: listLoading } = useCollection<Waitlist>(waitlistQuery as any);
 
-  // Map waitlist counts to device IDs
   const waitlistCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     fullWaitlist.forEach(item => {
@@ -86,6 +92,57 @@ export default function WaitlistManagementPage() {
     });
   };
 
+  const handleBatchOffer = async () => {
+    if (!db || !selectedDeviceId || !settings) return;
+    
+    const intervalHours = settings.waitlistEmailInterval || 24;
+    const waitingUsers = filteredWaitlist.filter(i => i.status === 'waiting');
+    
+    if (waitingUsers.length === 0) {
+      toast({ variant: "destructive", title: "対象者がいません", description: "現在「待機中」のユーザーはいません。" });
+      return;
+    }
+
+    if (!confirm(`${waitingUsers.length}名の待機者に対し、${intervalHours}時間おきに案内を順次送信予約します。よろしいですか？`)) return;
+
+    setIsProcessingBatch(true);
+    const batch = writeBatch(db);
+    const now = new Date();
+
+    waitingUsers.forEach((item, index) => {
+      const waitlistRef = doc(db, 'waitlist', item.id);
+      
+      if (index === 0) {
+        // First user is notified immediately
+        batch.update(waitlistRef, { 
+          status: 'notified',
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        // Subsequent users are scheduled
+        const scheduledTime = new Date(now.getTime() + (index * intervalHours * 60 * 60 * 1000));
+        batch.update(waitlistRef, {
+          status: 'scheduled',
+          scheduledNotifyAt: Timestamp.fromDate(scheduledTime),
+          updatedAt: serverTimestamp()
+        });
+      }
+    });
+
+    batch.commit()
+      .then(() => {
+        toast({ 
+          title: "一括案内を予約しました", 
+          description: `先頭の1名に案内を送信し、残り${waitingUsers.length - 1}名の送信予約を完了しました。` 
+        });
+      })
+      .catch((err) => {
+        console.error("Batch Commit Error:", err);
+        toast({ variant: "destructive", title: "エラー", description: "案内予約に失敗しました。" });
+      })
+      .finally(() => setIsProcessingBatch(false));
+  };
+
   if (authLoading || (profile && profile.role !== 'admin' && !authLoading)) {
     if (profile?.role !== 'admin') return <div className="text-center py-20"><ShieldAlert className="mx-auto h-12 w-12 text-destructive mb-4" /> 管理者権限が必要です</div>;
     return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
@@ -93,7 +150,6 @@ export default function WaitlistManagementPage() {
 
   return (
     <div className="container mx-auto px-4 py-12 space-y-8">
-      {/* Header Section */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold font-headline flex items-center gap-2">
@@ -105,9 +161,20 @@ export default function WaitlistManagementPage() {
         </div>
         <div className="flex gap-2">
           {selectedDeviceId ? (
-            <Button variant="outline" className="rounded-xl shadow-sm" onClick={() => setSelectedDevice(null)}>
-              <ArrowLeft className="h-4 w-4 mr-2" /> デバイス一覧に戻る
-            </Button>
+            <>
+              <Button 
+                variant="outline" 
+                className="rounded-xl shadow-sm border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                onClick={handleBatchOffer}
+                disabled={isProcessingBatch}
+              >
+                {isProcessingBatch ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                一括オファー送信 (自動間隔)
+              </Button>
+              <Button variant="outline" className="rounded-xl shadow-sm" onClick={() => setSelectedDevice(null)}>
+                <ArrowLeft className="h-4 w-4 mr-2" /> デバイス一覧に戻る
+              </Button>
+            </>
           ) : (
             <Link href="/admin">
               <Button variant="outline" className="rounded-xl shadow-sm">ダッシュボードに戻る</Button>
@@ -119,7 +186,6 @@ export default function WaitlistManagementPage() {
       {devicesLoading || listLoading ? (
         <div className="flex justify-center py-32"><Loader2 className="animate-spin h-12 w-12 text-primary" /></div>
       ) : !selectedDeviceId ? (
-        /* View 1: Device Overview */
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {devices.map((device) => {
             const count = waitlistCounts[device.id] || 0;
@@ -161,15 +227,8 @@ export default function WaitlistManagementPage() {
               </Card>
             );
           })}
-          {devices.length === 0 && (
-            <div className="col-span-full py-32 text-center bg-slate-50 rounded-[3rem] border-2 border-dashed">
-              <Package className="mx-auto h-12 w-12 text-slate-300 mb-4" />
-              <p className="text-muted-foreground">登録されているデバイスがありません</p>
-            </div>
-          )}
         </div>
       ) : (
-        /* View 2: Detailed Waitlist for selected device */
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border flex items-center gap-6">
             <div className="h-16 w-16 bg-primary/10 rounded-2xl flex items-center justify-center">
@@ -180,16 +239,16 @@ export default function WaitlistManagementPage() {
               <div className="flex items-center gap-3 mt-1">
                 <Badge variant="outline" className="font-mono text-[10px]">{selectedDevice?.serialNumber}</Badge>
                 <span className="text-sm text-muted-foreground flex items-center gap-1">
-                  <Users className="h-4 w-4" /> 現在 {filteredWaitlist.filter(i => i.status === 'waiting').length} 名が待機中
+                  <Users className="h-4 w-4" /> 現在 {filteredWaitlist.filter(i => i.status === 'waiting' || i.status === 'scheduled').length} 名が待機中
                 </span>
               </div>
             </div>
-            {selectedDevice?.status === 'available' && (
-              <div className="bg-emerald-50 text-emerald-700 px-4 py-2 rounded-xl flex items-center gap-2 border border-emerald-100">
-                <CheckCircle2 className="h-4 w-4" />
-                <span className="text-xs font-bold">この機器は現在「利用可能」です。待機者に案内を送信してください。</span>
-              </div>
-            )}
+            <div className="bg-slate-50 border px-4 py-2 rounded-xl text-xs space-y-1">
+              <p className="font-bold text-muted-foreground uppercase flex items-center gap-1">
+                <Clock className="h-3 w-3" /> 送信間隔設定
+              </p>
+              <p className="text-primary font-bold">{settings?.waitlistEmailInterval || 24} 時間おき</p>
+            </div>
           </div>
 
           <Card className="border-none shadow-xl rounded-[2.5rem] overflow-hidden bg-white">
@@ -201,6 +260,7 @@ export default function WaitlistManagementPage() {
                     <TableHead>登録日</TableHead>
                     <TableHead>ユーザー名 / メール</TableHead>
                     <TableHead>ステータス</TableHead>
+                    <TableHead>案内予定</TableHead>
                     <TableHead className="text-right pr-8">操作</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -210,26 +270,32 @@ export default function WaitlistManagementPage() {
                       <TableCell className="pl-8">
                         <span className="font-mono text-sm font-bold text-primary">#{index + 1}</span>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground font-medium">
-                        {item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleDateString('ja-JP', {
-                          year: 'numeric',
-                          month: '2-digit',
-                          day: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        }) : '-'}
+                      <TableCell className="text-[10px] text-muted-foreground">
+                        {item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleDateString() : '-'}
                       </TableCell>
                       <TableCell>
                         <div className="font-bold text-sm">{item.userName}</div>
-                        <div className="text-[10px] text-muted-foreground font-mono">{item.userEmail}</div>
+                        <div className="text-[10px] text-muted-foreground">{item.userEmail}</div>
                       </TableCell>
                       <TableCell>
                         <Badge 
-                          variant={item.status === 'notified' ? 'default' : 'secondary'}
-                          className={`text-[10px] px-3 py-1 rounded-lg ${item.status === 'notified' ? 'bg-emerald-500' : 'bg-slate-100 text-slate-500'}`}
+                          variant={item.status === 'notified' ? 'default' : item.status === 'scheduled' ? 'secondary' : 'outline'}
+                          className={`text-[10px] px-3 py-1 rounded-lg ${
+                            item.status === 'notified' ? 'bg-emerald-500' : 
+                            item.status === 'scheduled' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                            'bg-slate-100 text-slate-500'
+                          }`}
                         >
-                          {item.status === 'notified' ? '通知・案内済み' : '待機中'}
+                          {item.status === 'notified' ? '案内済み' : item.status === 'scheduled' ? '通知予約済み' : '待機中'}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-[10px] font-medium text-blue-600">
+                        {item.status === 'scheduled' && item.scheduledNotifyAt ? (
+                          <div className="flex items-center gap-1">
+                            <CalendarClock className="h-3 w-3" />
+                            {new Date(item.scheduledNotifyAt.seconds * 1000).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        ) : '-'}
                       </TableCell>
                       <TableCell className="text-right pr-8 space-x-2">
                         <Button 
@@ -239,7 +305,7 @@ export default function WaitlistManagementPage() {
                           onClick={() => handleNotify(item)} 
                           disabled={item.status === 'notified'}
                         >
-                          <Mail className="h-4 w-4 mr-1" /> 案内送信済みにする
+                          <Mail className="h-4 w-4 mr-1" /> 案内送信済
                         </Button>
                         <Button 
                           variant="ghost" 
@@ -252,13 +318,6 @@ export default function WaitlistManagementPage() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {filteredWaitlist.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic bg-slate-50/50">
-                        このデバイスに待機しているユーザーはいません
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
             </CardContent>

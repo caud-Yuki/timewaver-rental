@@ -116,6 +116,21 @@
       },
       "required": ["userId", "deviceId", "payType", "status", "customerId"]
     },
+    "Waitlist": {
+      "title": "Waitlist",
+      "description": "User on a device waitlist",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "deviceType": { "type": "string" },
+        "status": { "type": "string", "enum": ["waiting", "notified", "scheduled", "cancelled"] },
+        "scheduledNotifyAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
     "GlobalSettings": {
       "title": "GlobalSettings",
       "description": "Global platform settings including FirstPay credentials",
@@ -128,6 +143,7 @@
         "zipcode": { "type": "string" },
         "address": { "type": "string" },
         "mode": { "type": "string", "enum": ["test", "production"] },
+        "waitlistEmailInterval": { "type": "number", "description": "Hours between automated waitlist notifications" },
         "firstpayTest": {
           "type": "object",
           "properties": {
@@ -155,6 +171,7 @@
     "/applications/{applicationId}": { "schema": "Application", "description": "Rental applications" },
     "/paymentLinks/{paymentLinkId}": { "schema": "PaymentLink", "description": "Secure payment links" },
     "/subscriptions/{subscriptionId}": { "schema": "Subscription", "description": "Active subscriptions" },
+    "/waitlist/{waitlistId}": { "schema": "Waitlist", "description": "Device waitlist entries" },
     "/settings/global": { "schema": "GlobalSettings", "description": "Global settings" }
   }
 }

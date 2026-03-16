@@ -89,7 +89,8 @@ export interface Waitlist {
   userEmail: string;
   deviceId: string;
   deviceType: string;
-  status: "waiting" | "notified" | "cancelled";
+  status: "waiting" | "notified" | "scheduled" | "cancelled";
+  scheduledNotifyAt?: Timestamp;
   createdAt: Timestamp;
 }
 
@@ -138,40 +139,6 @@ export interface SupportRequest {
   updatedAt: Timestamp;
 }
 
-export interface Coupon {
-  id: string;
-  name: string;
-  code: string;
-  discountType: "percentage" | "fixed";
-  discountValue: number;
-  status: "active" | "inactive";
-  expiresAt?: Timestamp;
-  maxUsesPerUser: number;
-  maxTotalUsers: number;
-  currentUsageCount: number;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-export interface EmailTemplate {
-  id: string;
-  name: string;
-  subject: string;
-  body: string;
-  type: "application" | "transaction" | "news" | "waiting" | "general";
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-export interface EmailTrigger {
-  id: string;
-  name: string;
-  triggerPoint: string;
-  templateId: string;
-  enabled: boolean;
-  createdAt: Timestamp;
-}
-
 export interface GlobalSettings {
   managerName: string;
   managerEmail: string;
@@ -182,6 +149,7 @@ export interface GlobalSettings {
   address: string;
   tel: string;
   mode: "test" | "production";
+  waitlistEmailInterval?: number;
   firstpayTest?: {
     apiKey: string;
     bearerToken: string;

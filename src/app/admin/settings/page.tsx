@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -10,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Globe, Key, CreditCard, ShieldCheck, Info, Settings as SettingsIcon } from 'lucide-react';
+import { Loader2, Globe, Key, CreditCard, ShieldCheck, Info, Settings as SettingsIcon, Clock } from 'lucide-react';
 import { GlobalSettings, UserProfile } from '@/types';
 import Link from 'next/link';
 
@@ -43,7 +44,8 @@ export default function AdminSettingsPage() {
     companyName: '',
     tel: '',
     zipcode: '',
-    address: ''
+    address: '',
+    waitlistEmailInterval: 24
   });
 
   useEffect(() => {
@@ -58,7 +60,8 @@ export default function AdminSettingsPage() {
         firstpayProd: {
           apiKey: settings.firstpayProd?.apiKey || '',
           bearerToken: settings.firstpayProd?.bearerToken || ''
-        }
+        },
+        waitlistEmailInterval: settings.waitlistEmailInterval || 24
       }));
       hasLoadedRef.current = true;
     }
@@ -85,6 +88,7 @@ export default function AdminSettingsPage() {
         apiKey: formData.firstpayProd?.apiKey?.trim() || '',
         bearerToken: formData.firstpayProd?.bearerToken?.trim().replace(/^Bearer\s+/i, '') || ''
       },
+      waitlistEmailInterval: Number(formData.waitlistEmailInterval) || 24,
       updatedAt: serverTimestamp(),
     };
 
@@ -169,6 +173,32 @@ export default function AdminSettingsPage() {
                 onCheckedChange={(checked) => setFormData({...formData, mode: checked ? 'production' : 'test'})}
                 className="scale-125"
               />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Waitlist Automation Settings */}
+        <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
+          <CardHeader className="bg-primary/5">
+            <CardTitle className="flex items-center gap-2 text-amber-600"><Clock className="h-5 w-5" /> キャンセル待ち自動化設定</CardTitle>
+          </CardHeader>
+          <CardContent className="p-8 space-y-6">
+            <div className="space-y-2">
+              <Label>一括案内送信の間隔（時間）</Label>
+              <div className="flex items-center gap-4">
+                <Input 
+                  type="number" 
+                  min="1"
+                  max="168"
+                  value={formData.waitlistEmailInterval} 
+                  onChange={e => setFormData({...formData, waitlistEmailInterval: parseInt(e.target.value)})} 
+                  className="rounded-xl max-w-[120px]"
+                />
+                <span className="text-sm font-medium">時間おきに送信</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                キャンセル待ちユーザーに対して一括でオファーを送信する際、各ユーザーへの案内送信をこの間隔でずらして予約します。
+              </p>
             </div>
           </CardContent>
         </Card>
