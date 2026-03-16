@@ -76,7 +76,6 @@ export default function AdminSettingsPage() {
     
     setIsSaving(true);
     
-    // Explicitly prepare the data and trim credentials
     const dataToSave = {
       ...formData,
       firstpayTest: {
@@ -145,7 +144,10 @@ export default function AdminSettingsPage() {
       <div className="flex justify-between items-center">
         <div className="space-y-1">
           <h1 className="text-3xl font-bold font-headline">基本設定</h1>
-          <p className="text-xs text-muted-foreground">権限: <Badge variant="outline">{profile?.role}</Badge></p>
+          <div className="text-xs text-muted-foreground flex items-center gap-2">
+            <span>権限:</span>
+            <Badge variant="outline">{profile?.role || 'loading...'}</Badge>
+          </div>
         </div>
         <Link href="/admin">
           <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
@@ -162,7 +164,7 @@ export default function AdminSettingsPage() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <p className="font-bold text-xl">{formData.mode === 'production' ? '本番モード' : 'テストモード'}</p>
-                  <Badge variant={formData.mode === 'production' ? 'default' : 'secondary'} className={formData.mode === 'production' ? 'bg-red-500' : 'bg-blue-500'}>
+                  <Badge variant={formData.mode === 'production' ? 'default' : 'secondary'} className={formData.mode === 'production' ? 'bg-red-500' : 'bg-blue-500 text-white'}>
                     {formData.mode === 'production' ? '実売上発生' : 'テスト用'}
                   </Badge>
                 </div>

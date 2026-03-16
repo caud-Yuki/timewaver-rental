@@ -2,11 +2,10 @@
 
 /**
  * @fileOverview FirstPay Payment API Client-side Implementation
- * Strictly follows the flow:
  * 1. RSA Key Acquisition (GET /token/encryption/key)
- * 2. Token Generation (POST /token) - NO Authorization header
+ * 2. Token Generation (POST /token) - ONLY API-KEY required
  * 3. Member Registration (POST /customer)
- * 4. Pattern A: Charge (POST /charge) OR Pattern B: Recurring (POST /recurring)
+ * 4. Execute Payment (POST /charge or /recurring)
  */
 
 import { doc, getDoc, Firestore } from 'firebase/firestore';
@@ -42,7 +41,7 @@ const getHeaders = (config: FirstPayConfig) => {
 };
 
 /**
- * Helper to parse gateway errors more intelligently
+ * Helper to parse gateway errors intelligently
  */
 const parseGatewayError = (data: any, status: number) => {
   // 1. Look for standard errors array
@@ -50,7 +49,7 @@ const parseGatewayError = (data: any, status: number) => {
     return data.errors[0].message || 'API Error';
   }
   
-  // 2. Look for field-specific errors (like encryptedData: ["error message"])
+  // 2. Look for field-specific errors (e.g., encryptedData: ["..."])
   const fieldErrors = Object.keys(data).filter(k => Array.isArray(data[k]));
   if (fieldErrors.length > 0) {
     const firstField = fieldErrors[0];
@@ -61,29 +60,20 @@ const parseGatewayError = (data: any, status: number) => {
   return `Gateway Error (${status})`;
 };
 
-/**
- * Fetches the global FirstPay configuration from Firestore
- */
 export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig | null> {
-  console.log('[PAYMENT_DEBUG] Fetching FirstPay config from Firestore...');
   const settingsRef = doc(db, 'settings', 'global');
   const snap = await getDoc(settingsRef);
   
-  if (!snap.exists()) {
-    console.error('[PAYMENT_DEBUG] No global settings found.');
-    return null;
-  }
+  if (!snap.exists()) return null;
   
   const data = snap.data();
   const mode = data.mode || 'test';
   const creds = mode === 'production' ? data.firstpayProd : data.firstpayTest;
   
   if (!creds || !creds.apiKey?.trim() || !creds.bearerToken?.trim()) {
-    console.error(`[PAYMENT_DEBUG] Missing credentials for ${mode} mode.`);
     return null;
   }
   
-  console.log(`[PAYMENT_DEBUG] Config retrieved successfully for ${mode} mode`);
   return {
     apiKey: creds.apiKey.trim(),
     bearerToken: creds.bearerToken.trim(),
@@ -92,13 +82,13 @@ export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig |
 }
 
 /**
- * Steps 2 & 3: Acquire RSA Key and Generate Card Token
+ * Sequence: RSA Acquisition -> Token Generation
  */
-export async function createCardToken(config: FirstPayConfig, card: CardInfo, phone?: string): Promise<{ cardToken: string; issuerUrl?: string }> {
+export async function createCardToken(config: FirstPayConfig, card: CardInfo): Promise<{ cardToken: string; issuerUrl?: string }> {
   const API_BASE = getApiBase(config.mode);
   
-  // Step 2: Acquire RSA Key (Requires Auth header)
-  console.log('[PAYMENT_DEBUG] Step 5.1: Fetching RSA Encryption Key...');
+  // 1. RSA Key Acquisition (Requires API-KEY + Auth header)
+  console.log('[PAYMENT_DEBUG] Step 1: Fetching RSA Encryption Key...');
   const keyRes = await fetch(`${API_BASE}/token/encryption/key`, { 
     method: "GET", 
     headers: getHeaders(config) 
@@ -118,25 +108,22 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
     throw new Error('暗号化キーのレスポンスが不正です。');
   }
 
-  console.log('[PAYMENT_DEBUG] RSA Key retrieved successfully. Hash:', keyHash);
-
-  // Encrypt card data exactly as per documentation
+  // 2. Encrypt Card Info
   const encrypt = new JSEncrypt();
   encrypt.setPublicKey(publicKey);
   const jsonToEncrypt = JSON.stringify({
     cardNo: card.cardNo.replace(/\s/g, ''),
     expireMonth: card.expireMonth.padStart(2, '0'),
-    expireYear: card.expireYear.length === 2 ? `20${card.expireYear}` : card.expireYear,
+    expireYear: card.expireYear.length === 2 ? `20${card.expireYear}` : card.expireYear, // Ensure yyyy
     holderName: card.holderName.trim().toUpperCase(),
     cvv: card.cvv.trim()
   });
   
   const encryptedData = encrypt.encrypt(jsonToEncrypt);
-
   if (!encryptedData) throw new Error('カード情報の暗号化に失敗しました。');
 
-  // Step 3: Generate Token (NO Authorization header as per docs)
-  console.log('[PAYMENT_DEBUG] Step 5.2: Issuing Card Token...');
+  // 3. Token Generation (Requires ONLY API-KEY)
+  console.log('[PAYMENT_DEBUG] Step 2: Issuing Card Token...');
   const tokenRes = await fetch(`${API_BASE}/token`, {
     method: "POST",
     headers: {
@@ -145,27 +132,20 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
     },
     body: JSON.stringify({
       encryptedData,
-      encryptionKeyHash: keyHash.trim(), // Documentation requires this field name
-      validateUsableCard: false // Set to false to avoid 500 during simple decryption test
+      encryptionKeyHash: keyHash.trim(),
+      validateUsableCard: false 
     })
   });
 
-  const rawText = await tokenRes.text();
-  let data: any = {};
-  try {
-    data = JSON.parse(rawText);
-  } catch (e) {
-    console.error('[PAYMENT_DEBUG] Token response is not JSON:', rawText);
-    throw new Error(`トークン発行サーバーエラー (${tokenRes.status})`);
-  }
+  const data = await tokenRes.json();
   
-  if (!tokenRes.ok) {
-    console.error(`[PAYMENT_DEBUG] Token Generation Failed [Status: ${tokenRes.status}]:`, data);
+  if (!tokenRes.ok || data.errors) {
+    console.error('[PAYMENT_DEBUG] Token Generation Failed:', data);
     const errorMsg = parseGatewayError(data, tokenRes.status);
     throw new Error(`${errorMsg} (${tokenRes.status})`);
   }
 
-  console.log('[PAYMENT_DEBUG] Token response received. cardToken:', data.cardToken);
+  console.log('[PAYMENT_DEBUG] Token issued successfully:', data.cardToken);
 
   return {
     cardToken: data.cardToken,
@@ -173,9 +153,6 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
   };
 }
 
-/**
- * Step 5.3: Polls the status of a 3DS authentication
- */
 export async function poll3dsStatus(config: FirstPayConfig, cardToken: string): Promise<boolean> {
   const API_BASE = getApiBase(config.mode);
   const headers = getHeaders(config);
@@ -184,22 +161,13 @@ export async function poll3dsStatus(config: FirstPayConfig, cardToken: string): 
   for (let i = 0; i < 300; i++) {
     const res = await fetch(`${API_BASE}/token/${cardToken}/status/three-ds`, { headers });
     const resData = await res.json();
-    if (resData.status === "AVAILABLE") {
-      console.log('[PAYMENT_DEBUG] 3DS status: AVAILABLE');
-      return true;
-    }
-    if (resData.status === "NOT_AVAILABLE") {
-      console.log('[PAYMENT_DEBUG] 3DS status: NOT_AVAILABLE');
-      return false;
-    }
+    if (resData.status === "AVAILABLE") return true;
+    if (resData.status === "NOT_AVAILABLE") return false;
     await new Promise(r => setTimeout(r, 2000));
   }
   return false;
 }
 
-/**
- * ① 会員登録API
- */
 export async function registerCustomer(config: FirstPayConfig, customerData: {
   customerId: string;
   cardToken: string;
@@ -209,7 +177,6 @@ export async function registerCustomer(config: FirstPayConfig, customerData: {
   tel: string;
 }) {
   const API_BASE = getApiBase(config.mode);
-  console.log('[PAYMENT_DEBUG] Registering customer...', customerData.customerId);
   const res = await fetch(`${API_BASE}/customer`, {
     method: "POST",
     headers: getHeaders(config),
@@ -217,17 +184,10 @@ export async function registerCustomer(config: FirstPayConfig, customerData: {
   });
   
   const data = await res.json();
-  if (!res.ok) {
-    console.error('[PAYMENT_DEBUG] Customer Registration Failed:', data);
-    throw new Error(parseGatewayError(data, res.status));
-  }
-  
+  if (!res.ok) throw new Error(parseGatewayError(data, res.status));
   return data;
 }
 
-/**
- * ④-A 決済API (Pattern 1: Full Pay)
- */
 export async function createCharge(config: FirstPayConfig, chargeData: {
   customerId: string;
   paymentId: string;
@@ -235,7 +195,6 @@ export async function createCharge(config: FirstPayConfig, chargeData: {
   amount: number;
 }) {
   const API_BASE = getApiBase(config.mode);
-  console.log('[PAYMENT_DEBUG] Creating charge...', chargeData.paymentId);
   const res = await fetch(`${API_BASE}/charge`, {
     method: "POST",
     headers: getHeaders(config),
@@ -243,29 +202,21 @@ export async function createCharge(config: FirstPayConfig, chargeData: {
   });
   
   const data = await res.json();
-  if (!res.ok) {
-    console.error('[PAYMENT_DEBUG] Charge Creation Failed:', data);
-    throw new Error(parseGatewayError(data, res.status));
-  }
-  
+  if (!res.ok) throw new Error(parseGatewayError(data, res.status));
   return data;
 }
 
-/**
- * ④-B 継続決済登録API (Pattern 2: Monthly Pay)
- */
 export async function createRecurring(config: FirstPayConfig, recurringData: {
   reccuringId: string;
   paymentName: string;
   customerId: string;
-  startAt: string; // yyyy-MM-dd
+  startAt: string;
   payAmount: number;
   currentlyPayAmount: number;
   recurringDayOfMonth?: number;
   maxExecutionNumber?: number;
 }) {
   const API_BASE = getApiBase(config.mode);
-  console.log('[PAYMENT_DEBUG] Registering recurring payment...', recurringData.reccuringId);
   const res = await fetch(`${API_BASE}/recurring`, {
     method: "POST",
     headers: getHeaders(config),
@@ -278,10 +229,6 @@ export async function createRecurring(config: FirstPayConfig, recurringData: {
   });
   
   const data = await res.json();
-  if (!res.ok) {
-    console.error('[PAYMENT_DEBUG] Recurring Registration Failed:', data);
-    throw new Error(parseGatewayError(data, res.status));
-  }
-  
+  if (!res.ok) throw new Error(parseGatewayError(data, res.status));
   return data;
 }
