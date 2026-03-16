@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -197,7 +196,7 @@ export default function AdminSettingsPage() {
                   min="1"
                   max="168"
                   value={formData.waitlistEmailInterval} 
-                  onChange={e => setFormData({...formData, waitlistEmailInterval: parseInt(e.target.value)})} 
+                  onChange={e => setFormData({...formData, waitlistEmailInterval: parseInt(e.target.value) || 0})} 
                   className="rounded-xl max-w-[120px]"
                 />
                 <span className="text-sm font-medium">時間おきに送信</span>
@@ -217,7 +216,7 @@ export default function AdminSettingsPage() {
                   min="1"
                   max="720"
                   value={formData.waitlistValidityHours} 
-                  onChange={e => setFormData({...formData, waitlistValidityHours: parseInt(e.target.value)})} 
+                  onChange={e => setFormData({...formData, waitlistValidityHours: parseInt(e.target.value) || 0})} 
                   className="rounded-xl max-w-[120px]"
                 />
                 <span className="text-sm font-medium">時間経過後にリストをリフレッシュ</span>
@@ -237,7 +236,7 @@ export default function AdminSettingsPage() {
                   min="1"
                   max="60"
                   value={formData.applicationSessionMinutes} 
-                  onChange={e => setFormData({...formData, applicationSessionMinutes: parseInt(e.target.value)})} 
+                  onChange={e => setFormData({...formData, applicationSessionMinutes: parseInt(e.target.value) || 0})} 
                   className="rounded-xl max-w-[120px]"
                 />
                 <span className="text-sm font-medium">分間操作がない場合にタイムアウト</span>

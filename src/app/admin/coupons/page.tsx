@@ -120,7 +120,7 @@ export default function CouponManagementPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>割引額</Label>
-                  <Input type="number" value={currentCoupon.discountValue} onChange={e => setCurrentCoupon({...currentCoupon, discountValue: parseInt(e.target.value)})} />
+                  <Input type="number" value={currentCoupon.discountValue} onChange={e => setCurrentCoupon({...currentCoupon, discountValue: parseInt(e.target.value) || 0})} />
                 </div>
                 <div className="space-y-2">
                   <Label>ステータス</Label>
@@ -134,7 +134,7 @@ export default function CouponManagementPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>利用上限 (総数)</Label>
-                  <Input type="number" value={currentCoupon.maxTotalUsers} onChange={e => setCurrentCoupon({...currentCoupon, maxTotalUsers: parseInt(e.target.value)})} />
+                  <Input type="number" value={currentCoupon.maxTotalUsers} onChange={e => setCurrentCoupon({...currentCoupon, maxTotalUsers: parseInt(e.target.value) || 0})} />
                 </div>
               </div>
               <DialogFooter>

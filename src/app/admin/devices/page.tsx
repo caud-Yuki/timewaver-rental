@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -341,19 +340,19 @@ export default function DeviceManagementPage() {
               </div>
               <div className="space-y-2">
                 <Label>月額料金 (3ヶ月プラン)</Label>
-                <Input type="number" value={formData.price3mMonthly} onChange={e => setFormData({...formData, price3mMonthly: parseInt(e.target.value)})} className="rounded-xl" />
+                <Input type="number" value={formData.price3mMonthly} onChange={e => setFormData({...formData, price3mMonthly: parseInt(e.target.value) || 0})} className="rounded-xl" />
               </div>
               <div className="space-y-2">
                 <Label>月額料金 (6ヶ月プラン)</Label>
-                <Input type="number" value={formData.price6mMonthly} onChange={e => setFormData({...formData, price6mMonthly: parseInt(e.target.value)})} className="rounded-xl" />
+                <Input type="number" value={formData.price6mMonthly} onChange={e => setFormData({...formData, price6mMonthly: parseInt(e.target.value) || 0})} className="rounded-xl" />
               </div>
               <div className="space-y-2">
                 <Label>月額料金 (12ヶ月プラン)</Label>
-                <Input type="number" value={formData.price12mMonthly} onChange={e => setFormData({...formData, price12mMonthly: parseInt(e.target.value)})} className="rounded-xl" />
+                <Input type="number" value={formData.price12mMonthly} onChange={e => setFormData({...formData, price12mMonthly: parseInt(e.target.value) || 0})} className="rounded-xl" />
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-1">一括割引率 (%) <Percent className="h-3 w-3" /></Label>
-                <Input type="number" min="0" max="100" value={formData.fullPaymentDiscountRate} onChange={e => setFormData({...formData, fullPaymentDiscountRate: parseInt(e.target.value)})} className="rounded-xl" />
+                <Input type="number" min="0" max="100" value={formData.fullPaymentDiscountRate} onChange={e => setFormData({...formData, fullPaymentDiscountRate: parseInt(e.target.value) || 0})} className="rounded-xl" />
               </div>
               <div className="space-y-2 col-span-2">
                 <Label>説明</Label>
