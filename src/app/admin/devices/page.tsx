@@ -106,16 +106,25 @@ export default function DeviceManagementPage() {
         .then(async () => {
           // Trigger logic: If status changed to 'available', notify the waitlist
           if (formData.status === 'available' && editingDevice.status !== 'available') {
+            // Simplified query to avoid index requirement: filter by device and status, sort in memory
             const waitlistQuery = query(
               collection(db, 'waitlist'),
               where('deviceId', '==', editingDevice.id),
-              where('status', '==', 'waiting'),
-              orderBy('createdAt', 'asc'),
-              limit(1)
+              where('status', '==', 'waiting')
             );
+            
             const waitlistSnap = await getDocs(waitlistQuery);
+            
             if (!waitlistSnap.empty) {
-              const firstPerson = waitlistSnap.docs[0];
+              // Sort by createdAt in memory to find the first person in line
+              const items = waitlistSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
+              items.sort((a, b) => {
+                const timeA = a.createdAt?.seconds || 0;
+                const timeB = b.createdAt?.seconds || 0;
+                return timeA - timeB;
+              });
+              
+              const firstPerson = items[0];
               updateDoc(doc(db, 'waitlist', firstPerson.id), {
                 status: 'notified',
                 updatedAt: serverTimestamp()
