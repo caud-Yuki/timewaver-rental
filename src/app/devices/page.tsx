@@ -98,7 +98,7 @@ export default function DeviceListPage() {
                       </Badge>
                     ) : (
                       <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
-                        <Clock className="h-3.5 w-3.5" /> 予約受付中
+                        <Clock className="h-3.5 w-3.5" /> キャンセル待ち受付中
                       </Badge>
                     )}
                   </div>

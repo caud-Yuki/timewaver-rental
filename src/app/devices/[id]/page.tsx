@@ -100,7 +100,9 @@ export default function DeviceDetailPage() {
                 <Sparkles className="h-5 w-5 text-primary" />
                 フィールドの可視化体験
               </CardTitle>
-              <CardDescription>TimeWaverが分析する「情報場」のイメージをAIで生成します。</CardDescription>
+              <CardHeader>
+                <CardDescription>TimeWaverが分析する「情報場」のイメージをAIで生成します。</CardDescription>
+              </CardHeader>
             </CardHeader>
             <CardContent className="space-y-4">
               {visualization ? (
@@ -147,7 +149,7 @@ export default function DeviceDetailPage() {
               {device.status === 'available' ? (
                 <Badge className="bg-emerald-500 hover:bg-emerald-600 border-none">利用可能</Badge>
               ) : (
-                <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none">予約受付中</Badge>
+                <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none">キャンセル待ち受付中</Badge>
               )}
             </div>
             <h1 className="font-headline text-4xl font-bold mb-4">{device.type}</h1>
