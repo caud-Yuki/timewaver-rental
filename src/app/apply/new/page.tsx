@@ -22,7 +22,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck, Timer } from 'lucide-react';
+import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck, Timer, Percent } from 'lucide-react';
 import { Device, UserProfile, GlobalSettings } from '@/types';
 import Link from 'next/link';
 
@@ -248,7 +248,7 @@ function ApplyForm() {
   };
 
   if (deviceLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
-  if (!deviceId || !device) return <div className="text-center py-20"><AlertCircle className="mx-auto h-12 w-12 text-destructive mb-4" /><p>対象の機器が見つかりませんでした。</p></div>;
+  if (!deviceId || !device) return <div className="text-center py-20"><AlertCircle className="mx-auto h-12 w-12 text-destructive mb-4" /><p>対象의機器が見つかりませんでした。</p></div>;
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl">
@@ -263,11 +263,18 @@ function ApplyForm() {
             <CardHeader className="bg-primary/5 pb-8 pt-10">
               <div className="flex justify-between items-center">
                 <CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-6 w-6 text-primary" /> 申請情報の入力</CardTitle>
-                {settings && (
-                  <Badge variant="outline" className="bg-white text-[10px] flex items-center gap-1 py-1">
-                    <Timer className="h-3.3 w-3.3" /> 期限あり
-                  </Badge>
-                )}
+                <div className="flex gap-2">
+                  {settings && (
+                    <Badge variant="outline" className="bg-white text-[10px] flex items-center gap-1 py-1">
+                      <Timer className="h-3.3 w-3.3" /> 期限あり
+                    </Badge>
+                  )}
+                  {device.fullPaymentDiscountRate && device.fullPaymentDiscountRate > 0 && (
+                    <Badge className="bg-rose-500 text-white text-[10px] py-1 border-none">
+                      <Percent className="h-3 w-3 mr-1" /> 一括割引対象
+                    </Badge>
+                  )}
+                </div>
               </div>
               <CardDescription>契約期間と支払い方法を選択してください</CardDescription>
             </CardHeader>
@@ -306,9 +313,16 @@ function ApplyForm() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="monthly">月々払い（クレジットカード）</SelectItem>
-                      <SelectItem value="full">期間分一括払い</SelectItem>
+                      <SelectItem value="full">
+                        期間分一括払い {device.fullPaymentDiscountRate ? `(${device.fullPaymentDiscountRate}% OFF)` : ''}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
+                  {formData.payType === 'full' && device.fullPaymentDiscountRate && (
+                    <p className="text-xs text-rose-600 font-bold flex items-center gap-1">
+                      <Percent className="h-3 w-3" /> 一括払い特典: 合計金額から {device.fullPaymentDiscountRate}% 割引が適用されています
+                    </p>
+                  )}
                 </div>
 
                 <Separator />
@@ -408,6 +422,11 @@ function ApplyForm() {
                 <div className="flex justify-between items-end mt-4">
                   <span className="text-sm font-bold">お支払い合計金額</span>
                   <div className="text-right">
+                    {formData.payType === 'full' && device.fullPaymentDiscountRate && (
+                      <span className="text-[10px] text-rose-500 font-bold block mb-1 line-through opacity-50">
+                        ¥{(device.price[`${formData.rentalType}m` as keyof Device['price']].monthly * formData.rentalType).toLocaleString()}
+                      </span>
+                    )}
                     <span className="text-2xl font-bold text-primary">¥{calculateAmount().toLocaleString()}</span>
                     <span className="text-xs text-muted-foreground block">
                       {formData.payType === 'monthly' ? '(初回分)' : '(全額分)'} (税込)

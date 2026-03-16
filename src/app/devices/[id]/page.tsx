@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
-import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2, Users, Timer } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2, Users, Timer, Percent } from 'lucide-react';
 import { Device, DeviceTypeCode, Waitlist } from '@/types';
 import { visualizeField, VisualizeFieldOutput } from '@/ai/flows/visualize-field-flow';
 import { useToast } from '@/hooks/use-toast';
@@ -221,9 +221,14 @@ export default function DeviceDetailPage() {
                     <span className="text-3xl font-bold text-primary">¥{device.price?.[m as keyof Device['price']].monthly.toLocaleString()}</span>
                     <span className="text-sm text-muted-foreground"> / 月</span>
                   </div>
-                  <div className="p-6 rounded-2xl border-2 border-secondary bg-secondary/5">
+                  <div className="p-6 rounded-2xl border-2 border-secondary bg-secondary/5 relative">
                     <span className="text-xs text-muted-foreground font-bold block mb-1">一括払い</span>
                     <span className="text-3xl font-bold">¥{device.price?.[m as keyof Device['price']].full.toLocaleString()}</span>
+                    {device.fullPaymentDiscountRate && device.fullPaymentDiscountRate > 0 && (
+                      <Badge className="absolute -top-3 -right-2 bg-rose-500 text-white font-bold text-[10px]">
+                        {device.fullPaymentDiscountRate}% OFF
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </TabsContent>

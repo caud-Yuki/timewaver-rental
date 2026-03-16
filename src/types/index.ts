@@ -12,6 +12,7 @@ export interface Device {
   typeCode: DeviceTypeCode;
   modules: string[];
   description: string;
+  fullPaymentDiscountRate?: number;
   price: {
     "3m": { full: number; monthly: number };
     "6m": { full: number; monthly: number };

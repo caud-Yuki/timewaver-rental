@@ -38,6 +38,7 @@
         "modules": { "type": "array", "items": { "type": "string" } },
         "status": { "type": "string", "enum": ["available", "active", "processing", "terminated_early", "terminated"] },
         "description": { "type": "string" },
+        "fullPaymentDiscountRate": { "type": "number", "description": "Discount percentage for full payment" },
         "price": {
           "type": "object",
           "properties": {

@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package, Percent } from 'lucide-react';
 import { Device, DeviceTypeCode, UserProfile, GlobalSettings, Waitlist } from '@/types';
 import Link from 'next/link';
 
@@ -38,6 +38,7 @@ export default function DeviceManagementPage() {
     price3mMonthly: 50000,
     price6mMonthly: 40000,
     price12mMonthly: 30000,
+    fullPaymentDiscountRate: 0,
   });
 
   const profileRef = useMemoFirebase(() => {
@@ -69,6 +70,7 @@ export default function DeviceManagementPage() {
       price3mMonthly: 50000,
       price6mMonthly: 40000,
       price12mMonthly: 30000,
+      fullPaymentDiscountRate: 0,
     });
     setIsDialogOpen(true);
   };
@@ -84,6 +86,7 @@ export default function DeviceManagementPage() {
       price3mMonthly: device.price?.['3m']?.monthly || 50000,
       price6mMonthly: device.price?.['6m']?.monthly || 40000,
       price12mMonthly: device.price?.['12m']?.monthly || 30000,
+      fullPaymentDiscountRate: device.fullPaymentDiscountRate || 0,
     });
     setIsDialogOpen(true);
   };
@@ -93,16 +96,19 @@ export default function DeviceManagementPage() {
     if (!db) return;
     setIsSubmitting(true);
 
+    const discountFactor = 1 - (formData.fullPaymentDiscountRate / 100);
+
     const deviceData = {
       serialNumber: formData.serialNumber,
       type: formData.type,
       typeCode: formData.typeCode,
       status: formData.status,
       description: formData.description,
+      fullPaymentDiscountRate: formData.fullPaymentDiscountRate,
       price: {
-        "3m": { full: formData.price3mMonthly * 3, monthly: formData.price3mMonthly },
-        "6m": { full: formData.price6mMonthly * 6, monthly: formData.price6mMonthly },
-        "12m": { full: formData.price12mMonthly * 12, monthly: formData.price12mMonthly }
+        "3m": { full: Math.round(formData.price3mMonthly * 3 * discountFactor), monthly: formData.price3mMonthly },
+        "6m": { full: Math.round(formData.price6mMonthly * 6 * discountFactor), monthly: formData.price6mMonthly },
+        "12m": { full: Math.round(formData.price12mMonthly * 12 * discountFactor), monthly: formData.price12mMonthly }
       },
       updatedAt: serverTimestamp(),
     };
@@ -110,7 +116,6 @@ export default function DeviceManagementPage() {
     if (editingDevice?.id) {
       updateDoc(doc(db, 'devices', editingDevice.id), deviceData as any)
         .then(async () => {
-          // Trigger logic: If status changed to 'available', trigger staggered notifications
           if (formData.status === 'available' && editingDevice.status !== 'available' && settings) {
             const waitlistQuery = query(
               collection(db, 'waitlist'),
@@ -345,6 +350,10 @@ export default function DeviceManagementPage() {
               <div className="space-y-2">
                 <Label>月額料金 (12ヶ月プラン)</Label>
                 <Input type="number" value={formData.price12mMonthly} onChange={e => setFormData({...formData, price12mMonthly: parseInt(e.target.value)})} className="rounded-xl" />
+              </div>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1">一括割引率 (%) <Percent className="h-3 w-3" /></Label>
+                <Input type="number" min="0" max="100" value={formData.fullPaymentDiscountRate} onChange={e => setFormData({...formData, fullPaymentDiscountRate: parseInt(e.target.value)})} className="rounded-xl" />
               </div>
               <div className="space-y-2 col-span-2">
                 <Label>説明</Label>
