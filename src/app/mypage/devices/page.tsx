@@ -81,7 +81,7 @@ export default function MyDevicesPage() {
   }, [db, user]);
   const { data: waitlist, loading: waitlistLoading } = useCollection<Waitlist>(waitlistQuery as any);
 
-  // 4. Active Subscriptions (to get accurate endAt)
+  // 4. Active Subscriptions (to get accurate endAt and rentalMonths)
   const subsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return query(
@@ -228,7 +228,13 @@ export default function MyDevicesPage() {
                                   : '未設定'}
                             </p>
                           </div>
-                          <div className="space-y-1 col-span-2 pt-2">
+                          <div className="space-y-1 pt-2">
+                            <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+                              <Package className="h-3 w-3" /> 契約プラン
+                            </span>
+                            <p className="font-medium">{subscription?.rentalMonths ? `${subscription.rentalMonths}ヶ月プラン` : '-'}</p>
+                          </div>
+                          <div className="space-y-1 pt-2">
                             <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
                               <Settings className="h-3 w-3" /> 保守状況
                             </span>
