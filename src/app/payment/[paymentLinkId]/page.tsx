@@ -20,6 +20,8 @@ import {
   createCharge, 
   createRecurring 
 } from '@/lib/firstpay';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 
 export default function PaymentPage() {
   const params = useParams();
@@ -87,16 +89,22 @@ export default function PaymentPage() {
 
       // 2. Tokenize Card (includes RSA encryption internally)
       console.log('[PAYMENT_DEBUG] Stage 1: Card Tokenization');
-      const { cardToken, issuerUrl } = await createCardToken(config, cardInfo, profile.tel);
+      const tokenResult = await createCardToken(config, cardInfo, profile.tel);
+      
+      if (!tokenResult.cardToken) {
+        console.error('[PAYMENT_DEBUG] Token missing from gateway response:', tokenResult);
+        throw new Error('カードトークンの取得に失敗しました。');
+      }
+      
+      const { cardToken, issuerUrl } = tokenResult;
       
       // 3. Handle 3DS if required
       if (issuerUrl) {
         console.log('[PAYMENT_DEBUG] Stage 2: 3DS Authentication Required');
         toast({ title: "本人認証が必要です", description: "別ウィンドウで開かれたカード会社の認証を完了してください。" });
-        const authWindow = window.open(issuerUrl, '_blank', 'width=600,height=600');
+        window.open(issuerUrl, '_blank', 'width=600,height=600');
         const isAuthOk = await poll3dsStatus(config, cardToken);
         if (!isAuthOk) throw new Error('3DS認証に失敗したか、キャンセルされました。');
-        if (authWindow) authWindow.close();
         console.log('[PAYMENT_DEBUG] Stage 2: 3DS Auth Passed');
       }
 
@@ -141,14 +149,14 @@ export default function PaymentPage() {
         recurringId = recResult.reccuringId;
       }
 
-      // 6. Create Subscription Record
+      // 6. Create Subscription Record (Non-blocking)
       console.log('[PAYMENT_DEBUG] Stage 5: Recording Subscription in Firestore');
       const subscriptionData = {
         userId: user.uid,
         deviceId: paymentLink.deviceId,
         payType: paymentLink.payType,
         startAt: serverTimestamp(),
-        endAt: serverTimestamp(), // Placeholder - calculated by admin on fulfillment
+        endAt: serverTimestamp(), // Placeholder
         recurringId: recurringId || null,
         paymentId: transactionId || null,
         customerId: customerId,
@@ -158,34 +166,58 @@ export default function PaymentPage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-      await addDoc(collection(db, 'subscriptions'), subscriptionData);
+      
+      addDoc(collection(db, 'subscriptions'), subscriptionData)
+        .catch(async () => {
+          errorEmitter.emit('permission-error', new FirestorePermissionError({
+            path: 'subscriptions',
+            operation: 'create',
+            requestResourceData: subscriptionData,
+          } satisfies SecurityRuleContext));
+        });
 
-      // 7. Update User Profile with customer info
+      // 7. Update User Profile with customer info (Non-blocking)
       console.log('[PAYMENT_DEBUG] Stage 6: Updating User Profile');
-      await updateDoc(doc(db, 'users', user.uid), {
+      const userUpdateData = {
         customerId,
-        cardToken,
+        cardToken: cardToken || null, // Ensure no undefined value
         updatedAt: serverTimestamp()
-      });
+      };
+      updateDoc(doc(db, 'users', user.uid), userUpdateData)
+        .catch(async () => {
+          errorEmitter.emit('permission-error', new FirestorePermissionError({
+            path: `users/${user.uid}`,
+            operation: 'update',
+            requestResourceData: userUpdateData,
+          } satisfies SecurityRuleContext));
+        });
 
-      // 8. Update Firestore Statuses
+      // 8. Update Firestore Statuses (Non-blocking)
       console.log('[PAYMENT_DEBUG] Stage 7: Final Status Updates');
-      await updateDoc(doc(db, 'paymentLinks', paymentLink.id), {
-        status: 'used',
-        updatedAt: serverTimestamp(),
-      });
+      
+      const linkUpdateRef = doc(db, 'paymentLinks', paymentLink.id);
+      updateDoc(linkUpdateRef, { status: 'used', updatedAt: serverTimestamp() })
+        .catch(async () => {
+          errorEmitter.emit('permission-error', new FirestorePermissionError({ path: linkUpdateRef.path, operation: 'update' }));
+        });
 
-      await updateDoc(doc(db, 'applications', paymentLink.applicationId), {
-        status: 'completed',
-        updatedAt: serverTimestamp(),
-      });
+      const appUpdateRef = doc(db, 'applications', paymentLink.applicationId);
+      updateDoc(appUpdateRef, { status: 'completed', updatedAt: serverTimestamp() })
+        .catch(async () => {
+          errorEmitter.emit('permission-error', new FirestorePermissionError({ path: appUpdateRef.path, operation: 'update' }));
+        });
 
-      await updateDoc(doc(db, 'devices', paymentLink.deviceId), {
+      const deviceUpdateRef = doc(db, 'devices', paymentLink.deviceId);
+      const deviceUpdateData = {
         status: 'active',
         currentUserId: user.uid,
         contractStartAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      };
+      updateDoc(deviceUpdateRef, deviceUpdateData)
+        .catch(async () => {
+          errorEmitter.emit('permission-error', new FirestorePermissionError({ path: deviceUpdateRef.path, operation: 'update', requestResourceData: deviceUpdateData }));
+        });
 
       console.log('[PAYMENT_DEBUG] --- Payment Process Completed Successfully ---');
       setIsCompleted(true);

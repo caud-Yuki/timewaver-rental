@@ -1,4 +1,3 @@
-
 'use client';
 
 /**
@@ -48,7 +47,6 @@ const getHeaders = (config: FirstPayConfig) => {
 
 /**
  * Fetches the global FirstPay configuration from Firestore
- * Updated to support separate Test and Production credential fields.
  */
 export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig | null> {
   console.log('[PAYMENT_DEBUG] Fetching FirstPay config from Firestore...');
@@ -56,17 +54,13 @@ export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig |
   const snap = await getDoc(settingsRef);
   
   if (!snap.exists()) {
-    console.warn('[PAYMENT_DEBUG] Global settings document not found.');
+    console.warn('[PAYMENT_DEBUG] Global settings document not found at settings/global');
     return null;
   }
   
   const data = snap.data();
   const mode = data.mode || 'test';
-  
-  // Select correct credential set based on mode
   const creds = mode === 'production' ? data.firstpayProd : data.firstpayTest;
-  
-  // Fallback for legacy single 'firstpay' field if others are missing
   const activeCreds = creds || data.firstpay;
 
   if (!activeCreds || !activeCreds.apiKey) {
@@ -127,16 +121,13 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
   });
 
   const data = await tokenRes.json();
-  if (data.errors && data.errors.length > 0) {
-    console.error('[PAYMENT_DEBUG] Token Generation Failed:', data.errors);
-    throw new Error(data.errors[0]?.message || 'Token generation failed');
+  if (!tokenRes.ok || (data.errors && data.errors.length > 0)) {
+    console.error('[PAYMENT_DEBUG] Token Generation Failed:', data.errors || data);
+    throw new Error(data.errors?.[0]?.message || 'Token generation failed');
   }
 
-  console.log('[PAYMENT_DEBUG] Token generated successfully:', data.cardToken);
-  if (data.threedsConfiguration?.issuerUrl) {
-    console.log('[PAYMENT_DEBUG] 3DS Redirect detected:', data.threedsConfiguration.issuerUrl);
-  }
-
+  console.log('[PAYMENT_DEBUG] Token response received. cardToken:', data.cardToken);
+  
   return {
     cardToken: data.cardToken,
     issuerUrl: data.threedsConfiguration?.issuerUrl
@@ -192,9 +183,9 @@ export async function registerCustomer(config: FirstPayConfig, customerData: {
     body: JSON.stringify(customerData)
   });
   const data = await res.json();
-  if (data.errors) {
-    console.error('[PAYMENT_DEBUG] Customer Registration Failed:', data.errors);
-    throw new Error(data.errors[0]?.message || 'Customer registration failed');
+  if (!res.ok || data.errors) {
+    console.error('[PAYMENT_DEBUG] Customer Registration Failed:', data.errors || data);
+    throw new Error(data.errors?.[0]?.message || 'Customer registration failed');
   }
   console.log('[PAYMENT_DEBUG] Customer Registration Success');
   return data;
@@ -222,9 +213,9 @@ export async function createCharge(config: FirstPayConfig, chargeData: {
     })
   });
   const data = await res.json();
-  if (data.errors) {
-    console.error('[PAYMENT_DEBUG] Charge Execution Failed:', data.errors);
-    throw new Error(data.errors[0]?.message || 'Charge execution failed');
+  if (!res.ok || data.errors) {
+    console.error('[PAYMENT_DEBUG] Charge Execution Failed:', data.errors || data);
+    throw new Error(data.errors?.[0]?.message || 'Charge execution failed');
   }
   console.log('[PAYMENT_DEBUG] Charge Success. Status:', data.paymentStatus);
   return data;
@@ -258,9 +249,9 @@ export async function createRecurring(config: FirstPayConfig, recurringData: {
     })
   });
   const data = await res.json();
-  if (data.errors) {
-    console.error('[PAYMENT_DEBUG] Recurring Registration Failed:', data.errors);
-    throw new Error(data.errors[0]?.message || 'Recurring registration failed');
+  if (!res.ok || data.errors) {
+    console.error('[PAYMENT_DEBUG] Recurring Registration Failed:', data.errors || data);
+    throw new Error(data.errors?.[0]?.message || 'Recurring registration failed');
   }
   console.log('[PAYMENT_DEBUG] Recurring Success. Next run:', data.nextRecurringAt);
   return data;
