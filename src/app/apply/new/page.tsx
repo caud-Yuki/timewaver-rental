@@ -1,10 +1,10 @@
 
 'use client';
 
-import { useState, Suspense, useRef, useEffect } from 'react';
+import { useState, Suspense, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useUser, useFirestore, useDoc, useMemoFirebase, useStorage, useCollection } from '@/firebase';
-import { doc, collection, addDoc, serverTimestamp, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, collection, addDoc, serverTimestamp, query, where, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,9 +13,16 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck } from 'lucide-react';
-import { Device, UserProfile, Waitlist } from '@/types';
+import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck, Timer } from 'lucide-react';
+import { Device, UserProfile, Waitlist, GlobalSettings } from '@/types';
 import Link from 'next/link';
 
 function ApplyForm() {
@@ -32,6 +39,12 @@ function ApplyForm() {
   const [idFileUploaded, setIdFileUploaded] = useState(false);
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string>('');
 
+  // Session Time Logic
+  const [showTimeoutDialog, setShowTimeoutDialog] = useState(false);
+  const [timeoutCountdown, setTimeoutCountdown] = useState(10);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const deviceRef = useMemoFirebase(() => {
     if (!db || !deviceId) return null;
     return doc(db, 'devices', deviceId);
@@ -44,6 +57,12 @@ function ApplyForm() {
   }, [db, user]);
   const { data: profile } = useDoc<UserProfile>(profileRef as any);
 
+  const settingsRef = useMemoFirebase(() => {
+    if (!db) return null;
+    return doc(db, 'settings', 'global');
+  }, [db]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
+
   // Check if someone else is processing this device
   const processingQuery = useMemoFirebase(() => {
     if (!db || !deviceId) return null;
@@ -55,9 +74,64 @@ function ApplyForm() {
   }, [db, deviceId]);
   const { data: processingWaitlist, loading: processingLoading } = useCollection<Waitlist>(processingQuery as any);
 
+  // Revert processing status on timeout
+  const revertWaitlistStatus = useCallback(async () => {
+    if (!db || !user || !deviceId) return;
+    const q = query(
+      collection(db, 'waitlist'),
+      where('deviceId', '==', deviceId),
+      where('userId', '==', user.uid),
+      where('status', '==', 'processing')
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const batch = writeBatch(db);
+      snap.docs.forEach(d => batch.update(d.ref, { status: 'waiting', updatedAt: serverTimestamp() }));
+      await batch.commit();
+    }
+  }, [db, user, deviceId]);
+
+  const handleTimeout = useCallback(() => {
+    setShowTimeoutDialog(true);
+    revertWaitlistStatus();
+    
+    let count = 10;
+    countdownIntervalRef.current = setInterval(() => {
+      count -= 1;
+      setTimeoutCountdown(count);
+      if (count <= 0) {
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+        router.push('/');
+      }
+    }, 1000);
+  }, [router, revertWaitlistStatus]);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (showTimeoutDialog) return;
+
+    const sessionMinutes = settings?.applicationSessionMinutes || 15;
+    timerRef.current = setTimeout(() => {
+      handleTimeout();
+    }, sessionMinutes * 60 * 1000);
+  }, [settings?.applicationSessionMinutes, handleTimeout, showTimeoutDialog]);
+
+  useEffect(() => {
+    if (settings) {
+      resetInactivityTimer();
+      const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+      events.forEach(name => window.addEventListener(name, resetInactivityTimer));
+      
+      return () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+        events.forEach(name => window.removeEventListener(name, resetInactivityTimer));
+      };
+    }
+  }, [settings, resetInactivityTimer]);
+
   useEffect(() => {
     if (!processingLoading && processingWaitlist.length > 0 && user) {
-      // If there is a processing entry and it's NOT mine, block application
       const someoneElseProcessing = processingWaitlist.some(p => p.userId !== user.uid);
       if (someoneElseProcessing) {
         toast({ 
@@ -144,7 +218,6 @@ function ApplyForm() {
     try {
       await addDoc(collection(db, 'applications'), applicationData);
       
-      // Cleanup Waitlist Logic: If someone proceeds to application, refresh (delete) all waiting list for this device
       const waitlistQuery = query(collection(db, 'waitlist'), where('deviceId', '==', device.id));
       const waitlistSnap = await getDocs(waitlistQuery);
       
@@ -177,7 +250,14 @@ function ApplyForm() {
         <div className="lg:col-span-2 space-y-8">
           <Card className="border-none shadow-xl rounded-[2.5rem] overflow-hidden bg-white">
             <CardHeader className="bg-primary/5 pb-8 pt-10">
-              <CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-6 w-6 text-primary" /> 申請情報の入力</CardTitle>
+              <div className="flex justify-between items-center">
+                <CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-6 w-6 text-primary" /> 申請情報の入力</CardTitle>
+                {settings && (
+                  <Badge variant="outline" className="bg-white text-[10px] flex items-center gap-1 py-1">
+                    <Timer className="h-3.3 w-3.3" /> 期限あり
+                  </Badge>
+                )}
+              </div>
               <CardDescription>契約期間と支払い方法を選択してください</CardDescription>
             </CardHeader>
             <CardContent className="p-8">
@@ -339,6 +419,30 @@ function ApplyForm() {
           </Card>
         </div>
       </div>
+
+      {/* Timeout Dialog */}
+      <Dialog open={showTimeoutDialog} onOpenChange={() => {}}>
+        <DialogContent className="rounded-[2rem] max-w-md text-center p-12">
+          <DialogHeader>
+            <div className="h-20 w-20 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Timer className="h-10 w-10 animate-pulse" />
+            </div>
+            <DialogTitle className="text-2xl font-headline font-bold">セッション終了</DialogTitle>
+            <DialogDescription className="text-base py-4 leading-relaxed">
+              一定時間操作がなかったため、セキュリティ上の理由によりセッションを終了しました。<br />
+              確保していた優先枠を解除します。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-6">
+            <p className="text-sm font-bold text-muted-foreground mb-4">
+              あと <span className="text-primary text-xl px-1">{timeoutCountdown}</span> 秒でトップページに戻ります
+            </p>
+            <Button className="w-full rounded-xl h-12 font-bold" onClick={() => router.push('/')}>
+              今すぐトップに戻る
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

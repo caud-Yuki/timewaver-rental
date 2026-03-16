@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Globe, Key, CreditCard, ShieldCheck, Info, Settings as SettingsIcon, Clock, Hourglass } from 'lucide-react';
+import { Loader2, Globe, Key, CreditCard, ShieldCheck, Info, Settings as SettingsIcon, Clock, Hourglass, Timer } from 'lucide-react';
 import { GlobalSettings, UserProfile } from '@/types';
 import Link from 'next/link';
 
@@ -46,7 +46,8 @@ export default function AdminSettingsPage() {
     zipcode: '',
     address: '',
     waitlistEmailInterval: 24,
-    waitlistValidityHours: 48
+    waitlistValidityHours: 48,
+    applicationSessionMinutes: 15
   });
 
   useEffect(() => {
@@ -63,7 +64,8 @@ export default function AdminSettingsPage() {
           bearerToken: settings.firstpayProd?.bearerToken || ''
         },
         waitlistEmailInterval: settings.waitlistEmailInterval || 24,
-        waitlistValidityHours: settings.waitlistValidityHours || 48
+        waitlistValidityHours: settings.waitlistValidityHours || 48,
+        applicationSessionMinutes: settings.applicationSessionMinutes || 15
       }));
       hasLoadedRef.current = true;
     }
@@ -92,6 +94,7 @@ export default function AdminSettingsPage() {
       },
       waitlistEmailInterval: Number(formData.waitlistEmailInterval) || 24,
       waitlistValidityHours: Number(formData.waitlistValidityHours) || 48,
+      applicationSessionMinutes: Number(formData.applicationSessionMinutes) || 15,
       updatedAt: serverTimestamp(),
     };
 
@@ -180,10 +183,10 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Waitlist Automation Settings */}
+        {/* Waitlist & Session Automation Settings */}
         <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
           <CardHeader className="bg-primary/5">
-            <CardTitle className="flex items-center gap-2 text-amber-600"><Clock className="h-5 w-5" /> キャンセル待ち自動化設定</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-amber-600"><Clock className="h-5 w-5" /> 自動化・セッション設定</CardTitle>
           </CardHeader>
           <CardContent className="p-8 space-y-10">
             <div className="space-y-2">
@@ -220,7 +223,27 @@ export default function AdminSettingsPage() {
                 <span className="text-sm font-medium">時間経過後にリストをリフレッシュ</span>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                案内プロセスの最後の1人への通知が完了した後、この時間が経過しても申し込みがない場合、その機器のキャンセル待ちリストを自動的にリフレッシュ（全削除）します。
+                案内プロセスの最後の1人への通知が完了した後、この時間が経過しても申し込みがない場合、その機器のキャンセル待ちリストを自動的にリフレッシュします。
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-4 border-t border-slate-100">
+              <Label className="flex items-center gap-2">
+                <Timer className="h-4 w-4 text-primary" /> 申請セッションタイム（分）
+              </Label>
+              <div className="flex items-center gap-4">
+                <Input 
+                  type="number" 
+                  min="1"
+                  max="60"
+                  value={formData.applicationSessionMinutes} 
+                  onChange={e => setFormData({...formData, applicationSessionMinutes: parseInt(e.target.value)})} 
+                  className="rounded-xl max-w-[120px]"
+                />
+                <span className="text-sm font-medium">分間操作がない場合にタイムアウト</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                レンタル申請画面で入力がないまま放置された場合、この時間が経過すると自動的にセッションを終了し、確保していた「手続中」状態を解除します。
               </p>
             </div>
           </CardContent>

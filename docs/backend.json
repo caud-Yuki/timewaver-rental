@@ -147,6 +147,7 @@
         "mode": { "type": "string", "enum": ["test", "production"] },
         "waitlistEmailInterval": { "type": "number", "description": "Hours between automated waitlist notifications" },
         "waitlistValidityHours": { "type": "number", "description": "Hours to wait after last notification before clearing waitlist" },
+        "applicationSessionMinutes": { "type": "number", "description": "Minutes before a rental application session expires due to inactivity" },
         "firstpayTest": {
           "type": "object",
           "properties": {

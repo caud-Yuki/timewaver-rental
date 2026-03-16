@@ -153,6 +153,7 @@ export interface GlobalSettings {
   mode: "test" | "production";
   waitlistEmailInterval?: number;
   waitlistValidityHours?: number;
+  applicationSessionMinutes?: number;
   firstpayTest?: {
     apiKey: string;
     bearerToken: string;
