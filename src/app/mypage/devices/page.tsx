@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
@@ -22,7 +21,7 @@ import {
   Upload,
   UserCheck
 } from 'lucide-react';
-import { Device, Application, Waitlist, GlobalSettings } from '@/types';
+import { Device, Application, Waitlist, GlobalSettings, Subscription } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 
@@ -82,6 +81,17 @@ export default function MyDevicesPage() {
   }, [db, user]);
   const { data: waitlist, loading: waitlistLoading } = useCollection<Waitlist>(waitlistQuery as any);
 
+  // 4. Active Subscriptions (to get accurate endAt)
+  const subsQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return query(
+      collection(db, 'subscriptions'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'active')
+    );
+  }, [db, user]);
+  const { data: subscriptions, loading: subsLoading } = useCollection<Subscription>(subsQuery as any);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user || !storage || !selectedAppId || !db) return;
@@ -113,13 +123,16 @@ export default function MyDevicesPage() {
     }
   };
 
-  const isRenewalEligible = (device: Device) => {
+  const isRenewalEligible = (endAt: any) => {
     if (!settings) return false;
     if (settings.mode === 'test') return true;
     
-    if (!device.contractEndAt) return false;
-    const end = device.contractEndAt.toDate();
+    if (!endAt) return false;
+    // Convert Firestore Timestamp to JS Date
+    const end = endAt.toDate ? endAt.toDate() : new Date(endAt);
     const now = new Date();
+    
+    // Eligibility window: One month before expiration
     const oneMonthBefore = new Date(end);
     oneMonthBefore.setMonth(oneMonthBefore.getMonth() - 1);
     
@@ -130,7 +143,7 @@ export default function MyDevicesPage() {
     return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   }
 
-  if (devicesLoading || appsLoading || waitlistLoading) {
+  if (devicesLoading || appsLoading || waitlistLoading || subsLoading) {
     return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   }
 
@@ -178,61 +191,71 @@ export default function MyDevicesPage() {
                 <CheckCircle2 className="h-6 w-6 text-emerald-500" /> 利用中の機器
               </h3>
               <div className="grid md:grid-cols-2 gap-8">
-                {myDevices.map((device) => (
-                  <Card key={device.id} className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-white group">
-                    <CardHeader className="bg-primary/5 p-8">
-                      <div className="flex justify-between items-start mb-4">
-                        <Badge variant="outline" className="text-primary border-primary/20 bg-white uppercase font-bold">{device.typeCode}</Badge>
-                        <Badge className="bg-emerald-500 shadow-md">利用中</Badge>
-                      </div>
-                      <CardTitle className="text-2xl font-headline group-hover:text-primary transition-colors">{device.type}</CardTitle>
-                      <CardDescription className="font-mono text-[10px]">{device.serialNumber}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-8 space-y-6">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div className="space-y-1">
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-                            <Calendar className="h-3 w-3" /> 利用開始日
-                          </span>
-                          <p className="font-medium">
-                            {device.contractStartAt?.seconds ? new Date(device.contractStartAt.seconds * 1000).toLocaleDateString() : '-'}
-                          </p>
+                {myDevices.map((device) => {
+                  const subscription = subscriptions.find(s => s.deviceId === device.id);
+                  const contractEndAt = subscription?.endAt;
+                  const eligible = isRenewalEligible(contractEndAt);
+
+                  return (
+                    <Card key={device.id} className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-white group">
+                      <CardHeader className="bg-primary/5 p-8">
+                        <div className="flex justify-between items-start mb-4">
+                          <Badge variant="outline" className="text-primary border-primary/20 bg-white uppercase font-bold">{device.typeCode}</Badge>
+                          <Badge className="bg-emerald-500 shadow-md">利用中</Badge>
                         </div>
-                        <div className="space-y-1">
-                          <span className="text-[10px] text-destructive uppercase font-bold flex items-center gap-1">
-                            <Calendar className="h-3 w-3" /> 利用終了日
-                          </span>
-                          <p className="font-medium text-destructive">
-                            {device.contractEndAt?.seconds ? new Date(device.contractEndAt.seconds * 1000).toLocaleDateString() : '未設定'}
-                          </p>
+                        <CardTitle className="text-2xl font-headline group-hover:text-primary transition-colors">{device.type}</CardTitle>
+                        <CardDescription className="font-mono text-[10px]">{device.serialNumber}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="p-8 space-y-6">
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+                              <Calendar className="h-3 w-3" /> 利用開始日
+                            </span>
+                            <p className="font-medium">
+                              {device.contractStartAt?.seconds ? new Date(device.contractStartAt.seconds * 1000).toLocaleDateString() : '-'}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-destructive uppercase font-bold flex items-center gap-1">
+                              <Calendar className="h-3 w-3" /> 利用終了日
+                            </span>
+                            <p className="font-medium text-destructive">
+                              {contractEndAt?.seconds 
+                                ? new Date(contractEndAt.seconds * 1000).toLocaleDateString() 
+                                : contractEndAt instanceof Date 
+                                  ? contractEndAt.toLocaleDateString() 
+                                  : '未設定'}
+                            </p>
+                          </div>
+                          <div className="space-y-1 col-span-2 pt-2">
+                            <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
+                              <Settings className="h-3 w-3" /> 保守状況
+                            </span>
+                            <p className="font-medium text-emerald-600">正常稼働中</p>
+                          </div>
                         </div>
-                        <div className="space-y-1 col-span-2 pt-2">
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-                            <Settings className="h-3 w-3" /> 保守状況
-                          </span>
-                          <p className="font-medium text-emerald-600">正常稼働中</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                    <CardFooter className="bg-secondary/10 p-4 grid grid-cols-3 gap-2">
-                      <Link href="/mypage/support/ai">
-                        <Button variant="ghost" className="w-full rounded-xl gap-2 h-11 text-xs">
-                          <MessageSquare className="h-4 w-4" /> サポート
-                        </Button>
-                      </Link>
-                      <Link href="/mypage/support/repair">
-                        <Button variant="outline" className="w-full rounded-xl h-11 text-xs">修理依頼</Button>
-                      </Link>
-                      {isRenewalEligible(device) ? (
-                        <Link href={`/apply/renew?deviceId=${device.id}`}>
-                          <Button variant="secondary" className="w-full rounded-xl h-11 text-xs font-bold text-primary bg-white hover:bg-primary/5">契約更新</Button>
+                      </CardContent>
+                      <CardFooter className="bg-secondary/10 p-4 grid grid-cols-3 gap-2">
+                        <Link href="/mypage/support/ai">
+                          <Button variant="ghost" className="w-full rounded-xl gap-2 h-11 text-xs">
+                            <MessageSquare className="h-4 w-4" /> サポート
+                          </Button>
                         </Link>
-                      ) : (
-                        <Button variant="secondary" disabled className="w-full rounded-xl h-11 text-[10px] opacity-50">更新期間外</Button>
-                      )}
-                    </CardFooter>
-                  </Card>
-                ))}
+                        <Link href="/mypage/support/repair">
+                          <Button variant="outline" className="w-full rounded-xl h-11 text-xs">修理依頼</Button>
+                        </Link>
+                        {eligible ? (
+                          <Link href={`/apply/renew?deviceId=${device.id}`}>
+                            <Button variant="secondary" className="w-full rounded-xl h-11 text-xs font-bold text-primary bg-white hover:bg-primary/5">契約更新</Button>
+                          </Link>
+                        ) : (
+                          <Button variant="secondary" disabled className="w-full rounded-xl h-11 text-[10px] opacity-50">更新期間外</Button>
+                        )}
+                      </CardFooter>
+                    </Card>
+                  );
+                })}
               </div>
             </section>
           )}
