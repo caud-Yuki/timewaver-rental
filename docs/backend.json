@@ -36,7 +36,7 @@
         "type": { "type": "string", "enum": ["TimeWaver Mobile", "TimeWaver Mobile Quantum", "TimeWaver Tabletop", "TimeWaver Frequency"] },
         "typeCode": { "type": "string", "enum": ["tw-m", "tw-mq", "tw-tt", "tw-frq"] },
         "modules": { "type": "array", "items": { "type": "string" } },
-        "status": { "type": "string", "enum": ["available", "active", "terminated_early", "terminated"] },
+        "status": { "type": "string", "enum": ["available", "active", "processing", "terminated_early", "terminated"] },
         "description": { "type": "string" },
         "price": {
           "type": "object",

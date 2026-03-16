@@ -1,8 +1,9 @@
+
 'use client';
 
 import { useState, Suspense, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useUser, useFirestore, useDoc, useMemoFirebase, useStorage, useCollection } from '@/firebase';
+import { useUser, useFirestore, useDoc, useMemoFirebase, useStorage } from '@/firebase';
 import { doc, collection, addDoc, serverTimestamp, query, where, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -22,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck, Timer } from 'lucide-react';
-import { Device, UserProfile, Waitlist, GlobalSettings } from '@/types';
+import { Device, UserProfile, GlobalSettings } from '@/types';
 import Link from 'next/link';
 
 function ApplyForm() {
@@ -66,50 +67,26 @@ function ApplyForm() {
   }, [db]);
   const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
 
-  // Check if someone else is processing this device
-  const processingQuery = useMemoFirebase(() => {
-    if (!db || !deviceId) return null;
-    return query(
-      collection(db, 'waitlist'),
-      where('deviceId', '==', deviceId),
-      where('status', '==', 'processing')
-    );
-  }, [db, deviceId]);
-  const { data: processingWaitlist, loading: processingLoading } = useCollection<Waitlist>(processingQuery as any);
-
-  // Revert processing status back to waiting
-  const revertWaitlistStatus = useCallback(async () => {
+  // Revert device status back to available
+  const releaseDeviceLock = useCallback(async () => {
     if (!db || !user || !deviceId || isSubmittedRef.current) return;
     
-    // Attempt to find the specific processing entry for this user and device
-    const q = query(
-      collection(db, 'waitlist'),
-      where('deviceId', '==', deviceId),
-      where('userId', '==', user.uid),
-      where('status', '==', 'processing')
-    );
-    
+    const dRef = doc(db, 'devices', deviceId);
     try {
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const batch = writeBatch(db);
-        snap.docs.forEach(d => {
-          batch.update(d.ref, { 
-            status: 'waiting', 
-            updatedAt: serverTimestamp() 
-          });
-        });
-        await batch.commit();
-        console.log('[SESSION] Waitlist status reverted to waiting');
-      }
+      await updateDoc(dRef, { 
+        status: 'available', 
+        currentUserId: null,
+        updatedAt: serverTimestamp() 
+      });
+      console.log('[SESSION] Device released (returned to available)');
     } catch (error) {
-      console.error('[SESSION] Error reverting waitlist status:', error);
+      console.error('[SESSION] Error releasing device:', error);
     }
   }, [db, user, deviceId]);
 
   const handleTimeout = useCallback(() => {
     setShowTimeoutDialog(true);
-    revertWaitlistStatus();
+    releaseDeviceLock();
     
     let count = 10;
     countdownIntervalRef.current = setInterval(() => {
@@ -120,7 +97,7 @@ function ApplyForm() {
         router.push('/');
       }
     }, 1000);
-  }, [router, revertWaitlistStatus]);
+  }, [router, releaseDeviceLock]);
 
   const resetInactivityTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -138,46 +115,42 @@ function ApplyForm() {
       const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
       events.forEach(name => window.addEventListener(name, resetInactivityTimer));
       
-      // Cleanup function for internal navigation or unmount
       return () => {
         if (timerRef.current) clearTimeout(timerRef.current);
         if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
         events.forEach(name => window.removeEventListener(name, resetInactivityTimer));
         
-        // Revert status if we are leaving the page without having submitted
         if (!isSubmittedRef.current) {
-          revertWaitlistStatus();
+          releaseDeviceLock();
         }
       };
     }
-  }, [settings, resetInactivityTimer, revertWaitlistStatus]);
+  }, [settings, resetInactivityTimer, releaseDeviceLock]);
 
-  // Handle browser tab closing or refreshing
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!isSubmittedRef.current) {
-        // We can't await here, but we can fire and hope for the best
-        revertWaitlistStatus();
+        releaseDeviceLock();
       }
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [revertWaitlistStatus]);
+  }, [releaseDeviceLock]);
 
   useEffect(() => {
-    if (!processingLoading && processingWaitlist.length > 0 && user) {
-      const someoneElseProcessing = processingWaitlist.some(p => p.userId !== user.uid);
-      if (someoneElseProcessing) {
+    // Soft Lock Check: If someone else is processing this device, kick them out
+    if (!deviceLoading && device && user) {
+      if (device.status === 'processing' && device.currentUserId !== user.uid) {
         toast({ 
           variant: "destructive", 
           title: "アクセス制限", 
           description: "現在、他の方がこの機器の申し込み手続きを優先的に行っています。" 
         });
-        router.push('/mypage/devices');
+        router.push('/devices');
       }
     }
-  }, [processingWaitlist, processingLoading, user, router, toast]);
+  }, [device, deviceLoading, user, router, toast]);
 
   const [formData, setFormData] = useState({
     rentalType: 12,
@@ -253,9 +226,9 @@ function ApplyForm() {
     try {
       await addDoc(collection(db, 'applications'), applicationData);
       
-      // Set submission flag to true BEFORE cleanup runs
       isSubmittedRef.current = true;
 
+      // When application is submitted, CLEAR the waitlist for this specific device
       const waitlistQuery = query(collection(db, 'waitlist'), where('deviceId', '==', device.id));
       const waitlistSnap = await getDocs(waitlistQuery);
       
@@ -274,7 +247,7 @@ function ApplyForm() {
     }
   };
 
-  if (deviceLoading || processingLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
+  if (deviceLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   if (!deviceId || !device) return <div className="text-center py-20"><AlertCircle className="mx-auto h-12 w-12 text-destructive mb-4" /><p>対象の機器が見つかりませんでした。</p></div>;
 
   return (

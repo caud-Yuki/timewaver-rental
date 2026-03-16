@@ -43,7 +43,6 @@ export default function MyDevicesPage() {
     }
   }, [user, authLoading, router]);
 
-  // Settings for Mode check
   const settingsRef = useMemoFirebase(() => {
     if (!db) return null;
     return doc(db, 'settings', 'global');
@@ -72,7 +71,7 @@ export default function MyDevicesPage() {
   }, [db, user]);
   const { data: applications, loading: appsLoading } = useCollection<Application>(appsQuery as any);
 
-  // 3. Waitlist Entries - User's own entries
+  // 3. User's own Waitlist entries
   const waitlistQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return query(
@@ -83,24 +82,14 @@ export default function MyDevicesPage() {
   }, [db, user]);
   const { data: waitlist, loading: waitlistLoading } = useCollection<Waitlist>(waitlistQuery as any);
 
-  // 4. Global Processing Entries - To check if someone else is currently applying
-  const processingWaitlistQuery = useMemoFirebase(() => {
-    if (!db) return null;
-    return query(
-      collection(db, 'waitlist'),
-      where('status', '==', 'processing')
-    );
-  }, [db]);
-  const { data: globalProcessingEntries } = useCollection<Waitlist>(processingWaitlistQuery as any);
-
-  // 5. All Devices (to check waitlist availability)
+  // 4. All Devices (to check lock/processing status)
   const allDevicesQuery = useMemoFirebase(() => {
     if (!db) return null;
     return collection(db, 'devices');
   }, [db]);
   const { data: allDevices } = useCollection<Device>(allDevicesQuery as any);
 
-  // 6. Active Subscriptions
+  // 5. Active Subscriptions
   const subsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return query(
@@ -142,22 +131,26 @@ export default function MyDevicesPage() {
     }
   };
 
-  const handleStartApplication = async (waitlistId: string, deviceId: string) => {
-    if (!db) return;
+  const handleStartApplication = async (deviceId: string) => {
+    if (!db || !user) return;
     
-    // Safety check: is anyone else already processing?
-    const alreadyProcessing = globalProcessingEntries.some(p => p.deviceId === deviceId);
-    if (alreadyProcessing) {
+    const dRef = doc(db, 'devices', deviceId);
+    
+    // Check if someone else already locked it (Double check)
+    const targetDevice = allDevices.find(d => d.id === deviceId);
+    if (targetDevice?.status === 'processing' && targetDevice.currentUserId !== user.uid) {
       toast({ 
         variant: "destructive", 
         title: "手続き中", 
-        description: "現在、他の方がこの機器の申し込み手続きを行っています。しばらくしてから再度ご確認ください。" 
+        description: "現在、他の方がこの機器の申し込み手続きを行っています。" 
       });
       return;
     }
 
-    updateDoc(doc(db, 'waitlist', waitlistId), {
+    // LOCK the device at the central device record
+    updateDoc(dRef, {
       status: 'processing',
+      currentUserId: user.uid,
       updatedAt: serverTimestamp()
     }).then(() => {
       router.push(`/apply/new?deviceId=${deviceId}`);
@@ -238,7 +231,7 @@ export default function MyDevicesPage() {
                       <CardHeader className="bg-primary/5 p-8">
                         <div className="flex justify-between items-start mb-4">
                           <Badge variant="outline" className="text-primary border-primary/20 bg-white uppercase font-bold">{device.typeCode}</Badge>
-                          <Badge className="bg-emerald-500 shadow-md">利用中</Badge>
+                          <Badge className="bg-emerald-50 shadow-md">利用中</Badge>
                         </div>
                         <CardTitle className="text-2xl font-headline group-hover:text-primary transition-colors">{device.type}</CardTitle>
                         <CardDescription className="font-mono text-[10px]">{device.serialNumber}</CardDescription>
@@ -262,18 +255,6 @@ export default function MyDevicesPage() {
                                 ? new Date(contractEndAt.seconds * 1000).toLocaleDateString() 
                                 : '未設定'}
                             </p>
-                          </div>
-                          <div className="space-y-1 pt-2">
-                            <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-                              <Package className="h-3 w-3" /> 契約プラン
-                            </span>
-                            <p className="font-medium">{subscription?.rentalMonths ? `${subscription.rentalMonths}ヶ月プラン` : '-'}</p>
-                          </div>
-                          <div className="space-y-1 pt-2">
-                            <span className="text-[10px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-                              <Settings className="h-3 w-3" /> 保守状況
-                            </span>
-                            <p className="font-medium text-emerald-600">正常稼働中</p>
                           </div>
                         </div>
                       </CardContent>
@@ -301,61 +282,6 @@ export default function MyDevicesPage() {
             </section>
           )}
 
-          {/* Pending Applications */}
-          {applications.length > 0 && (
-            <section className="space-y-6">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <Clock className="h-6 w-6 text-amber-500" /> 申請・審査中の機器
-              </h3>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {applications.map((app) => (
-                  <Card key={app.id} className="border-none shadow-xl rounded-[2.5rem] overflow-hidden bg-white/50 backdrop-blur">
-                    <CardHeader className="pb-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <Badge variant="outline" className="text-[10px] uppercase font-bold">{app.deviceType}</Badge>
-                        <Badge variant={app.status === 'payment_sent' ? 'default' : 'secondary'} className={app.status === 'payment_sent' ? 'bg-emerald-500' : ''}>
-                          {app.status === 'pending' ? '審査中' : app.status === 'approved' ? '承認済' : '決済待ち'}
-                        </Badge>
-                      </div>
-                      <CardTitle className="text-lg">{app.deviceType}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">申請日</span>
-                        <span>{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</span>
-                      </div>
-
-                      {!app.identificationImageUrl && app.status === 'pending' && (
-                        <div className="bg-red-50 border border-red-100 p-4 rounded-2xl space-y-3">
-                          <div className="flex items-center gap-2 text-red-600">
-                            <AlertCircle className="h-4 w-4" />
-                            <span className="text-[10px] font-bold">本人確認書類が未提出です</span>
-                          </div>
-                          <Button 
-                            className="w-full h-10 rounded-xl bg-red-500 hover:bg-red-600 text-xs font-bold shadow-sm"
-                            disabled={isUploading && selectedAppId === app.id}
-                            onClick={() => { setSelectedAppId(app.id); fileInputRef.current?.click(); }}
-                          >
-                            {isUploading && selectedAppId === app.id ? <Loader2 className="animate-spin h-3 w-3 mr-2" /> : <Upload className="h-3 w-3 mr-2" />}
-                            書類をアップロード
-                          </Button>
-                        </div>
-                      )}
-
-                      {app.status === 'payment_sent' && app.paymentLinkId && (
-                        <Link href={`/payment/${app.paymentLinkId}`}>
-                          <Button className="w-full h-11 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold shadow-lg">
-                            今すぐ決済する <ArrowRight className="h-4 w-4 ml-2" />
-                          </Button>
-                        </Link>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </section>
-          )}
-
           {/* Waitlist */}
           {waitlist.length > 0 && (
             <section className="space-y-6">
@@ -366,19 +292,19 @@ export default function MyDevicesPage() {
                 {waitlist.map((item) => {
                   const targetDevice = allDevices.find(d => d.id === item.deviceId);
                   const isAvailable = targetDevice?.status === 'available';
-                  const isMeProcessing = item.status === 'processing';
-                  // Check if ANY user other than me is processing this specific device
-                  const isOtherUserProcessing = globalProcessingEntries?.some(p => p.deviceId === item.deviceId && p.userId !== user.uid);
+                  const isProcessing = targetDevice?.status === 'processing';
+                  const isMeProcessing = isProcessing && targetDevice?.currentUserId === user.uid;
+                  const isOtherUserProcessing = isProcessing && targetDevice?.currentUserId !== user.uid;
 
                   return (
                     <Card key={item.id} className={`border-none shadow-lg rounded-[2rem] transition-all ${isAvailable && !isOtherUserProcessing ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-slate-50'}`}>
                       <CardHeader className="p-6">
                         <div className="flex justify-between items-start mb-2">
                           <Badge 
-                            variant={isAvailable && !isOtherUserProcessing ? "default" : "secondary"} 
+                            variant={isAvailable || isMeProcessing ? "default" : "secondary"} 
                             className={isAvailable && !isOtherUserProcessing ? "bg-emerald-500 animate-pulse" : ""}
                           >
-                            {isAvailable ? (isOtherUserProcessing ? "手続中" : "在庫確保！") : "待機中"}
+                            {isAvailable ? "在庫確保！" : isProcessing ? (isMeProcessing ? "手続中" : "受付順番待ち") : "待機中"}
                           </Badge>
                         </div>
                         <CardTitle className="text-md">{item.deviceType}</CardTitle>
@@ -389,31 +315,34 @@ export default function MyDevicesPage() {
                       <CardContent className="px-6 pb-6 pt-0">
                         {isAvailable ? (
                           <div className="space-y-3">
+                            <p className="text-[10px] text-emerald-700 font-bold leading-tight">
+                              ご希望の機器に空きが出ました。今すぐお申し込みいただけます。
+                            </p>
+                            <Button 
+                              className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 shadow-md font-bold text-xs"
+                              onClick={() => handleStartApplication(item.deviceId)}
+                            >
+                              今すぐ申し込む <ArrowRight className="ml-1 h-3 w-3" />
+                            </Button>
+                          </div>
+                        ) : isProcessing ? (
+                          <div className="space-y-3">
                             {isMeProcessing ? (
                               <>
-                                <p className="text-[10px] text-emerald-700 font-bold leading-tight">
-                                  申し込み手続きを開始しました。
-                                </p>
-                                <Button disabled className="w-full h-10 rounded-xl bg-slate-400 shadow-md font-bold text-xs">
-                                  順番を待ち <Clock className="ml-1 h-3 w-3" />
-                                </Button>
-                              </>
-                            ) : isOtherUserProcessing ? (
-                              <p className="text-[10px] text-muted-foreground leading-tight italic">
-                                現在、他の方が手続きを進めています。
-                              </p>
-                            ) : (
-                              <>
-                                <p className="text-[10px] text-emerald-700 font-bold leading-tight">
-                                  ご希望の機器に空きが出ました。今すぐお申し込みいただけます。
+                                <p className="text-[10px] text-primary font-bold leading-tight">
+                                  申し込み手続きを継続してください。
                                 </p>
                                 <Button 
-                                  className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 shadow-md font-bold text-xs"
-                                  onClick={() => handleStartApplication(item.id, item.deviceId)}
+                                  className="w-full h-10 rounded-xl bg-primary shadow-md font-bold text-xs"
+                                  onClick={() => router.push(`/apply/new?deviceId=${item.deviceId}`)}
                                 >
-                                  今すぐ申し込む <ArrowRight className="ml-1 h-3 w-3" />
+                                  順番を待ち (続行) <Clock className="ml-1 h-3 w-3" />
                                 </Button>
                               </>
+                            ) : (
+                              <p className="text-[10px] text-muted-foreground leading-tight italic">
+                                現在、他の方が優先的に手続きを進めています。
+                              </p>
                             )}
                           </div>
                         ) : (

@@ -20,7 +20,6 @@ export default function DeviceListPage() {
 
   const devicesQuery = useMemoFirebase(() => {
     if (!db) return null;
-    // Triggering a re-deployment check for security rules
     return query(collection(db, 'devices'), orderBy('typeCode'));
   }, [db]);
 
@@ -41,7 +40,7 @@ export default function DeviceListPage() {
         <AlertCircle className="h-16 w-16 text-destructive mx-auto" />
         <h1 className="text-3xl font-bold">アクセス権限エラー</h1>
         <p className="text-muted-foreground max-w-md mx-auto">
-          機器情報の取得に失敗しました。現在、セキュリティルールの更新を適用中です。しばらくしてから再度ページを読み込んでください。
+          機器情報の取得に失敗しました。
         </p>
         <Button onClick={() => window.location.reload()} variant="outline" className="rounded-xl">
           再読み込みする
@@ -82,55 +81,64 @@ export default function DeviceListPage() {
               該当する機器が見つかりませんでした。
             </div>
           ) : (
-            filteredDevices.map((device) => (
-              <Card key={device.id} className="overflow-hidden group hover:shadow-2xl transition-all duration-300 border-none shadow-lg bg-white rounded-[2rem]">
-                <div className="relative aspect-video overflow-hidden">
-                  <Image
-                    src={getDeviceImage(device.typeCode) || 'https://picsum.photos/seed/placeholder/600/400'}
-                    alt={device.type || ''}
-                    fill
-                    className="object-cover group-hover:scale-110 transition-transform duration-700"
-                  />
-                  <div className="absolute top-4 left-4">
-                    {device.status === 'available' ? (
-                      <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> 利用可能
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
-                        <Clock className="h-3.5 w-3.5" /> キャンセル待ち受付中
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase">{device.typeCode}</Badge>
-                    <span className="text-xs text-muted-foreground font-mono">{device.serialNumber}</span>
-                  </div>
-                  <CardTitle className="font-headline text-2xl group-hover:text-primary transition-colors">{device.type}</CardTitle>
-                  <CardDescription className="line-clamp-2">{device.description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">月額料金 (12ヶ月〜)</span>
-                      <span className="font-bold text-xl text-primary">¥{device.price?.['12m'].monthly.toLocaleString()} <span className="text-xs text-muted-foreground font-normal">/ 月</span></span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/30 p-2 rounded-lg">
-                      <Cpu className="h-4 w-4" /> 搭載モジュール: 標準一式 + 特選アプリ
+            filteredDevices.map((device) => {
+              const isAvailable = device.status === 'available';
+              const isProcessing = device.status === 'processing';
+
+              return (
+                <Card key={device.id} className="overflow-hidden group hover:shadow-2xl transition-all duration-300 border-none shadow-lg bg-white rounded-[2rem]">
+                  <div className="relative aspect-video overflow-hidden">
+                    <Image
+                      src={getDeviceImage(device.typeCode) || 'https://picsum.photos/seed/placeholder/600/400'}
+                      alt={device.type || ''}
+                      fill
+                      className="object-cover group-hover:scale-110 transition-transform duration-700"
+                    />
+                    <div className="absolute top-4 left-4">
+                      {isAvailable ? (
+                        <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> 利用可能
+                        </Badge>
+                      ) : isProcessing ? (
+                        <Badge variant="secondary" className="bg-blue-500 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
+                          <Timer className="h-3.5 w-3.5" /> 手続き中
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
+                          <Clock className="h-3.5 w-3.5" /> キャンセル待ち受付中
+                        </Badge>
+                      )}
                     </div>
                   </div>
-                </CardContent>
-                <CardFooter className="bg-secondary/10 p-4">
-                  <Link href={`/devices/${device.id}`} className="w-full">
-                    <Button className="w-full font-bold h-12 rounded-xl shadow-md group-hover:shadow-primary/20 transition-all" variant={device.status === 'available' ? 'default' : 'outline'}>
-                      {device.status === 'available' ? '詳細・お申し込み' : '詳細・空き待ち'}
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </Card>
-            ))
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase">{device.typeCode}</Badge>
+                      <span className="text-xs text-muted-foreground font-mono">{device.serialNumber}</span>
+                    </div>
+                    <CardTitle className="font-headline text-2xl group-hover:text-primary transition-colors">{device.type}</CardTitle>
+                    <CardDescription className="line-clamp-2">{device.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">月額料金 (12ヶ月〜)</span>
+                        <span className="font-bold text-xl text-primary">¥{device.price?.['12m'].monthly.toLocaleString()} <span className="text-xs text-muted-foreground font-normal">/ 月</span></span>
+                      </div>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="bg-secondary/10 p-4">
+                    <Link href={`/devices/${device.id}`} className="w-full">
+                      <Button 
+                        className="w-full font-bold h-12 rounded-xl shadow-md group-hover:shadow-primary/20 transition-all" 
+                        variant={isAvailable ? 'default' : 'outline'}
+                      >
+                        {isAvailable ? '詳細・お申し込み' : '詳細'}
+                      </Button>
+                    </Link>
+                  </CardFooter>
+                </Card>
+              );
+            })
           )}
         </div>
       )}

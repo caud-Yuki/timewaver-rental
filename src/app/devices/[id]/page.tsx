@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useDoc, useFirestore, useMemoFirebase, useCollection, useUser } from '@/firebase';
-import { doc, collection, query, where } from 'firebase/firestore';
+import { doc, collection, query, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,20 +14,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
-import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2, Users } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2, Users, Timer } from 'lucide-react';
 import { Device, DeviceTypeCode, Waitlist } from '@/types';
 import { visualizeField, VisualizeFieldOutput } from '@/ai/flows/visualize-field-flow';
+import { useToast } from '@/hooks/use-toast';
 
 export default function DeviceDetailPage() {
   const params = useParams();
   const router = useRouter();
   const db = useFirestore();
   const { user } = useUser();
+  const { toast } = useToast();
   const id = params.id as string;
 
   const [intent, setIntent] = useState('');
   const [visualization, setVisualization] = useState<VisualizeFieldOutput | null>(null);
   const [isVisualizing, setIsVisualizing] = useState(false);
+  const [isLocking, setIsLocking] = useState(false);
 
   const deviceRef = useMemoFirebase(() => {
     if (!db || !id) return null;
@@ -36,7 +39,6 @@ export default function DeviceDetailPage() {
 
   const { data: device, loading } = useDoc<Device>(deviceRef as any);
 
-  // Fetch waitlist count for this device - only if authenticated
   const waitlistQuery = useMemoFirebase(() => {
     if (!db || !id || !user) return null;
     return query(
@@ -60,13 +62,32 @@ export default function DeviceDetailPage() {
     }
   };
 
+  const handleApply = async () => {
+    if (!db || !device || !user) {
+      if (!user) router.push('/auth/login');
+      return;
+    }
+
+    setIsLocking(true);
+    try {
+      // Set the global lock on the device record
+      await updateDoc(doc(db, 'devices', device.id), {
+        status: 'processing',
+        currentUserId: user.uid,
+        updatedAt: serverTimestamp()
+      });
+      router.push(`/apply/new?deviceId=${device.id}`);
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'エラー', description: '申し込み手続きの開始に失敗しました。' });
+    } finally {
+      setIsLocking(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-20 flex justify-center">
-        <div className="animate-pulse flex flex-col items-center space-y-4">
-          <div className="h-64 w-96 bg-muted rounded-3xl" />
-          <div className="h-8 w-64 bg-muted rounded-lg" />
-        </div>
+        <Loader2 className="animate-spin text-primary h-12 w-12" />
       </div>
     );
   }
@@ -88,6 +109,9 @@ export default function DeviceDetailPage() {
   };
 
   const isAvailable = device.status === 'available';
+  const isProcessing = device.status === 'processing';
+  const isMeProcessing = isProcessing && device.currentUserId === user?.uid;
+  const isOtherProcessing = isProcessing && device.currentUserId !== user?.uid;
   const waitlistCount = waitlistItems?.length || 0;
 
   return (
@@ -161,6 +185,8 @@ export default function DeviceDetailPage() {
               <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase px-3 py-1">{device.typeCode}</Badge>
               {isAvailable ? (
                 <Badge className="bg-emerald-500 hover:bg-emerald-600 border-none px-3 py-1">利用可能</Badge>
+              ) : isProcessing ? (
+                <Badge className="bg-blue-500 text-white border-none px-3 py-1">手続き中</Badge>
               ) : (
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none px-3 py-1">キャンセル待ち受付中</Badge>
@@ -206,11 +232,25 @@ export default function DeviceDetailPage() {
 
           <div className="space-y-4 pt-4">
             {isAvailable ? (
-              <Link href={`/apply/new?deviceId=${device.id}`} className="block">
-                <Button className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl shadow-primary/20">
-                  この機器を申し込む
+              <Button 
+                className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl shadow-primary/20"
+                onClick={handleApply}
+                disabled={isLocking}
+              >
+                {isLocking ? <Loader2 className="animate-spin h-6 w-6" /> : 'この機器を申し込む'}
+              </Button>
+            ) : isProcessing ? (
+              isMeProcessing ? (
+                <Link href={`/apply/new?deviceId=${device.id}`} className="block">
+                  <Button className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl bg-primary">
+                    順番を待ち (手続きを続行) <Timer className="ml-2 h-6 w-6" />
+                  </Button>
+                </Link>
+              ) : (
+                <Button variant="outline" disabled className="w-full h-16 rounded-2xl text-xl font-bold opacity-50">
+                  受付順番待ち
                 </Button>
-              </Link>
+              )
             ) : (
               <Link href={`/apply/waitlist?deviceId=${device.id}`} className="block">
                 <Button variant="secondary" className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl bg-amber-500 hover:bg-amber-600 text-white border-none">

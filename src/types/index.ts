@@ -3,7 +3,7 @@ import { Timestamp } from 'firebase/firestore';
 
 export type DeviceType = "TimeWaver Mobile" | "TimeWaver Mobile Quantum" | "TimeWaver Tabletop" | "TimeWaver Frequency";
 export type DeviceTypeCode = "tw-m" | "tw-mq" | "tw-tt" | "tw-frq";
-export type DeviceStatus = "available" | "active" | "terminated_early" | "terminated";
+export type DeviceStatus = "available" | "active" | "processing" | "terminated_early" | "terminated";
 
 export interface Device {
   id: string;
