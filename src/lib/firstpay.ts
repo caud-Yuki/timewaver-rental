@@ -40,8 +40,8 @@ const getApiBase = (mode: 'test' | 'production') => {
  */
 const getHeaders = (config: FirstPayConfig) => {
   // Ensure we don't double-prepend "Bearer " and trim any whitespace
-  const rawToken = config.bearerToken.trim().replace(/^Bearer\s+/i, '');
-  const apiKey = config.apiKey.trim();
+  const rawToken = config.bearerToken?.trim().replace(/^Bearer\s+/i, '') || '';
+  const apiKey = config.apiKey?.trim() || '';
   
   return {
     "Content-Type": "application/json",
@@ -94,18 +94,19 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
   if (!keyRes.ok) {
     const errText = await keyRes.text();
     console.error(`[PAYMENT_DEBUG] RSA Key Fetch Failed [Status: ${keyRes.status}]:`, errText);
-    throw new Error(`RSAキー取得失敗: ${keyRes.status}`);
+    throw new Error(`RSAキー取得失敗: ${keyRes.status}. APIキーまたはトークンが正しいか確認してください。`);
   }
 
   const keyData = await keyRes.json();
-  const { encryptionKeyHash, publicKey } = keyData;
+  // Documentation says 'keyHash' for response, but Token API expects 'encryptionKeyHash'
+  const { keyHash, publicKey } = keyData;
   
-  if (!encryptionKeyHash || !publicKey) {
+  if (!keyHash || !publicKey) {
     console.error('[PAYMENT_DEBUG] RSA Key response missing fields. Full Response:', keyData);
     throw new Error('決済ゲートウェイから有効な暗号化キーを取得できませんでした。設定（APIキー等）を確認してください。');
   }
 
-  console.log('[PAYMENT_DEBUG] RSA Key retrieved successfully. Hash:', encryptionKeyHash);
+  console.log('[PAYMENT_DEBUG] RSA Key retrieved successfully. Hash:', keyHash);
 
   const encrypt = new JSEncrypt();
   encrypt.setPublicKey(publicKey);
@@ -119,10 +120,13 @@ export async function createCardToken(config: FirstPayConfig, card: CardInfo, ph
   console.log('[PAYMENT_DEBUG] Step 5.2: Issuing Card Token...');
   const tokenRes = await fetch(`${API_BASE}/token`, {
     method: "POST",
-    headers,
+    headers: {
+      "Content-Type": "application/json",
+      "FIRSTPAY-PAYMENT-API-KEY": config.apiKey.trim()
+    },
     body: JSON.stringify({
       encryptedData,
-      encryptionKeyHash,
+      encryptionKeyHash: keyHash, // Documentation says Token API request expects encryptionKeyHash
       validateUsableCard: true,
       threedsConfiguration: {
         phone: { 

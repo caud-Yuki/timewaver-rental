@@ -139,7 +139,7 @@ export default function AdminSettingsPage() {
 
       if (res.ok) {
         const keyData = await res.json();
-        if (keyData.encryptionKeyHash) {
+        if (keyData.keyHash) {
           toast({ title: "接続成功", description: `${formData.mode === 'production' ? '本番' : 'テスト'}環境との通信に成功しました。` });
         } else {
           throw new Error('APIレスポンスが空です。キーが正しくない可能性があります。');
