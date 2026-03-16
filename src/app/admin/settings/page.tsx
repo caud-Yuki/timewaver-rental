@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -54,9 +53,16 @@ export default function AdminSettingsPage() {
     if (settings && !hasLoadedRef.current) {
       console.log('[SETTINGS_DEBUG] Initializing form with Firestore data:', settings);
       setFormData({
+        ...formData,
         ...settings,
-        firstpayTest: settings.firstpayTest || { apiKey: '', bearerToken: '' },
-        firstpayProd: settings.firstpayProd || { apiKey: '', bearerToken: '' }
+        firstpayTest: {
+          apiKey: settings.firstpayTest?.apiKey || '',
+          bearerToken: settings.firstpayTest?.bearerToken || ''
+        },
+        firstpayProd: {
+          apiKey: settings.firstpayProd?.apiKey || '',
+          bearerToken: settings.firstpayProd?.bearerToken || ''
+        }
       });
       hasLoadedRef.current = true;
     }
@@ -67,16 +73,23 @@ export default function AdminSettingsPage() {
     if (!db) return;
 
     if (profile?.role !== 'admin') {
-      console.error('[SETTINGS_DEBUG] Save aborted: User is not admin', profile?.role);
       toast({ variant: "destructive", title: "権限エラー", description: "管理者としてログインしているか確認してください。" });
       return;
     }
     
     setIsSaving(true);
     
-    // Explicitly prepare the data to ensure correct structure
+    // Explicitly prepare the data and trim credentials
     const dataToSave = {
       ...formData,
+      firstpayTest: {
+        apiKey: formData.firstpayTest?.apiKey?.trim() || '',
+        bearerToken: formData.firstpayTest?.bearerToken?.trim() || ''
+      },
+      firstpayProd: {
+        apiKey: formData.firstpayProd?.apiKey?.trim() || '',
+        bearerToken: formData.firstpayProd?.bearerToken?.trim() || ''
+      },
       updatedAt: serverTimestamp(),
     };
 
@@ -88,11 +101,11 @@ export default function AdminSettingsPage() {
         toast({ title: "設定を保存しました" });
       })
       .catch((error) => {
-        console.error('[SETTINGS_DEBUG] Save failed with Firestore error:', error);
+        console.error('[SETTINGS_DEBUG] Save failed:', error);
         toast({ 
           variant: "destructive", 
           title: "保存に失敗しました", 
-          description: error.message || "セキュリティルールにより拒否された可能性があります。" 
+          description: error.message 
         });
       })
       .finally(() => setIsSaving(false));
@@ -119,16 +132,21 @@ export default function AdminSettingsPage() {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "FIRSTPAY-PAYMENT-API-KEY": currentCreds.apiKey,
-          "Authorization": `Bearer ${currentCreds.bearerToken}`
+          "FIRSTPAY-PAYMENT-API-KEY": currentCreds.apiKey.trim(),
+          "Authorization": `Bearer ${currentCreds.bearerToken.trim().replace(/^Bearer\s+/i, '')}`
         }
       });
 
       if (res.ok) {
-        toast({ title: "接続成功", description: `${formData.mode === 'production' ? '本番' : 'テスト'}環境との通信に成功しました。` });
+        const keyData = await res.json();
+        if (keyData.encryptionKeyHash) {
+          toast({ title: "接続成功", description: `${formData.mode === 'production' ? '本番' : 'テスト'}環境との通信に成功しました。` });
+        } else {
+          throw new Error('APIレスポンスが空です。キーが正しくない可能性があります。');
+        }
       } else {
-        const errorData = await res.json();
-        throw new Error(errorData.errors?.[0]?.message || '認証に失敗しました。');
+        const errorText = await res.text();
+        throw new Error(`認証に失敗しました (Status: ${res.status})`);
       }
     } catch (error: any) {
       toast({ 
@@ -148,8 +166,7 @@ export default function AdminSettingsPage() {
       <div className="container mx-auto px-4 py-20 text-center space-y-4">
         <ShieldAlert className="h-16 w-16 text-destructive mx-auto" />
         <h1 className="text-2xl font-bold">アクセス権限がありません</h1>
-        <p className="text-muted-foreground">現在のアカウントのロール: <Badge variant="outline">{profile.role || '不明'}</Badge></p>
-        <p className="text-xs">Firestoreの users/{user?.uid} ドキュメントの role が "admin" になっているか確認してください。</p>
+        <p className="text-muted-foreground">管理者アカウントでログインしてください。</p>
         <Link href="/admin"><Button variant="outline">ダッシュボードへ</Button></Link>
       </div>
     );
@@ -174,7 +191,7 @@ export default function AdminSettingsPage() {
         <Card className="border-none shadow-xl rounded-3xl overflow-hidden border-2 border-primary/10">
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2 text-primary"><Globe className="h-5 w-5" /> システム稼働モード</CardTitle>
-            <CardDescription>FirstPay決済APIの動作環境を切り替えます。保存後に反映されます。</CardDescription>
+            <CardDescription>FirstPay決済APIの動作環境を切り替えます。</CardDescription>
           </CardHeader>
           <CardContent className="p-6">
             <div className="flex items-center justify-between p-6 bg-secondary/20 rounded-[2rem] border border-white">
@@ -186,7 +203,7 @@ export default function AdminSettingsPage() {
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  現在は {formData.mode === 'production' ? '実売上が発生する本番環境' : '開発・テスト用のダミー環境'} の設定が決済に使用されます。
+                  現在は {formData.mode === 'production' ? '実売上が発生する本番環境' : '開発・テスト用のダミー環境'} の設定が使用されます。
                 </p>
               </div>
               <Switch 
@@ -203,7 +220,7 @@ export default function AdminSettingsPage() {
           <CardHeader className="bg-primary/5 flex flex-row items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" /> FirstPay 認証情報設定</CardTitle>
-              <CardDescription>テスト用と本番用それぞれの認証情報を保存できます</CardDescription>
+              <CardDescription>各環境のAPIキーとトークンを保存してください</CardDescription>
             </div>
             <Button 
               type="button" 
@@ -214,15 +231,14 @@ export default function AdminSettingsPage() {
               disabled={isTesting}
             >
               {isTesting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
-              {formData.mode === 'production' ? '本番環境接続テスト' : 'テスト環境接続テスト'}
+              接続テスト
             </Button>
           </CardHeader>
           <CardContent className="p-8 space-y-10">
             
-            {/* Test Credentials Group */}
             <div className={`space-y-4 p-6 rounded-2xl border-2 transition-all ${formData.mode === 'test' ? 'border-blue-500 bg-blue-50/30' : 'border-dashed border-muted bg-muted/5 opacity-60'}`}>
               <div className="flex items-center justify-between">
-                <h3 className="font-bold flex items-center gap-2 text-blue-600"><Key className="h-4 w-4" /> テスト環境用 (Test Mode)</h3>
+                <h3 className="font-bold flex items-center gap-2 text-blue-600"><Key className="h-4 w-4" /> テスト環境用</h3>
                 {formData.mode === 'test' && <Badge className="bg-blue-500">現在使用中</Badge>}
               </div>
               <div className="grid md:grid-cols-2 gap-4">
@@ -254,10 +270,9 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
-            {/* Production Credentials Group */}
             <div className={`space-y-4 p-6 rounded-2xl border-2 transition-all ${formData.mode === 'production' ? 'border-red-500 bg-red-50/30' : 'border-dashed border-muted bg-muted/5 opacity-60'}`}>
               <div className="flex items-center justify-between">
-                <h3 className="font-bold flex items-center gap-2 text-red-600"><ShieldCheck className="h-4 w-4" /> 本番環境用 (Production Mode)</h3>
+                <h3 className="font-bold flex items-center gap-2 text-red-600"><ShieldCheck className="h-4 w-4" /> 本番環境用</h3>
                 {formData.mode === 'production' && <Badge className="bg-red-500">現在使用中</Badge>}
               </div>
               <div className="grid md:grid-cols-2 gap-4">
@@ -292,7 +307,7 @@ export default function AdminSettingsPage() {
             <div className="bg-secondary/20 p-4 rounded-xl flex items-start gap-3">
               <Info className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                FirstPay管理画面より、テスト用と本番用のそれぞれ2種類のキーを取得してください。モードを切り替える際は、必ず対応する環境のキーが入力されていることを確認し、右上の「接続テスト」で疎通を確認することをお勧めします。
+                FirstPay管理画面より取得した静的なキーを入力してください。トークンは "Bearer " プレフィックスの有無にかかわらず、保存時に適切に処理されます。
               </p>
             </div>
           </CardContent>
@@ -302,32 +317,21 @@ export default function AdminSettingsPage() {
         <Card className="border-none shadow-xl rounded-3xl overflow-hidden">
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" /> 運営者情報設定</CardTitle>
-            <CardDescription>特定商取引法に基づく表記や自動送信メールの署名等に使用されます</CardDescription>
           </CardHeader>
           <CardContent className="p-8 space-y-6">
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label>運営担当者名</Label>
-                <Input value={formData.managerName || ''} onChange={e => setFormData({...formData, managerName: e.target.value})} className="rounded-xl" placeholder="寺岡佑記" />
+                <Input value={formData.managerName || ''} onChange={e => setFormData({...formData, managerName: e.target.value})} className="rounded-xl" />
               </div>
               <div className="space-y-2">
                 <Label>担当者メールアドレス</Label>
-                <Input type="email" value={formData.managerEmail || ''} onChange={e => setFormData({...formData, managerEmail: e.target.value})} className="rounded-xl" placeholder="eigyo@timewaver.jp" />
+                <Input type="email" value={formData.managerEmail || ''} onChange={e => setFormData({...formData, managerEmail: e.target.value})} className="rounded-xl" />
               </div>
             </div>
             <div className="space-y-2">
               <Label>会社名 / 団体名</Label>
-              <Input value={formData.companyName || ''} onChange={e => setFormData({...formData, companyName: e.target.value})} className="rounded-xl" placeholder="株式会社カウデザイン" />
-            </div>
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label>代表電話番号</Label>
-                <Input value={formData.tel || ''} onChange={e => setFormData({...formData, tel: e.target.value})} className="rounded-xl" placeholder="03-6427-9427" />
-              </div>
-              <div className="space-y-2">
-                <Label>カスタマーサポート電話番号</Label>
-                <Input value={formData.contactNumber || ''} onChange={e => setFormData({...formData, contactNumber: e.target.value})} className="rounded-xl" placeholder="03-6427-9427" />
-              </div>
+              <Input value={formData.companyName || ''} onChange={e => setFormData({...formData, companyName: e.target.value})} className="rounded-xl" />
             </div>
           </CardContent>
         </Card>
