@@ -16,7 +16,8 @@ import {
   getDocs, 
   where, 
   writeBatch, 
-  Timestamp 
+  Timestamp,
+  deleteDoc
 } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,7 +39,8 @@ import {
   ChevronRight,
   Zap,
   AlertTriangle,
-  RefreshCcw
+  RefreshCcw,
+  Hourglass
 } from 'lucide-react';
 import { Application, UserProfile, GlobalSettings, Waitlist } from '@/types';
 import Link from 'next/link';
@@ -70,33 +72,34 @@ export default function AdminDashboardPage() {
   const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
 
   // Reconciliation logic: Check for expired subscriptions and release devices
+  // AND Check for expired waitlists based on waitlistValidityHours
   useEffect(() => {
     if (db && profile?.role === 'admin' && settings && !isReconciling) {
       const reconcile = async () => {
         setIsReconciling(true);
         try {
           const now = new Date();
-          const q = query(
+          
+          // 1. Subscription Expiry Check
+          const subQuery = query(
             collection(db, 'subscriptions'),
             where('status', '==', 'active'),
             where('endAt', '<', Timestamp.fromDate(now))
           );
           
-          const snapshot = await getDocs(q);
+          const subSnapshot = await getDocs(subQuery);
           
-          if (!snapshot.empty) {
+          if (!subSnapshot.empty) {
             const batch = writeBatch(db);
             const deviceIdsToNotify: string[] = [];
             
-            snapshot.docs.forEach(subDoc => {
+            subSnapshot.docs.forEach(subDoc => {
               const subData = subDoc.data();
-              // 1. Complete the subscription
               batch.update(doc(db, 'subscriptions', subDoc.id), { 
                 status: 'completed', 
                 updatedAt: serverTimestamp() 
               });
               
-              // 2. Release the device
               batch.update(doc(db, 'devices', subData.deviceId), { 
                 status: 'available', 
                 currentUserId: null, 
@@ -110,7 +113,6 @@ export default function AdminDashboardPage() {
 
             await batch.commit();
 
-            // Trigger Waitlist Staggered Notifications for each released device
             for (const deviceId of deviceIdsToNotify) {
               const waitlistQuery = query(
                 collection(db, 'waitlist'),
@@ -145,10 +147,70 @@ export default function AdminDashboardPage() {
             }
 
             toast({ 
-              title: "自動ステータス更新", 
-              description: `${snapshot.size}件の契約満了を確認し、機器を在庫に戻しました。待機者への順次案内を開始しました。` 
+              title: "契約状況更新", 
+              description: `${subSnapshot.size}件の期間満了を確認し、機器を在庫に戻しました。` 
             });
           }
+
+          // 2. Waitlist Validity Period Check (Refresh Logic)
+          // Find all waitlist entries where anyone was notified or scheduled
+          const waitValidityHours = settings.waitlistValidityHours || 48;
+          const wlQuery = collection(db, 'waitlist');
+          const wlSnapshot = await getDocs(wlQuery);
+          
+          if (!wlSnapshot.empty) {
+            // Group by deviceId
+            const wlByDevice: Record<string, Waitlist[]> = {};
+            wlSnapshot.docs.forEach(d => {
+              const data = { id: d.id, ...d.data() as Waitlist };
+              if (!wlByDevice[data.deviceId]) wlByDevice[data.deviceId] = [];
+              wlByDevice[data.deviceId].push(data);
+            });
+
+            const devicesToRefresh: string[] = [];
+
+            Object.keys(wlByDevice).forEach(devId => {
+              const entries = wlByDevice[devId];
+              // Find the "last" event time (max of scheduledNotifyAt or notified updatedAt)
+              let lastEventTime = 0;
+              let allNotified = true;
+
+              entries.forEach(e => {
+                const notifyTime = e.scheduledNotifyAt?.seconds || (e.status === 'notified' ? e.updatedAt?.seconds : 0) || 0;
+                if (notifyTime > lastEventTime) lastEventTime = notifyTime;
+                if (e.status === 'waiting') allNotified = false;
+              });
+
+              // Only refresh if everyone in line has been scheduled/notified AND the validity period passed
+              if (allNotified && lastEventTime > 0) {
+                const expiryTime = (lastEventTime + (waitValidityHours * 3600)) * 1000;
+                if (Date.now() > expiryTime) {
+                  devicesToRefresh.push(devId);
+                }
+              }
+            });
+
+            if (devicesToRefresh.length > 0) {
+              const cleanupBatch = writeBatch(db);
+              let totalDeleted = 0;
+              
+              wlSnapshot.docs.forEach(docSnap => {
+                if (devicesToRefresh.includes(docSnap.data().deviceId)) {
+                  cleanupBatch.delete(docSnap.ref);
+                  totalDeleted++;
+                }
+              });
+
+              if (totalDeleted > 0) {
+                await cleanupBatch.commit();
+                toast({ 
+                  title: "待機リストのリフレッシュ", 
+                  description: `${devicesToRefresh.length}台の機器で有効期間が終了したため、キャンセル待ちリストを初期化しました。` 
+                });
+              }
+            }
+          }
+
         } catch (err) {
           console.error("Reconciliation Error:", err);
         } finally {
@@ -209,7 +271,7 @@ export default function AdminDashboardPage() {
         {isReconciling && (
           <div className="flex items-center gap-2 text-xs font-medium text-primary animate-pulse bg-primary/5 px-4 py-2 rounded-full border border-primary/20">
             <RefreshCcw className="h-3 w-3 animate-spin" />
-            契約状況を同期中...
+            システム状況を同期中...
           </div>
         )}
       </div>

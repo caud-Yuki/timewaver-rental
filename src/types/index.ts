@@ -152,6 +152,7 @@ export interface GlobalSettings {
   tel: string;
   mode: "test" | "production";
   waitlistEmailInterval?: number;
+  waitlistValidityHours?: number;
   firstpayTest?: {
     apiKey: string;
     bearerToken: string;

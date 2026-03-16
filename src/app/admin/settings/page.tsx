@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Globe, Key, CreditCard, ShieldCheck, Info, Settings as SettingsIcon, Clock } from 'lucide-react';
+import { Loader2, Globe, Key, CreditCard, ShieldCheck, Info, Settings as SettingsIcon, Clock, Hourglass } from 'lucide-react';
 import { GlobalSettings, UserProfile } from '@/types';
 import Link from 'next/link';
 
@@ -45,7 +45,8 @@ export default function AdminSettingsPage() {
     tel: '',
     zipcode: '',
     address: '',
-    waitlistEmailInterval: 24
+    waitlistEmailInterval: 24,
+    waitlistValidityHours: 48
   });
 
   useEffect(() => {
@@ -61,7 +62,8 @@ export default function AdminSettingsPage() {
           apiKey: settings.firstpayProd?.apiKey || '',
           bearerToken: settings.firstpayProd?.bearerToken || ''
         },
-        waitlistEmailInterval: settings.waitlistEmailInterval || 24
+        waitlistEmailInterval: settings.waitlistEmailInterval || 24,
+        waitlistValidityHours: settings.waitlistValidityHours || 48
       }));
       hasLoadedRef.current = true;
     }
@@ -89,6 +91,7 @@ export default function AdminSettingsPage() {
         bearerToken: formData.firstpayProd?.bearerToken?.trim().replace(/^Bearer\s+/i, '') || ''
       },
       waitlistEmailInterval: Number(formData.waitlistEmailInterval) || 24,
+      waitlistValidityHours: Number(formData.waitlistValidityHours) || 48,
       updatedAt: serverTimestamp(),
     };
 
@@ -182,7 +185,7 @@ export default function AdminSettingsPage() {
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2 text-amber-600"><Clock className="h-5 w-5" /> キャンセル待ち自動化設定</CardTitle>
           </CardHeader>
-          <CardContent className="p-8 space-y-6">
+          <CardContent className="p-8 space-y-10">
             <div className="space-y-2">
               <Label>一括案内送信の間隔（時間）</Label>
               <div className="flex items-center gap-4">
@@ -198,6 +201,26 @@ export default function AdminSettingsPage() {
               </div>
               <p className="text-xs text-muted-foreground mt-2">
                 キャンセル待ちユーザーに対して一括でオファーを送信する際、各ユーザーへの案内送信をこの間隔でずらして予約します。
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-4 border-t border-slate-100">
+              <Label className="flex items-center gap-2">
+                <Hourglass className="h-4 w-4 text-amber-500" /> 受付有効期間（時間）
+              </Label>
+              <div className="flex items-center gap-4">
+                <Input 
+                  type="number" 
+                  min="1"
+                  max="720"
+                  value={formData.waitlistValidityHours} 
+                  onChange={e => setFormData({...formData, waitlistValidityHours: parseInt(e.target.value)})} 
+                  className="rounded-xl max-w-[120px]"
+                />
+                <span className="text-sm font-medium">時間経過後にリストをリフレッシュ</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                案内プロセスの最後の1人への通知が完了した後、この時間が経過しても申し込みがない場合、その機器のキャンセル待ちリストを自動的にリフレッシュ（全削除）します。
               </p>
             </div>
           </CardContent>
