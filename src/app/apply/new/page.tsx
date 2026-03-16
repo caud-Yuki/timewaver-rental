@@ -38,6 +38,9 @@ function ApplyForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [idFileUploaded, setIdFileUploaded] = useState(false);
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string>('');
+  
+  // Track if application was successfully submitted to avoid reverting status on navigation
+  const isSubmittedRef = useRef(false);
 
   // Session Time Logic
   const [showTimeoutDialog, setShowTimeoutDialog] = useState(false);
@@ -74,20 +77,33 @@ function ApplyForm() {
   }, [db, deviceId]);
   const { data: processingWaitlist, loading: processingLoading } = useCollection<Waitlist>(processingQuery as any);
 
-  // Revert processing status on timeout
+  // Revert processing status back to waiting
   const revertWaitlistStatus = useCallback(async () => {
-    if (!db || !user || !deviceId) return;
+    if (!db || !user || !deviceId || isSubmittedRef.current) return;
+    
+    // Attempt to find the specific processing entry for this user and device
     const q = query(
       collection(db, 'waitlist'),
       where('deviceId', '==', deviceId),
       where('userId', '==', user.uid),
       where('status', '==', 'processing')
     );
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => batch.update(d.ref, { status: 'waiting', updatedAt: serverTimestamp() }));
-      await batch.commit();
+    
+    try {
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        snap.docs.forEach(d => {
+          batch.update(d.ref, { 
+            status: 'waiting', 
+            updatedAt: serverTimestamp() 
+          });
+        });
+        await batch.commit();
+        console.log('[SESSION] Waitlist status reverted to waiting');
+      }
+    } catch (error) {
+      console.error('[SESSION] Error reverting waitlist status:', error);
     }
   }, [db, user, deviceId]);
 
@@ -122,13 +138,32 @@ function ApplyForm() {
       const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
       events.forEach(name => window.addEventListener(name, resetInactivityTimer));
       
+      // Cleanup function for internal navigation or unmount
       return () => {
         if (timerRef.current) clearTimeout(timerRef.current);
         if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
         events.forEach(name => window.removeEventListener(name, resetInactivityTimer));
+        
+        // Revert status if we are leaving the page without having submitted
+        if (!isSubmittedRef.current) {
+          revertWaitlistStatus();
+        }
       };
     }
-  }, [settings, resetInactivityTimer]);
+  }, [settings, resetInactivityTimer, revertWaitlistStatus]);
+
+  // Handle browser tab closing or refreshing
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isSubmittedRef.current) {
+        // We can't await here, but we can fire and hope for the best
+        revertWaitlistStatus();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [revertWaitlistStatus]);
 
   useEffect(() => {
     if (!processingLoading && processingWaitlist.length > 0 && user) {
@@ -218,6 +253,9 @@ function ApplyForm() {
     try {
       await addDoc(collection(db, 'applications'), applicationData);
       
+      // Set submission flag to true BEFORE cleanup runs
+      isSubmittedRef.current = true;
+
       const waitlistQuery = query(collection(db, 'waitlist'), where('deviceId', '==', device.id));
       const waitlistSnap = await getDocs(waitlistQuery);
       
