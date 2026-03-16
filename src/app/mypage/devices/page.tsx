@@ -72,13 +72,13 @@ export default function MyDevicesPage() {
   }, [db, user]);
   const { data: applications, loading: appsLoading } = useCollection<Application>(appsQuery as any);
 
-  // 3. Waitlist Entries
+  // 3. Waitlist Entries - Updated to include 'processing'
   const waitlistQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return query(
       collection(db, 'waitlist'),
       where('userId', '==', user.uid),
-      where('status', 'in', ['waiting', 'notified', 'scheduled'])
+      where('status', 'in', ['waiting', 'notified', 'scheduled', 'processing'])
     );
   }, [db, user]);
   const { data: waitlist, loading: waitlistLoading } = useCollection<Waitlist>(waitlistQuery as any);
@@ -130,6 +130,16 @@ export default function MyDevicesPage() {
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleStartApplication = async (waitlistId: string, deviceId: string) => {
+    if (!db) return;
+    updateDoc(doc(db, 'waitlist', waitlistId), {
+      status: 'processing',
+      updatedAt: serverTimestamp()
+    }).then(() => {
+      router.push(`/apply/new?deviceId=${deviceId}`);
+    });
   };
 
   const isRenewalEligible = (endAt: any) => {
@@ -334,6 +344,7 @@ export default function MyDevicesPage() {
                 {waitlist.map((item) => {
                   const targetDevice = allDevices.find(d => d.id === item.deviceId);
                   const isAvailable = targetDevice?.status === 'available';
+                  const isProcessing = item.status === 'processing';
 
                   return (
                     <Card key={item.id} className={`border-none shadow-lg rounded-[2rem] transition-all ${isAvailable ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-slate-50'}`}>
@@ -355,13 +366,22 @@ export default function MyDevicesPage() {
                         {isAvailable ? (
                           <div className="space-y-3">
                             <p className="text-[10px] text-emerald-700 font-bold leading-tight">
-                              ご希望の機器に空きが出ました。今すぐお申し込みいただけます。
+                              {isProcessing 
+                                ? "申し込み手続きを開始しました。"
+                                : "ご希望の機器に空きが出ました。今すぐお申し込みいただけます。"}
                             </p>
-                            <Link href={`/apply/new?deviceId=${item.deviceId}`}>
-                              <Button className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 shadow-md font-bold text-xs">
+                            {isProcessing ? (
+                              <Button disabled className="w-full h-10 rounded-xl bg-slate-400 shadow-md font-bold text-xs">
+                                順番を待ち <Clock className="ml-1 h-3 w-3" />
+                              </Button>
+                            ) : (
+                              <Button 
+                                className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 shadow-md font-bold text-xs"
+                                onClick={() => handleStartApplication(item.id, item.deviceId)}
+                              >
                                 今すぐ申し込む <ArrowRight className="ml-1 h-3 w-3" />
                               </Button>
-                            </Link>
+                            )}
                           </div>
                         ) : (
                           <p className="text-[10px] text-muted-foreground">

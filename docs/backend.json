@@ -127,7 +127,7 @@
         "userEmail": { "type": "string" },
         "deviceId": { "type": "string" },
         "deviceType": { "type": "string" },
-        "status": { "type": "string", "enum": ["waiting", "notified", "scheduled", "cancelled"] },
+        "status": { "type": "string", "enum": ["waiting", "notified", "scheduled", "cancelled", "processing"] },
         "scheduledNotifyAt": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }

@@ -90,7 +90,7 @@ export interface Waitlist {
   userEmail: string;
   deviceId: string;
   deviceType: string;
-  status: "waiting" | "notified" | "scheduled" | "cancelled";
+  status: "waiting" | "notified" | "scheduled" | "cancelled" | "processing";
   scheduledNotifyAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
