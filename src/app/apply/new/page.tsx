@@ -4,7 +4,7 @@
 import { useState, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useUser, useFirestore, useDoc, useMemoFirebase, useStorage } from '@/firebase';
-import { doc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, collection, addDoc, serverTimestamp, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -64,12 +64,10 @@ function ApplyForm() {
 
     setIsSubmitting(true);
     try {
-      // Create a unique path for the identity document
       const fileExt = file.name.split('.').pop();
       const fileName = `id_${Date.now()}.${fileExt}`;
       const storageRef = ref(storage, `identifications/${user.uid}/${fileName}`);
       
-      // Actual upload to Firebase Storage
       const snapshot = await uploadBytes(storageRef, file);
       const downloadUrl = await getDownloadURL(snapshot.ref);
       
@@ -81,7 +79,7 @@ function ApplyForm() {
       toast({ 
         variant: "destructive", 
         title: "アップロード失敗", 
-        description: "ファイルのアップロードに失敗しました。通信環境を確認してください。" 
+        description: "ファイルのアップロードに失敗しました。" 
       });
     } finally {
       setIsSubmitting(false);
@@ -117,12 +115,26 @@ function ApplyForm() {
       updatedAt: serverTimestamp(),
     };
 
-    addDoc(collection(db, 'applications'), applicationData)
-      .then(() => {
-        toast({ title: "申請を送信しました", description: "管理者による審査をお待ちください（1〜3営業日）" });
-        router.push('/mypage/applications');
-      })
-      .finally(() => setIsSubmitting(false));
+    try {
+      await addDoc(collection(db, 'applications'), applicationData);
+      
+      // Cleanup Waitlist Logic: If someone proceeds to application, refresh (delete) all waiting list for this device
+      const waitlistQuery = query(collection(db, 'waitlist'), where('deviceId', '==', device.id));
+      const waitlistSnap = await getDocs(waitlistQuery);
+      
+      if (!waitlistSnap.empty) {
+        const batch = writeBatch(db);
+        waitlistSnap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+
+      toast({ title: "申請を送信しました", description: "管理者による審査をお待ちください（1〜3営業日）" });
+      router.push('/mypage/applications');
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "エラー", description: error.message });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (deviceLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;

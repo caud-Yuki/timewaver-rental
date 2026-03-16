@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { collection, addDoc, doc, serverTimestamp, deleteDoc, updateDoc, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
+import { collection, addDoc, doc, serverTimestamp, deleteDoc, updateDoc, query, where, getDocs, limit, orderBy, writeBatch, Timestamp } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package } from 'lucide-react';
-import { Device, DeviceTypeCode, UserProfile } from '@/types';
+import { Device, DeviceTypeCode, UserProfile, GlobalSettings, Waitlist } from '@/types';
 import Link from 'next/link';
 
 export default function DeviceManagementPage() {
@@ -45,6 +45,12 @@ export default function DeviceManagementPage() {
     return doc(db, 'users', user.uid);
   }, [db, user]);
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
+
+  const settingsRef = useMemoFirebase(() => {
+    if (!db) return null;
+    return doc(db, 'settings', 'global');
+  }, [db]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
 
   const devicesQuery = useMemoFirebase(() => {
     if (!db || !profile || profile.role !== 'admin') return null;
@@ -104,9 +110,8 @@ export default function DeviceManagementPage() {
     if (editingDevice?.id) {
       updateDoc(doc(db, 'devices', editingDevice.id), deviceData as any)
         .then(async () => {
-          // Trigger logic: If status changed to 'available', notify the waitlist
-          if (formData.status === 'available' && editingDevice.status !== 'available') {
-            // Simplified query to avoid index requirement: filter by device and status, sort in memory
+          // Trigger logic: If status changed to 'available', trigger staggered notifications
+          if (formData.status === 'available' && editingDevice.status !== 'available' && settings) {
             const waitlistQuery = query(
               collection(db, 'waitlist'),
               where('deviceId', '==', editingDevice.id),
@@ -116,20 +121,28 @@ export default function DeviceManagementPage() {
             const waitlistSnap = await getDocs(waitlistQuery);
             
             if (!waitlistSnap.empty) {
-              // Sort by createdAt in memory to find the first person in line
-              const items = waitlistSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
-              items.sort((a, b) => {
-                const timeA = a.createdAt?.seconds || 0;
-                const timeB = b.createdAt?.seconds || 0;
-                return timeA - timeB;
-              });
+              const batch = writeBatch(db);
+              const items = waitlistSnap.docs.map(d => ({ id: d.id, ...d.data() as Waitlist }));
+              items.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
               
-              const firstPerson = items[0];
-              updateDoc(doc(db, 'waitlist', firstPerson.id), {
-                status: 'notified',
-                updatedAt: serverTimestamp()
+              const intervalHours = settings.waitlistEmailInterval || 24;
+              const now = new Date();
+
+              items.forEach((item, index) => {
+                const waitRef = doc(db, 'waitlist', item.id);
+                if (index === 0) {
+                  batch.update(waitRef, { status: 'notified', updatedAt: serverTimestamp() });
+                } else {
+                  const scheduledTime = new Date(now.getTime() + (index * intervalHours * 60 * 60 * 1000));
+                  batch.update(waitRef, {
+                    status: 'scheduled',
+                    scheduledNotifyAt: Timestamp.fromDate(scheduledTime),
+                    updatedAt: serverTimestamp()
+                  });
+                }
               });
-              toast({ title: "在庫を更新し、キャンセル待ちのユーザーへ通知しました" });
+              await batch.commit();
+              toast({ title: "在庫を更新し、キャンセル待ちユーザーへの順次案内を開始しました" });
             } else {
               toast({ title: "機器情報を更新しました" });
             }

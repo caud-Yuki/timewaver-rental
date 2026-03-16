@@ -40,7 +40,7 @@ import {
   AlertTriangle,
   RefreshCcw
 } from 'lucide-react';
-import { Application, UserProfile, GlobalSettings } from '@/types';
+import { Application, UserProfile, GlobalSettings, Waitlist } from '@/types';
 import Link from 'next/link';
 
 export default function AdminDashboardPage() {
@@ -63,9 +63,15 @@ export default function AdminDashboardPage() {
 
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
 
+  const settingsRef = useMemoFirebase(() => {
+    if (!db || profile?.role !== 'admin') return null;
+    return doc(db, 'settings', 'global');
+  }, [db, profile?.role]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
+
   // Reconciliation logic: Check for expired subscriptions and release devices
   useEffect(() => {
-    if (db && profile?.role === 'admin' && !isReconciling) {
+    if (db && profile?.role === 'admin' && settings && !isReconciling) {
       const reconcile = async () => {
         setIsReconciling(true);
         try {
@@ -80,6 +86,7 @@ export default function AdminDashboardPage() {
           
           if (!snapshot.empty) {
             const batch = writeBatch(db);
+            const deviceIdsToNotify: string[] = [];
             
             snapshot.docs.forEach(subDoc => {
               const subData = subDoc.data();
@@ -97,12 +104,49 @@ export default function AdminDashboardPage() {
                 contractEndAt: null,
                 updatedAt: serverTimestamp() 
               });
+              
+              deviceIdsToNotify.push(subData.deviceId);
             });
 
             await batch.commit();
+
+            // Trigger Waitlist Staggered Notifications for each released device
+            for (const deviceId of deviceIdsToNotify) {
+              const waitlistQuery = query(
+                collection(db, 'waitlist'),
+                where('deviceId', '==', deviceId),
+                where('status', '==', 'waiting')
+              );
+              const waitlistSnap = await getDocs(waitlistQuery);
+              
+              if (!waitlistSnap.empty) {
+                const waitlistBatch = writeBatch(db);
+                const items = waitlistSnap.docs.map(d => ({ id: d.id, ...d.data() as Waitlist }));
+                items.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+                
+                const intervalHours = settings.waitlistEmailInterval || 24;
+                const batchNow = new Date();
+
+                items.forEach((item, index) => {
+                  const ref = doc(db, 'waitlist', item.id);
+                  if (index === 0) {
+                    waitlistBatch.update(ref, { status: 'notified', updatedAt: serverTimestamp() });
+                  } else {
+                    const scheduledTime = new Date(batchNow.getTime() + (index * intervalHours * 60 * 60 * 1000));
+                    waitlistBatch.update(ref, {
+                      status: 'scheduled',
+                      scheduledNotifyAt: Timestamp.fromDate(scheduledTime),
+                      updatedAt: serverTimestamp()
+                    });
+                  }
+                });
+                await waitlistBatch.commit();
+              }
+            }
+
             toast({ 
               title: "自動ステータス更新", 
-              description: `${snapshot.size}件の契約満了を確認し、機器を在庫（利用可能）に戻しました。` 
+              description: `${snapshot.size}件の契約満了を確認し、機器を在庫に戻しました。待機者への順次案内を開始しました。` 
             });
           }
         } catch (err) {
@@ -113,7 +157,7 @@ export default function AdminDashboardPage() {
       };
       reconcile();
     }
-  }, [db, profile?.role, toast]);
+  }, [db, profile?.role, settings, toast]);
 
   const applicationsQuery = useMemoFirebase(() => {
     if (!db || profile?.role !== 'admin') return null;
@@ -121,12 +165,6 @@ export default function AdminDashboardPage() {
   }, [db, profile?.role]);
 
   const { data: recentApplications, loading: appsLoading } = useCollection<Application>(applicationsQuery as any);
-
-  const settingsRef = useMemoFirebase(() => {
-    if (!db || profile?.role !== 'admin') return null;
-    return doc(db, 'settings', 'global');
-  }, [db, profile?.role]);
-  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
 
   const isConfigured = !!(settings?.firstpayTest?.apiKey || settings?.firstpayProd?.apiKey);
 
