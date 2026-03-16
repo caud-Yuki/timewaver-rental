@@ -81,11 +81,11 @@ export default function AdminSettingsPage() {
       ...formData,
       firstpayTest: {
         apiKey: formData.firstpayTest?.apiKey?.trim() || '',
-        bearerToken: formData.firstpayTest?.bearerToken?.trim() || ''
+        bearerToken: formData.firstpayTest?.bearerToken?.trim().replace(/^Bearer\s+/i, '') || ''
       },
       firstpayProd: {
         apiKey: formData.firstpayProd?.apiKey?.trim() || '',
-        bearerToken: formData.firstpayProd?.bearerToken?.trim() || ''
+        bearerToken: formData.firstpayProd?.bearerToken?.trim().replace(/^Bearer\s+/i, '') || ''
       },
       updatedAt: serverTimestamp(),
     };
@@ -113,6 +113,8 @@ export default function AdminSettingsPage() {
     setIsTesting(true);
     try {
       const API_BASE = formData.mode === "production" ? "https://www.api.firstpay.jp" : "https://dev.api.firstpay.jp";
+      console.log(`[SETTINGS_DEBUG] Testing connection to ${API_BASE}`);
+      
       const res = await fetch(`${API_BASE}/token/encryption/key`, {
         method: "GET",
         headers: {
@@ -126,6 +128,7 @@ export default function AdminSettingsPage() {
         toast({ title: "接続成功", description: "FirstPayとの通信に成功しました。" });
       } else {
         const errorText = await res.text();
+        console.error('[SETTINGS_DEBUG] Connection test failed:', errorText);
         throw new Error(`認証失敗 (${res.status})`);
       }
     } catch (error: any) {
@@ -140,7 +143,10 @@ export default function AdminSettingsPage() {
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl space-y-8">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold font-headline">基本設定</h1>
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold font-headline">基本設定</h1>
+          <p className="text-xs text-muted-foreground">権限: <Badge variant="outline">{profile?.role}</Badge></p>
+        </div>
         <Link href="/admin">
           <Button variant="outline" className="rounded-xl">ダッシュボードに戻る</Button>
         </Link>

@@ -21,7 +21,7 @@ import {
   createRecurring 
 } from '@/lib/firstpay';
 import { errorEmitter } from '@/firebase/error-emitter';
-import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
+import { FirestorePermissionError } from '@/firebase/errors';
 
 export default function PaymentPage() {
   const params = useParams();
@@ -76,23 +76,30 @@ export default function PaymentPage() {
     if (!db || !paymentLink || !profile || !user || !application) return;
 
     setIsProcessing(true);
+    console.log('[PAYMENT_DEBUG] --- Payment Process Started ---');
+    
     try {
       const config = await getFirstPayConfig(db);
       if (!config) throw new Error('決済設定が見つかりません。');
 
-      // 1. RSA Key Acquisition & Card Tokenization (Step 2 & 3)
+      // 1. Stage 1: Card Tokenization
+      console.log('[PAYMENT_DEBUG] Stage 1: Card Tokenization');
       const tokenResult = await createCardToken(config, cardInfo, profile.tel);
       const { cardToken, issuerUrl } = tokenResult;
       
+      if (!cardToken) throw new Error('カードトークンの発行に失敗しました。');
+
       // 2. 3DS Authentication if required
       if (issuerUrl) {
+        console.log('[PAYMENT_DEBUG] 3DS Authentication Required:', issuerUrl);
         toast({ title: "本人認証が必要です", description: "別ウィンドウで認証を完了してください。" });
         window.open(issuerUrl, '_blank', 'width=600,height=600');
         const isAuthOk = await poll3dsStatus(config, cardToken);
         if (!isAuthOk) throw new Error('3DS認証に失敗しました。');
       }
 
-      // 3. Member Registration (Step 1 in docs)
+      // 3. Stage 2: Member Registration
+      console.log('[PAYMENT_DEBUG] Stage 2: Member Registration');
       const customerId = profile.customerId || `CUST-${user.uid.substring(0, 8)}-${Date.now()}`;
       await registerCustomer(config, {
         customerId,
@@ -106,7 +113,8 @@ export default function PaymentPage() {
       let transactionId = '';
       let recurringId = '';
 
-      // 4. Pattern Branching (Step 4-A or 4-B)
+      // 4. Stage 3: Execution (Charge or Recurring)
+      console.log('[PAYMENT_DEBUG] Stage 3: Payment Execution');
       if (paymentLink.payType === 'full') {
         const paymentId = `PAY-${Date.now()}`;
         const chargeResult = await createCharge(config, {
@@ -124,20 +132,21 @@ export default function PaymentPage() {
           customerId,
           startAt: new Date().toISOString().split('T')[0],
           payAmount: paymentLink.payAmount,
-          currentlyPayAmount: paymentLink.payAmount, // First month charge
+          currentlyPayAmount: paymentLink.payAmount,
           maxExecutionNumber: application.rentalType,
           recurringDayOfMonth: new Date().getDate() > 28 ? 28 : new Date().getDate()
         });
         recurringId = recResult.reccuringId;
       }
 
-      // 5. Update Firestore (Background Sync)
+      // 5. Success: Sync to Firestore
+      console.log('[PAYMENT_DEBUG] Success! Syncing to Firestore...');
       const subscriptionData = {
         userId: user.uid,
         deviceId: paymentLink.deviceId,
         payType: paymentLink.payType,
         startAt: serverTimestamp(),
-        endAt: serverTimestamp(), // Admin will adjust actual contract end
+        endAt: serverTimestamp(),
         recurringId: recurringId || null,
         paymentId: transactionId || null,
         customerId: customerId,
@@ -166,7 +175,7 @@ export default function PaymentPage() {
       setIsCompleted(true);
       toast({ title: "決済が完了しました" });
     } catch (error: any) {
-      console.error('[PAYMENT_DEBUG]', error);
+      console.error('[PAYMENT_DEBUG] !!! Critical Error in Payment Flow !!!', error);
       toast({
         variant: "destructive",
         title: "決済エラー",
