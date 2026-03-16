@@ -14,9 +14,14 @@ service cloud.firestore {
     }
 
     // Devices: Public read access for the catalog. Admins can write.
+    // 決済完了時、認証済みユーザーがステータス更新（active化）を行える。
     match /devices/{deviceId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow update: if request.auth != null
+        && request.resource.data.status == 'active'
+        && request.resource.data.currentUserId == request.auth.uid;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin();
     }
 
     // News: Public read access for published news. Admins can write.
@@ -32,10 +37,11 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
     }
 
-    // Subscriptions: Users can read their own. Admins manage all.
+    // Subscriptions: Users can read their own and create their own (決済完了時). Admins manage all.
     match /subscriptions/{subId} {
       allow read: if request.auth != null && (isAdmin() || (resource != null && resource.data.userId == request.auth.uid));
-      allow write: if isAdmin();
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
     }
 
     // Support Requests: Users can read/create their own. Admins can manage all.
@@ -68,10 +74,14 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // Payment Links: User/Admin access.
+    // Payment Links: Public read. 決済完了時に認証ユーザーがstatusを'used'へ変更可能. Adminsは全操作可能.
     match /paymentLinks/{linkId} {
-      allow read: if true; // Public access to allow payment page to check link
-      allow write: if isAdmin();
+      allow read: if true;
+      allow update: if request.auth != null
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'used';
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin();
     }
 
     // Global Settings: Admins can write. Authenticated users can read (needed for payment config).

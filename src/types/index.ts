@@ -37,7 +37,7 @@ export interface Application {
   rentalType: 3 | 6 | 12;
   payType: "monthly" | "full";
   payAmount: number;
-  status: "pending" | "approved" | "rejected" | "payment_sent" | "completed";
+  status: "pending" | "approved" | "rejected" | "payment_sent" | "completed" | "cancelled";
   identificationImageUrl: string;
   agreementPdfUrl?: string;
   paymentLinkId?: string;

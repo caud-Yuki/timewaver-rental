@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "UserProfile": {
@@ -66,7 +67,7 @@
         "rentalType": { "type": "number", "enum": [3, 6, 12] },
         "payType": { "type": "string", "enum": ["monthly", "full"] },
         "payAmount": { "type": "number" },
-        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "payment_sent", "completed"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "payment_sent", "completed", "cancelled"] },
         "identificationImageUrl": { "type": "string" },
         "agreementPdfUrl": { "type": "string" },
         "paymentLinkId": { "type": "string" }
