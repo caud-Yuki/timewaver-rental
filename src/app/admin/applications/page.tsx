@@ -270,9 +270,14 @@ export default function AdminApplicationsPage() {
             </TableHeader>
             <TableBody>
               {applications.map((app) => (
-                <TableRow key={app.id} className="group hover:bg-muted/5 transition-colors">
+                <TableRow 
+                  key={app.id} 
+                  className={`group hover:bg-muted/5 transition-colors ${app.status === 'cancelled' ? 'opacity-50 bg-slate-50' : ''}`}
+                >
                   <TableCell className="pl-8">
-                    <div className="font-bold text-sm">{app.userName}</div>
+                    <div className={`font-bold text-sm ${app.status === 'cancelled' ? 'line-through text-muted-foreground' : ''}`}>
+                      {app.userName}
+                    </div>
                     <div className="text-[10px] text-muted-foreground">{app.userEmail}</div>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
@@ -301,7 +306,7 @@ export default function AdminApplicationsPage() {
                       value={app.status} 
                       onValueChange={(v: any) => handleUpdateStatus(app.id, v)}
                     >
-                      <SelectTrigger className="w-[130px] h-8 text-[10px] rounded-lg">
+                      <SelectTrigger className={`w-[130px] h-8 text-[10px] rounded-lg ${app.status === 'cancelled' ? 'border-destructive text-destructive' : ''}`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -310,6 +315,7 @@ export default function AdminApplicationsPage() {
                         <SelectItem value="rejected">却下</SelectItem>
                         <SelectItem value="payment_sent">決済リンク送信済</SelectItem>
                         <SelectItem value="completed">決済完了</SelectItem>
+                        <SelectItem value="cancelled" className="text-destructive font-bold">取り消し済み</SelectItem>
                       </SelectContent>
                     </Select>
                   </TableCell>
