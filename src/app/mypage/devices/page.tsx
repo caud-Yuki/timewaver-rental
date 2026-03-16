@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
@@ -19,7 +20,8 @@ import {
   CheckCircle2, 
   ArrowRight,
   Upload,
-  UserCheck
+  UserCheck,
+  Send
 } from 'lucide-react';
 import { Device, Application, Waitlist, GlobalSettings, Subscription } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -76,12 +78,19 @@ export default function MyDevicesPage() {
     return query(
       collection(db, 'waitlist'),
       where('userId', '==', user.uid),
-      where('status', '==', 'waiting')
+      where('status', 'in', ['waiting', 'notified', 'scheduled'])
     );
   }, [db, user]);
   const { data: waitlist, loading: waitlistLoading } = useCollection<Waitlist>(waitlistQuery as any);
 
-  // 4. Active Subscriptions (to get accurate endAt and rentalMonths)
+  // 4. All Devices (to check waitlist availability)
+  const allDevicesQuery = useMemoFirebase(() => {
+    if (!db) return null;
+    return collection(db, 'devices');
+  }, [db]);
+  const { data: allDevices } = useCollection<Device>(allDevicesQuery as any);
+
+  // 5. Active Subscriptions
   const subsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return query(
@@ -128,14 +137,10 @@ export default function MyDevicesPage() {
     if (settings.mode === 'test') return true;
     
     if (!endAt) return false;
-    // Convert Firestore Timestamp to JS Date
     const end = endAt.toDate ? endAt.toDate() : new Date(endAt);
     const now = new Date();
-    
-    // Eligibility window: One month before expiration
     const oneMonthBefore = new Date(end);
     oneMonthBefore.setMonth(oneMonthBefore.getMonth() - 1);
-    
     return now >= oneMonthBefore;
   };
 
@@ -223,9 +228,7 @@ export default function MyDevicesPage() {
                             <p className="font-medium text-destructive">
                               {contractEndAt?.seconds 
                                 ? new Date(contractEndAt.seconds * 1000).toLocaleDateString() 
-                                : contractEndAt instanceof Date 
-                                  ? contractEndAt.toLocaleDateString() 
-                                  : '未設定'}
+                                : '未設定'}
                             </p>
                           </div>
                           <div className="space-y-1 pt-2">
@@ -328,17 +331,47 @@ export default function MyDevicesPage() {
                 <Clock className="h-6 w-6 text-slate-400" /> キャンセル待ち
               </h3>
               <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-6">
-                {waitlist.map((item) => (
-                  <Card key={item.id} className="border-none shadow-lg rounded-[2rem] bg-slate-50">
-                    <CardHeader className="p-6">
-                      <Badge variant="secondary" className="w-fit mb-2">待機中</Badge>
-                      <CardTitle className="text-md">{item.deviceType}</CardTitle>
-                      <CardDescription className="text-[10px]">
-                        登録日: {item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleDateString() : '-'}
-                      </CardDescription>
-                    </CardHeader>
-                  </Card>
-                ))}
+                {waitlist.map((item) => {
+                  const targetDevice = allDevices.find(d => d.id === item.deviceId);
+                  const isAvailable = targetDevice?.status === 'available';
+
+                  return (
+                    <Card key={item.id} className={`border-none shadow-lg rounded-[2rem] transition-all ${isAvailable ? 'bg-emerald-50 border-2 border-emerald-200' : 'bg-slate-50'}`}>
+                      <CardHeader className="p-6">
+                        <div className="flex justify-between items-start mb-2">
+                          <Badge 
+                            variant={isAvailable ? "default" : "secondary"} 
+                            className={isAvailable ? "bg-emerald-500 animate-pulse" : ""}
+                          >
+                            {isAvailable ? "在庫確保！" : "待機中"}
+                          </Badge>
+                        </div>
+                        <CardTitle className="text-md">{item.deviceType}</CardTitle>
+                        <CardDescription className="text-[10px]">
+                          登録日: {item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleDateString() : '-'}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="px-6 pb-6 pt-0">
+                        {isAvailable ? (
+                          <div className="space-y-3">
+                            <p className="text-[10px] text-emerald-700 font-bold leading-tight">
+                              ご希望の機器に空きが出ました。今すぐお申し込みいただけます。
+                            </p>
+                            <Link href={`/apply/new?deviceId=${item.deviceId}`}>
+                              <Button className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 shadow-md font-bold text-xs">
+                                今すぐ申し込む <ArrowRight className="ml-1 h-3 w-3" />
+                              </Button>
+                            </Link>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground">
+                            空きが出次第、こちらに通知ボタンが表示されます。
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </section>
           )}

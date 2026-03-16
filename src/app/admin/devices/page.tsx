@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { collection, addDoc, doc, serverTimestamp, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, serverTimestamp, deleteDoc, updateDoc, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -103,8 +103,30 @@ export default function DeviceManagementPage() {
 
     if (editingDevice?.id) {
       updateDoc(doc(db, 'devices', editingDevice.id), deviceData as any)
-        .then(() => {
-          toast({ title: "機器情報を更新しました" });
+        .then(async () => {
+          // Trigger logic: If status changed to 'available', notify the waitlist
+          if (formData.status === 'available' && editingDevice.status !== 'available') {
+            const waitlistQuery = query(
+              collection(db, 'waitlist'),
+              where('deviceId', '==', editingDevice.id),
+              where('status', '==', 'waiting'),
+              orderBy('createdAt', 'asc'),
+              limit(1)
+            );
+            const waitlistSnap = await getDocs(waitlistQuery);
+            if (!waitlistSnap.empty) {
+              const firstPerson = waitlistSnap.docs[0];
+              updateDoc(doc(db, 'waitlist', firstPerson.id), {
+                status: 'notified',
+                updatedAt: serverTimestamp()
+              });
+              toast({ title: "在庫を更新し、キャンセル待ちのユーザーへ通知しました" });
+            } else {
+              toast({ title: "機器情報を更新しました" });
+            }
+          } else {
+            toast({ title: "機器情報を更新しました" });
+          }
           setIsDialogOpen(false);
         })
         .finally(() => setIsSubmitting(false));
