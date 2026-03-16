@@ -1,6 +1,7 @@
-
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, orderBy, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -25,8 +26,15 @@ import Link from 'next/link';
 
 export default function ApplicationsPage() {
   const { user, loading: authLoading } = useUser();
+  const router = useRouter();
   const db = useFirestore();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/auth/login');
+    }
+  }, [user, authLoading, router]);
 
   const applicationsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -61,7 +69,7 @@ export default function ApplicationsPage() {
     });
   };
 
-  if (authLoading || appsLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+  if (authLoading || !user) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
 
   return (
     <div className="container mx-auto px-4 py-12 space-y-8">
@@ -82,7 +90,9 @@ export default function ApplicationsPage() {
         <Button variant="ghost" className="rounded-none px-8 text-primary border-b-2 border-primary">申請履歴</Button>
       </div>
 
-      {applications.length === 0 ? (
+      {appsLoading ? (
+        <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>
+      ) : applications.length === 0 ? (
         <Card className="border-dashed border-2 py-20 text-center space-y-4">
           <ClipboardList className="mx-auto h-16 w-16 text-muted-foreground opacity-20" />
           <h2 className="text-xl font-bold">申請履歴はありません</h2>
@@ -142,7 +152,6 @@ export default function ApplicationsPage() {
                           </Link>
                         )}
                         
-                        {/* Cancel Button - Only for non-finalized states */}
                         {(app.status === 'pending' || app.status === 'approved' || app.status === 'payment_sent') && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>

@@ -1,6 +1,7 @@
-
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, orderBy } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -12,7 +13,14 @@ import Link from 'next/link';
 
 export default function MyDevicesPage() {
   const { user, loading: authLoading } = useUser();
+  const router = useRouter();
   const db = useFirestore();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/auth/login');
+    }
+  }, [user, authLoading, router]);
 
   // 1. Active Devices
   const devicesQuery = useMemoFirebase(() => {
@@ -47,8 +55,12 @@ export default function MyDevicesPage() {
   }, [db, user]);
   const { data: waitlist, loading: waitlistLoading } = useCollection<Waitlist>(waitlistQuery as any);
 
-  if (authLoading || devicesLoading || appsLoading || waitlistLoading) {
-    return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+  if (authLoading || !user) {
+    return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
+  }
+
+  if (devicesLoading || appsLoading || waitlistLoading) {
+    return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   }
 
   const hasAnyContent = myDevices.length > 0 || applications.length > 0 || waitlist.length > 0;

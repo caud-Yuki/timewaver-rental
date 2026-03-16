@@ -1,6 +1,7 @@
-
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, orderBy } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -12,7 +13,14 @@ import { Button } from '@/components/ui/button';
 
 export default function UserPaymentsPage() {
   const { user, loading: authLoading } = useUser();
+  const router = useRouter();
   const db = useFirestore();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/auth/login');
+    }
+  }, [user, authLoading, router]);
 
   const paymentsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -26,7 +34,7 @@ export default function UserPaymentsPage() {
 
   const { data: payments, loading: paymentsLoading } = useCollection<Application>(paymentsQuery as any);
 
-  if (authLoading || paymentsLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+  if (authLoading || !user) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
 
   return (
     <div className="container mx-auto px-4 py-12 space-y-8">
@@ -52,7 +60,11 @@ export default function UserPaymentsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {payments.map((p) => (
+              {paymentsLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary" /></TableCell>
+                </TableRow>
+              ) : payments.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell className="pl-8 text-xs">{p.updatedAt?.seconds ? new Date(p.updatedAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
                   <TableCell className="font-medium text-sm">{p.deviceType}</TableCell>
@@ -72,7 +84,7 @@ export default function UserPaymentsPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {payments.length === 0 && (
+              {!paymentsLoading && payments.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-20 text-muted-foreground italic">
                     決済履歴はありません

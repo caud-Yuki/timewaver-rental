@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { collection, query, orderBy, updateDoc, doc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -45,7 +46,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 function ApplicationDetailModal({ application }: { application: Application }) {
   const db = useFirestore();
-  const [activeDoc, setActiveDoc] = useState<'agreement' | 'id'>('id'); // Default to ID for verification
+  const [activeDoc, setActiveDoc] = useState<'agreement' | 'id'>('id'); 
 
   const userProfileRef = useMemoFirebase(() => {
     if (!db || !application.userId) return null;
@@ -69,9 +70,9 @@ function ApplicationDetailModal({ application }: { application: Application }) {
             <DialogTitle className="text-2xl font-headline flex items-center gap-2">
               申請詳細: {application.userName}
             </DialogTitle>
-            <p className="text-sm text-muted-foreground flex items-center gap-2">
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
               <Mail className="h-3 w-3" /> {application.userEmail}
-            </p>
+            </div>
           </div>
           <Button variant="outline" className="rounded-xl" onClick={handleEmailUser}>
             <Mail className="h-4 w-4 mr-2" /> メール作成
@@ -80,7 +81,6 @@ function ApplicationDetailModal({ application }: { application: Application }) {
       </DialogHeader>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Document Viewer with Switcher */}
         <div className="w-3/5 bg-slate-100 p-6 flex flex-col gap-4 border-r overflow-y-auto">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-sm flex items-center gap-2">
@@ -122,7 +122,6 @@ function ApplicationDetailModal({ application }: { application: Application }) {
           </div>
         </div>
 
-        {/* Right: Applicant Info */}
         <div className="w-2/5 p-8 overflow-y-auto space-y-8">
           <section className="space-y-4">
             <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
@@ -185,6 +184,7 @@ function ApplicationDetailModal({ application }: { application: Application }) {
 
 export default function AdminApplicationsPage() {
   const { user, loading: authLoading } = useUser();
+  const router = useRouter();
   const db = useFirestore();
   const { toast } = useToast();
 
@@ -192,7 +192,15 @@ export default function AdminApplicationsPage() {
     if (!db || !user) return null;
     return doc(db, 'users', user.uid);
   }, [db, user]);
-  const { data: adminProfile } = useDoc<UserProfile>(profileRef as any);
+  const { data: adminProfile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/auth/login');
+    } else if (!authLoading && adminProfile && adminProfile.role !== 'admin') {
+      router.push('/');
+    }
+  }, [user, authLoading, adminProfile, router]);
 
   const applicationsQuery = useMemoFirebase(() => {
     if (!db) return null;
@@ -236,8 +244,7 @@ export default function AdminApplicationsPage() {
       });
   };
 
-  if (authLoading || (adminProfile && adminProfile.role !== 'admin' && !authLoading)) {
-    if (adminProfile?.role !== 'admin' && !authLoading) return <div className="text-center py-20">アクセス権限がありません</div>;
+  if (authLoading || profileLoading || !user || adminProfile?.role !== 'admin') {
     return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   }
 
