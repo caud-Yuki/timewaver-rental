@@ -13,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Edit, Trash2, Newspaper, Loader2 } from 'lucide-react';
-import { News } from '@/types';
+import { News, newsConverter } from '@/types';
 import { Timestamp } from 'firebase/firestore';
 
 const NewsForm = ({ article, onSave, onCancel }: { article?: Partial<News>, onSave: (n: Partial<News>) => void, onCancel: () => void }) => {
@@ -66,7 +66,7 @@ const NewsForm = ({ article, onSave, onCancel }: { article?: Partial<News>, onSa
 
 export default function NewsPage() {
   const db = useFirestore();
-  const newsQuery = useMemo(() => query(collection(db, 'news'), orderBy('createdAt', 'desc')), [db]);
+  const newsQuery = useMemo(() => query(collection(db, 'news'), orderBy('createdAt', 'desc')).withConverter(newsConverter), [db]);
   const { data: news, loading, error } = useCollection<News>(newsQuery);
   const { toast } = useToast();
 

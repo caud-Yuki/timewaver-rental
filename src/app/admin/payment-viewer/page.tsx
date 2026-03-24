@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Mail, ArrowUpDown, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { paymentConverter } from '@/types';
 
 // Define the structure of the data we expect from our function
 interface Subscription {
@@ -46,7 +47,7 @@ export default function PaymentsDashboard() {
       const response: any = await getSubscriptionsList();
       
       // Ensure data is in the expected array format
-      const subscriptions = Array.isArray(response.data) ? response.data : [];
+      const subscriptions = Array.isArray(response.data) ? response.data.map((d: any) => paymentConverter.fromFirestore(d)) : [];
       setAllData(subscriptions);
       setFilteredData(subscriptions); // Initially, filtered data is all data
 

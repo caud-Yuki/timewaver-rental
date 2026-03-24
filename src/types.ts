@@ -1,5 +1,16 @@
 
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, SnapshotOptions } from 'firebase/firestore';
+
+const createConverter = <T extends { id: string }>() => ({
+  toFirestore(data: Partial<T>): DocumentData {
+    const { id, ...rest } = data;
+    return rest;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): T {
+    const data = snapshot.data(options)!;
+    return { id: snapshot.id, ...data } as T;
+  }
+});
 
 // =============================================================================
 // User & Profile
@@ -23,6 +34,7 @@ export interface UserProfile {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+export const userProfileConverter = createConverter<UserProfile>();
 
 // =============================================================================
 // Application
@@ -48,6 +60,7 @@ export interface Application {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+export const applicationConverter = createConverter<Application>();
 
 // =============================================================================
 // Device & Modules
@@ -57,19 +70,24 @@ export interface DeviceModule {
   name: string;
   description: string;
   price: number;
+  point: string;
+  order?: number;
 }
+export const deviceModuleConverter = createConverter<DeviceModule>();
 
 export interface DeviceTypeCode {
   id: string;
-  type: string; // e.g., 'Standard', 'Pro'
+  type: string; 
   description: string;
   price: {
-    monthly: number;
-    'one-time': number;
+    "3m": { full: number; monthly: number };
+    "6m": { full: number; monthly: number };
+    "12m": { full: number; monthly: number };
   };
   fullPaymentDiscountRate: number;
   modules: DeviceModule[];
 }
+export const deviceTypeCodeConverter = createConverter<DeviceTypeCode>();
 
 export type DeviceStatus = 'available' | 'in_use' | 'maintenance' | 'processing' | 'terminated_early' | 'terminated';
 
@@ -78,11 +96,12 @@ export interface Device {
   name: string;
   description?: string;
   serialNumber: string;
-  type: string; // Corresponds to DeviceTypeCode['type']
-  typeCode: string; // Corresponds to DeviceTypeCode['id']
+  type: string; 
+  typeCode: string; 
   price: {
-    monthly: number;
-    'one-time': number;
+    "3m": { full: number; monthly: number };
+    "6m": { full: number; monthly: number };
+    "12m": { full: number; monthly: number };
   };
   fullPaymentDiscountRate?: number;
   status: DeviceStatus;
@@ -93,11 +112,13 @@ export interface Device {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+export const deviceConverter = createConverter<Device>();
 
 // =============================================================================
 // Settings
 // =============================================================================
 export interface GlobalSettings {
+  id: string;
   firstpayTest?: { apiKey: string; apiSecret: string; };
   firstpayProd?: { apiKey: string; apiSecret: string; };
   waitlistEmailInterval?: number;
@@ -109,11 +130,12 @@ export interface GlobalSettings {
   companyName?: string;
   updatedAt?: Timestamp;
 }
+export const globalSettingsConverter = createConverter<GlobalSettings>();
 
 // =============================================================================
 // Waitlist
 // =============================================================================
-export type WaitlistStatus = 'waiting' | 'notified' | 'scheduled' | 'expired';
+export type WaitlistStatus = 'waiting' | 'notified' | 'scheduled' | 'expired' | 'converted';
 
 export interface Waitlist {
   id: string;
@@ -127,6 +149,7 @@ export interface Waitlist {
   updatedAt: Timestamp;
   scheduledNotifyAt?: Timestamp;
 }
+export const waitlistConverter = createConverter<Waitlist>();
 
 // =============================================================================
 // Coupon
@@ -138,13 +161,14 @@ export interface Coupon {
   discountType: 'percentage' | 'fixed';
   discountValue: number;
   status: 'active' | 'inactive';
-  expiresAt: Timestamp;
+  expiresAt?: Timestamp;
   maxTotalUsers?: number;
   currentUsageCount?: number;
   isActive: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+export const couponConverter = createConverter<Coupon>();
 
 // =============================================================================
 // Email & News
@@ -158,6 +182,7 @@ export interface EmailTemplate {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+export const emailTemplateConverter = createConverter<EmailTemplate>();
 
 export interface News {
   id: string;
@@ -165,11 +190,12 @@ export interface News {
   body: string;
   content: string;
   status: 'draft' | 'published';
-  publishedAt: Timestamp;
+  publishedAt?: Timestamp;
   isPublic: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+export const newsConverter = createConverter<News>();
 
 // =============================================================================
 // Payment & Subscription
@@ -187,6 +213,7 @@ export interface Subscription {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+export const subscriptionConverter = createConverter<Subscription>();
 
 export interface PaymentLink {
   id: string;
@@ -203,4 +230,4 @@ export interface PaymentLink {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
-
+export const paymentLinkConverter = createConverter<PaymentLink>();

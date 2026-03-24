@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
+import { useUser, useFirestore, useCollection, useDoc } from '@/firebase';
 import { collection, query, orderBy, updateDoc, doc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,7 +39,7 @@ import {
   AlertTriangle,
   UserCheck
 } from 'lucide-react';
-import { Application, UserProfile } from '@/types';
+import { Application, UserProfile, applicationConverter, userProfileConverter } from '@/types';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -48,15 +48,15 @@ function ApplicationDetailModal({ application }: { application: Application }) {
   const db = useFirestore();
   const [activeDoc, setActiveDoc] = useState<'agreement' | 'id'>('id'); 
 
-  const userProfileRef = useMemoFirebase(() => {
+  const userProfileRef = useMemo(() => {
     if (!db || !application.userId) return null;
-    return doc(db, 'users', application.userId);
+    return doc(db, 'users', application.userId).withConverter(userProfileConverter);
   }, [db, application.userId]);
   
-  const { data: profile, loading } = useDoc<UserProfile>(userProfileRef as any);
+  const { data: profile, loading } = useDoc<UserProfile>(userProfileRef);
 
   const handleEmailUser = () => {
-    const subject = encodeURIComponent(`【ChronoRent】レンタル申請について - ${application.deviceType}`);
+    const subject = encodeURIComponent(`【ChronoRent】レンタル申請について - ${application.id}`);
     window.location.href = `mailto:${application.userEmail}?subject=${subject}`;
   };
 
@@ -167,11 +167,10 @@ function ApplicationDetailModal({ application }: { application: Application }) {
               <div className="space-y-1">
                 <p className="text-[10px] text-muted-foreground">対象機器</p>
                 <p className="text-sm font-bold">{application.deviceType}</p>
-                <p className="text-[10px] font-mono text-muted-foreground">S/N: {application.deviceSerialNumber}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-[10px] text-muted-foreground">プラン</p>
-                <p className="text-sm font-bold">{application.rentalType}ヶ月 / {application.payType === 'monthly' ? '月次' : '一括'}</p>
+                <p className="text-sm font-bold">{application.rentalPeriod}ヶ月 / {application.payType === 'monthly' ? '月次' : '一括'}</p>
                 <p className="text-xs text-primary font-bold">¥{(application.payAmount ?? 0).toLocaleString()}</p>
               </div>
             </div>
@@ -188,11 +187,11 @@ export default function AdminApplicationsPage() {
   const db = useFirestore();
   const { toast } = useToast();
 
-  const profileRef = useMemoFirebase(() => {
+  const profileRef = useMemo(() => {
     if (!db || !user) return null;
-    return doc(db, 'users', user.uid);
+    return doc(db, 'users', user.uid).withConverter(userProfileConverter);
   }, [db, user]);
-  const { data: adminProfile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
+  const { data: adminProfile, loading: profileLoading } = useDoc<UserProfile>(profileRef);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -202,11 +201,11 @@ export default function AdminApplicationsPage() {
     }
   }, [user, authLoading, adminProfile, router]);
 
-  const applicationsQuery = useMemoFirebase(() => {
+  const applicationsQuery = useMemo(() => {
     if (!db) return null;
-    return query(collection(db, 'applications'), orderBy('createdAt', 'desc'));
+    return query(collection(db, 'applications'), orderBy('createdAt', 'desc')).withConverter(applicationConverter);
   }, [db]);
-  const { data: applications, loading: appsLoading } = useCollection<Application>(applicationsQuery as any);
+  const { data: applications, loading: appsLoading } = useCollection<Application>(applicationsQuery);
 
   const handleUpdateStatus = async (appId: string, status: Application['status']) => {
     if (!db) return;
@@ -225,12 +224,12 @@ export default function AdminApplicationsPage() {
       applicationId: application.id,
       userId: application.userId,
       deviceId: application.deviceId,
-      serialNumber: application.deviceSerialNumber,
       deviceName: application.deviceType,
       payType: application.payType,
       payAmount: application.payAmount,
-      status: 'pending',
+      status: 'open',
       createdAt: serverTimestamp(),
+      expiresAt: serverTimestamp(),
     };
 
     addDoc(collection(db, 'paymentLinks'), paymentLinkData)
@@ -269,7 +268,7 @@ export default function AdminApplicationsPage() {
               <TableRow className="bg-secondary/10">
                 <TableHead className="pl-8 py-5">申請者名 / メール</TableHead>
                 <TableHead>申請日</TableHead>
-                <TableHead>対象機器 / シリアル</TableHead>
+                <TableHead>対象機器</TableHead>
                 <TableHead>身分証/同意書</TableHead>
                 <TableHead>ステータス</TableHead>
                 <TableHead className="text-right pr-8">操作</TableHead>
@@ -292,7 +291,6 @@ export default function AdminApplicationsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="text-sm font-medium">{app.deviceType}</div>
-                    <div className="text-[10px] font-mono text-muted-foreground">{app.deviceSerialNumber}</div>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">

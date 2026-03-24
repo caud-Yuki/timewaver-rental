@@ -32,8 +32,8 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, Edit, Trash2, Ticket, Loader2, Calendar as CalendarIcon } from 'lucide-react';
-import { Coupon } from '@/types';
+import { PlusCircle, Edit, Trash2, Ticket, Loader2 } from 'lucide-react';
+import { Coupon, couponConverter } from '@/types';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Timestamp } from 'firebase/firestore';
 
@@ -95,8 +95,8 @@ const CouponForm = ({ coupon, onSave, onCancel }: { coupon?: Partial<Coupon>, on
         <div className="grid grid-cols-4 items-center gap-4">
           <Label htmlFor="expiresAt" className="text-right">有効期限</Label>
           <DatePicker 
-            date={currentCoupon.expiresAt?.toDate()} 
-            onDateChange={(date) => handleChange('expiresAt', date ? Timestamp.fromDate(date) : null)}
+            value={currentCoupon.expiresAt?.toDate()} 
+            onChange={(date) => handleChange('expiresAt', date ? Timestamp.fromDate(date) : undefined)}
           />
         </div>
          <div className="grid grid-cols-4 items-center gap-4">
@@ -114,7 +114,7 @@ const CouponForm = ({ coupon, onSave, onCancel }: { coupon?: Partial<Coupon>, on
 
 export default function CouponsPage() {
   const db = useFirestore();
-  const couponsQuery = useMemo(() => query(collection(db, 'coupons'), orderBy('createdAt', 'desc')), [db]);
+  const couponsQuery = useMemo(() => query(collection(db, 'coupons'), orderBy('createdAt', 'desc')).withConverter(couponConverter), [db]);
   const { data: coupons, loading, error } = useCollection<Coupon>(couponsQuery);
   const { toast } = useToast();
 
@@ -191,7 +191,7 @@ export default function CouponsPage() {
                   <TableCell className="pl-8 font-medium">{coupon.name}</TableCell>
                   <TableCell><code className="bg-muted px-2 py-1 rounded-md text-sm">{coupon.code}</code></TableCell>
                   <TableCell>{coupon.discountType === 'percentage' ? `${coupon.discountValue}%` : `¥${coupon.discountValue.toLocaleString()}`}</TableCell>
-                  <TableCell>{coupon.expiresAt.toDate().toLocaleDateString()}</TableCell>
+                  <TableCell>{coupon.expiresAt ? coupon.expiresAt.toDate().toLocaleDateString() : '-'}</TableCell>
                    <TableCell>{coupon.currentUsageCount || 0} / {coupon.maxTotalUsers || '∞'}</TableCell>
                   <TableCell>
                     <span className={`px-2 py-1 text-xs rounded-full ${coupon.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>

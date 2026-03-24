@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Edit, Trash2, Mail, Loader2 } from 'lucide-react';
-import { EmailTemplate } from '@/types';
+import { EmailTemplate, emailTemplateConverter } from '@/types';
 
 const EmailTemplateForm = ({ template, onSave, onCancel }: { template?: Partial<EmailTemplate>, onSave: (t: Partial<EmailTemplate>) => void, onCancel: () => void }) => {
   const [currentTemplate, setCurrentTemplate] = useState<Partial<EmailTemplate>>(template || { name: '', subject: '', body: '', type: '' });
@@ -30,7 +30,7 @@ const EmailTemplateForm = ({ template, onSave, onCancel }: { template?: Partial<
     <DialogContent className="sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle>{template?.id ? 'Edit Email Template' : 'Create New Email Template'}</DialogTitle>
-        <DialogDescription>Fill in the details for the email template. You can use placeholders like {{userName}}.</DialogDescription>
+        <DialogDescription>Fill in the details for the email template. You can use placeholders like {'{{userName}}'}.</DialogDescription>
       </DialogHeader>
       <div className="space-y-4 py-4">
         <div className="grid grid-cols-4 items-center gap-4">
@@ -60,7 +60,7 @@ const EmailTemplateForm = ({ template, onSave, onCancel }: { template?: Partial<
 
 export default function EmailTemplatesPage() {
   const db = useFirestore();
-  const templatesQuery = useMemo(() => query(collection(db, 'emailTemplates'), orderBy('createdAt', 'desc')), [db]);
+  const templatesQuery = useMemo(() => query(collection(db, 'emailTemplates'), orderBy('createdAt', 'desc')).withConverter(emailTemplateConverter), [db]);
   const { data: templates, loading, error } = useCollection<EmailTemplate>(templatesQuery);
   const { toast } = useToast();
 

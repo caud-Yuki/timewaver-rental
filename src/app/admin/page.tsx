@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
+import { useUser, useFirestore, useCollection, useDoc } from '@/firebase';
 import { 
   collection, 
   query, 
@@ -16,10 +16,7 @@ import {
   where, 
   writeBatch, 
   Timestamp,
-  deleteDoc,
-  FirestoreDataConverter,
-  QueryDocumentSnapshot,
-  SnapshotOptions
+  deleteDoc
 } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -46,82 +43,19 @@ import {
   Search,
   Puzzle
 } from 'lucide-react';
-import { Application, UserProfile, GlobalSettings, Waitlist, Device } from '@/types';
+import { 
+  Application, 
+  UserProfile, 
+  GlobalSettings, 
+  Waitlist, 
+  Device, 
+  userProfileConverter, 
+  globalSettingsConverter, 
+  applicationConverter, 
+  waitlistConverter, 
+  deviceConverter 
+} from '@/types';
 import Link from 'next/link';
-
-const userProfileConverter: FirestoreDataConverter<UserProfile> = {
-    toFirestore: (profile) => {
-        const { id, ...data } = profile;
-        return data;
-    },
-    fromFirestore: (snapshot: QueryDocumentSnapshot, options: SnapshotOptions): UserProfile => {
-        const data = snapshot.data(options);
-        return {
-            id: snapshot.id,
-            email: data.email,
-            role: data.role,
-            createdAt: data.createdAt,
-            updatedAt: data.updatedAt
-        };
-    }
-};
-
-const globalSettingsConverter: FirestoreDataConverter<GlobalSettings> = {
-    toFirestore: (settings) => settings,
-    fromFirestore: (snapshot: QueryDocumentSnapshot, options: SnapshotOptions): GlobalSettings => {
-        const data = snapshot.data(options);
-        return {
-            firstpayTest: data.firstpayTest,
-            firstpayProd: data.firstpayProd,
-            waitlistEmailInterval: data.waitlistEmailInterval,
-            waitlistValidityHours: data.waitlistValidityHours,
-            applicationSessionMinutes: data.applicationSessionMinutes,
-            updatedAt: data.updatedAt,
-        };
-    }
-};
-
-const applicationConverter: FirestoreDataConverter<Application> = {
-    toFirestore: (application) => {
-        const { id, ...data } = application;
-        return data;
-    },
-    fromFirestore: (snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Application => {
-        const data = snapshot.data(options);
-        return {
-            id: snapshot.id,
-            userId: data.userId,
-            userName: data.userName,
-            userEmail: data.userEmail,
-            deviceType: data.deviceType,
-            rentalPeriod: data.rentalPeriod,
-            payType: data.payType,
-            status: data.status,
-            createdAt: data.createdAt,
-            updatedAt: data.updatedAt,
-        };
-    }
-};
-
-const waitlistConverter: FirestoreDataConverter<Waitlist> = {
-    toFirestore: (waitlist) => {
-        const { id, ...data } = waitlist;
-        return data;
-    },
-    fromFirestore: (snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Waitlist => {
-        const data = snapshot.data(options);
-        return {
-            id: snapshot.id,
-            userId: data.userId,
-            deviceType: data.deviceType,
-            deviceId: data.deviceId,
-            status: data.status,
-            createdAt: data.createdAt,
-            updatedAt: data.updatedAt,
-            scheduledNotifyAt: data.scheduledNotifyAt,
-        };
-    }
-};
 
 export default function AdminDashboardPage() {
   const { user, loading: authLoading } = useUser();
@@ -136,14 +70,14 @@ export default function AdminDashboardPage() {
     }
   }, [user, authLoading, router]);
 
-  const profileRef = useMemoFirebase(() => {
+  const profileRef = useMemo(() => {
     if (!db || !user) return null;
     return doc(db, 'users', user.uid).withConverter(userProfileConverter);
   }, [db, user]);
 
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef);
 
-  const settingsRef = useMemoFirebase(() => {
+  const settingsRef = useMemo(() => {
     if (!db || profile?.role !== 'admin') return null;
     return doc(db, 'settings', 'global').withConverter(globalSettingsConverter);
   }, [db, profile?.role]);
@@ -295,9 +229,9 @@ export default function AdminDashboardPage() {
       };
       reconcile();
     }
-  }, [db, profile?.role, settings, toast]);
+  }, [db, profile?.role, settings, toast, isReconciling]);
 
-  const applicationsQuery = useMemoFirebase(() => {
+  const applicationsQuery = useMemo(() => {
     if (!db || profile?.role !== 'admin') return null;
     return query(collection(db, 'applications'), orderBy('createdAt', 'desc'), limit(5)).withConverter(applicationConverter);
   }, [db, profile?.role]);
@@ -420,11 +354,11 @@ export default function AdminDashboardPage() {
                 <TableRow key={app.id}>
                   <TableCell className="pl-8 text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
                   <TableCell>
-                    <div className="font-medium text-sm">{app.userName || '名前なし'}</div>
+                    <div className="font-medium text-sm">{app.userName}</div>
                     <div className="text-[10px] text-muted-foreground">{app.userEmail}</div>
                   </TableCell>
                   <TableCell className="text-sm font-medium">{app.deviceType}</TableCell>
-                  <TableCell className="text-xs">{app.rentalPeriod}ヶ月 / {app.payType === 'monthly' ? '月次' : '一括'}</TableCell>
+                  <TableCell className="text-xs">{`${app.rentalPeriod}ヶ月 / ${app.payType === 'monthly' ? '月次' : '一括'}`}</TableCell>
                   <TableCell>
                     <Badge variant={app.status === 'pending' ? 'secondary' : app.status === 'approved' ? 'default' : 'outline'} className="text-[10px]">
                       {app.status}
