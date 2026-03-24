@@ -69,7 +69,7 @@ export interface DeviceModule {
   id: string;
   name: string;
   description: string;
-  price: number;
+  price?: number;
   point: string;
   order?: number;
 }
@@ -89,7 +89,7 @@ export interface DeviceTypeCode {
 }
 export const deviceTypeCodeConverter = createConverter<DeviceTypeCode>();
 
-export type DeviceStatus = 'available' | 'in_use' | 'maintenance' | 'processing' | 'terminated_early' | 'terminated';
+export type DeviceStatus = 'available' | 'in_use' | 'maintenance' | 'processing' | 'terminated_early' | 'terminated' | 'active';
 
 export interface Device {
   id: string;
@@ -135,7 +135,7 @@ export const globalSettingsConverter = createConverter<GlobalSettings>();
 // =============================================================================
 // Waitlist
 // =============================================================================
-export type WaitlistStatus = 'waiting' | 'notified' | 'scheduled' | 'expired' | 'converted';
+export type WaitlistStatus = 'waiting' | 'notified' | 'scheduled' | 'expired' | 'converted' | 'processing';
 
 export interface Waitlist {
   id: string;

@@ -54,6 +54,19 @@
       },
       "required": ["serialNumber", "type", "typeCode", "status", "price"]
     },
+    "DeviceModule": {
+      "title": "DeviceModule",
+      "description": "Optional functional module for TimeWaver devices",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "point": { "type": "string" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
     "Application": {
       "title": "Application",
       "description": "A rental application",
@@ -173,6 +186,7 @@
   "firestore": {
     "/users/{userId}": { "schema": "UserProfile", "description": "User profiles" },
     "/devices/{deviceId}": { "schema": "Device", "description": "Device inventory" },
+    "/deviceModules/{moduleId}": { "schema": "DeviceModule", "description": "Device modules catalog" },
     "/applications/{applicationId}": { "schema": "Application", "description": "Rental applications" },
     "/paymentLinks/{paymentLinkId}": { "schema": "PaymentLink", "description": "Secure payment links" },
     "/subscriptions/{subscriptionId}": { "schema": "Subscription", "description": "Active subscriptions" },

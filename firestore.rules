@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -72,9 +73,10 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
-    // Modules: Admin only.
-    match /modules/{moduleId} {
-      allow read, write: if isAdmin();
+    // Device Modules: Public read for product details. Admins manage.
+    match /deviceModules/{moduleId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // Waitlist: Users can create their own.

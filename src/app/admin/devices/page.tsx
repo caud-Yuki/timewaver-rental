@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package } from 'lucide-react';
-import { Device, DeviceTypeCode, UserProfile, GlobalSettings, Waitlist, deviceConverter, deviceTypeCodeConverter, userProfileConverter, globalSettingsConverter, waitlistConverter } from '@/types';
+import { Device, DeviceTypeCode, UserProfile, GlobalSettings, Waitlist, DeviceModule, deviceConverter, deviceTypeCodeConverter, userProfileConverter, globalSettingsConverter, waitlistConverter, deviceModuleConverter } from '@/types';
 import Link from 'next/link';
 import { DeviceForm } from './_components/device-form';
 
@@ -38,8 +38,8 @@ export default function DeviceManagementPage() {
   const deviceTypeCodesQuery = useMemo(() => collection(db, 'deviceTypeCodes').withConverter(deviceTypeCodeConverter), [db]);
   const { data: deviceTypeCodes, loading: typeCodesLoading } = useCollection<DeviceTypeCode>(deviceTypeCodesQuery);
 
-  const deviceModulesQuery = useMemo(() => collection(db, 'deviceModules').withConverter(deviceConverter), [db]);
-  const { data: deviceModules, loading: modulesLoading } = useCollection<DeviceModule>(deviceModulesQuery as any);
+  const deviceModulesQuery = useMemo(() => collection(db, 'deviceModules').withConverter(deviceModuleConverter), [db]);
+  const { data: deviceModules, loading: modulesLoading } = useCollection<DeviceModule>(deviceModulesQuery);
 
   const deviceTypeMap = useMemo(() => {
     if (!deviceTypeCodes) return {};
@@ -99,7 +99,7 @@ export default function DeviceManagementPage() {
           }
         }
       } else {
-        await addDoc(collection(db, 'devices'), { ...formData, createdAt: serverTimestamp() });
+        await addDoc(collection(db, 'devices'), { ...formData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
         toast({ title: "New device added successfully." });
       }
       setIsDialogOpen(false);
