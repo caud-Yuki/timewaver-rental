@@ -7,6 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Settings, Save } from 'lucide-react';
 import { GlobalSettings, UserProfile } from '@/types';
@@ -107,17 +114,32 @@ export default function SettingsPage() {
                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end pt-6 border-t">
                   <div className="space-y-2">
                     <Label htmlFor="waitlistValidityHours">Waitlist Validity (Hours)</Label>
-                    <Input id="waitlistValidityHours" type="number" value={settings.waitlistValidityHours || ''} onChange={(e) => handleInputChange('waitlistValidityHours', Number(e.target.value))} />
+                    <Input 
+                      id="waitlistValidityHours" 
+                      type="number" 
+                      value={settings.waitlistValidityHours || 0} 
+                      onChange={(e) => handleInputChange('waitlistValidityHours', Number(e.target.value) || 0)} 
+                    />
                     <p className="text-xs text-muted-foreground">How long a user has to act after being notified from waitlist.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="waitlistEmailInterval">Waitlist Email Interval (Hours)</Label>
-                    <Input id="waitlistEmailInterval" type="number" value={settings.waitlistEmailInterval || ''} onChange={(e) => handleInputChange('waitlistEmailInterval', Number(e.target.value))} />
+                    <Input 
+                      id="waitlistEmailInterval" 
+                      type="number" 
+                      value={settings.waitlistEmailInterval || 0} 
+                      onChange={(e) => handleInputChange('waitlistEmailInterval', Number(e.target.value) || 0)} 
+                    />
                      <p className="text-xs text-muted-foreground">Time between notifications for scheduled waitlist users.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="applicationSessionMinutes">Application Session (Minutes)</Label>
-                    <Input id="applicationSessionMinutes" type="number" value={settings.applicationSessionMinutes || ''} onChange={(e) => handleInputChange('applicationSessionMinutes', Number(e.target.value))} />
+                    <Input 
+                      id="applicationSessionMinutes" 
+                      type="number" 
+                      value={settings.applicationSessionMinutes || 0} 
+                      onChange={(e) => handleInputChange('applicationSessionMinutes', Number(e.target.value) || 0)} 
+                    />
                      <p className="text-xs text-muted-foreground">Time limit for a user to complete the application process.</p>
                   </div>
               </div>
@@ -151,8 +173,8 @@ export default function SettingsPage() {
                     <Input id="testApiKey" value={settings.firstpayTest?.apiKey || ''} onChange={(e) => handleInputChange('firstpayTest.apiKey', e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="testApiSecret">API Secret</Label>
-                    <Input id="testApiSecret" value={settings.firstpayTest?.apiSecret || ''} onChange={(e) => handleInputChange('firstpayTest.apiSecret', e.target.value)} />
+                    <Label htmlFor="testBearerToken">Bearer Token</Label>
+                    <Input id="testBearerToken" value={settings.firstpayTest?.bearerToken || ''} onChange={(e) => handleInputChange('firstpayTest.bearerToken', e.target.value)} />
                   </div>
                 </div>
               </div>
@@ -165,8 +187,8 @@ export default function SettingsPage() {
                     <Input id="prodApiKey" value={settings.firstpayProd?.apiKey || ''} onChange={(e) => handleInputChange('firstpayProd.apiKey', e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="prodApiSecret">API Secret</Label>
-                    <Input id="prodApiSecret" value={settings.firstpayProd?.apiSecret || ''} onChange={(e) => handleInputChange('firstpayProd.apiSecret', e.target.value)} />
+                    <Label htmlFor="prodBearerToken">Bearer Token</Label>
+                    <Input id="prodBearerToken" value={settings.firstpayProd?.bearerToken || ''} onChange={(e) => handleInputChange('firstpayProd.bearerToken', e.target.value)} />
                   </div>
                 </div>
               </div>
