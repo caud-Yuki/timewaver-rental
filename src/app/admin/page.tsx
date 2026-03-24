@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -17,7 +16,10 @@ import {
   where, 
   writeBatch, 
   Timestamp,
-  deleteDoc
+  deleteDoc,
+  FirestoreDataConverter,
+  QueryDocumentSnapshot,
+  SnapshotOptions
 } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,10 +42,86 @@ import {
   Zap,
   AlertTriangle,
   RefreshCcw,
-  Hourglass
+  Hourglass,
+  Search,
+  Puzzle
 } from 'lucide-react';
-import { Application, UserProfile, GlobalSettings, Waitlist } from '@/types';
+import { Application, UserProfile, GlobalSettings, Waitlist, Device } from '@/types';
 import Link from 'next/link';
+
+const userProfileConverter: FirestoreDataConverter<UserProfile> = {
+    toFirestore: (profile) => {
+        const { id, ...data } = profile;
+        return data;
+    },
+    fromFirestore: (snapshot: QueryDocumentSnapshot, options: SnapshotOptions): UserProfile => {
+        const data = snapshot.data(options);
+        return {
+            id: snapshot.id,
+            email: data.email,
+            role: data.role,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt
+        };
+    }
+};
+
+const globalSettingsConverter: FirestoreDataConverter<GlobalSettings> = {
+    toFirestore: (settings) => settings,
+    fromFirestore: (snapshot: QueryDocumentSnapshot, options: SnapshotOptions): GlobalSettings => {
+        const data = snapshot.data(options);
+        return {
+            firstpayTest: data.firstpayTest,
+            firstpayProd: data.firstpayProd,
+            waitlistEmailInterval: data.waitlistEmailInterval,
+            waitlistValidityHours: data.waitlistValidityHours,
+            applicationSessionMinutes: data.applicationSessionMinutes,
+            updatedAt: data.updatedAt,
+        };
+    }
+};
+
+const applicationConverter: FirestoreDataConverter<Application> = {
+    toFirestore: (application) => {
+        const { id, ...data } = application;
+        return data;
+    },
+    fromFirestore: (snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Application => {
+        const data = snapshot.data(options);
+        return {
+            id: snapshot.id,
+            userId: data.userId,
+            userName: data.userName,
+            userEmail: data.userEmail,
+            deviceType: data.deviceType,
+            rentalPeriod: data.rentalPeriod,
+            payType: data.payType,
+            status: data.status,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+        };
+    }
+};
+
+const waitlistConverter: FirestoreDataConverter<Waitlist> = {
+    toFirestore: (waitlist) => {
+        const { id, ...data } = waitlist;
+        return data;
+    },
+    fromFirestore: (snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Waitlist => {
+        const data = snapshot.data(options);
+        return {
+            id: snapshot.id,
+            userId: data.userId,
+            deviceType: data.deviceType,
+            deviceId: data.deviceId,
+            status: data.status,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+            scheduledNotifyAt: data.scheduledNotifyAt,
+        };
+    }
+};
 
 export default function AdminDashboardPage() {
   const { user, loading: authLoading } = useUser();
@@ -60,19 +138,17 @@ export default function AdminDashboardPage() {
 
   const profileRef = useMemoFirebase(() => {
     if (!db || !user) return null;
-    return doc(db, 'users', user.uid);
+    return doc(db, 'users', user.uid).withConverter(userProfileConverter);
   }, [db, user]);
 
-  const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
+  const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef);
 
   const settingsRef = useMemoFirebase(() => {
     if (!db || profile?.role !== 'admin') return null;
-    return doc(db, 'settings', 'global');
+    return doc(db, 'settings', 'global').withConverter(globalSettingsConverter);
   }, [db, profile?.role]);
-  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef);
 
-  // Reconciliation logic: Check for expired subscriptions and release devices
-  // AND Check for expired waitlists based on waitlistValidityHours
   useEffect(() => {
     if (db && profile?.role === 'admin' && settings && !isReconciling) {
       const reconcile = async () => {
@@ -80,7 +156,6 @@ export default function AdminDashboardPage() {
         try {
           const now = new Date();
           
-          // 1. Subscription Expiry Check
           const subQuery = query(
             collection(db, 'subscriptions'),
             where('status', '==', 'active'),
@@ -118,13 +193,14 @@ export default function AdminDashboardPage() {
                 collection(db, 'waitlist'),
                 where('deviceId', '==', deviceId),
                 where('status', '==', 'waiting')
-              );
+              ).withConverter(waitlistConverter);
+              
               const waitlistSnap = await getDocs(waitlistQuery);
               
               if (!waitlistSnap.empty) {
                 const waitlistBatch = writeBatch(db);
-                const items = waitlistSnap.docs.map(d => ({ id: d.id, ...d.data() as Waitlist }));
-                items.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+                const items = waitlistSnap.docs.map(d => d.data());
+                items.sort((a, b) => (a.createdAt.seconds || 0) - (b.createdAt.seconds || 0));
                 
                 const intervalHours = settings.waitlistEmailInterval || 24;
                 const batchNow = new Date();
@@ -152,50 +228,50 @@ export default function AdminDashboardPage() {
             });
           }
 
-          // 2. Waitlist Validity Period Check (Refresh Logic)
-          // Find all waitlist entries where anyone was notified or scheduled
           const waitValidityHours = settings.waitlistValidityHours || 48;
-          const wlQuery = collection(db, 'waitlist');
+          const wlQuery = query(collection(db, 'waitlist')).withConverter(waitlistConverter);
           const wlSnapshot = await getDocs(wlQuery);
           
           if (!wlSnapshot.empty) {
-            // Group by deviceId
             const wlByDevice: Record<string, Waitlist[]> = {};
             wlSnapshot.docs.forEach(d => {
-              const data = { id: d.id, ...d.data() as Waitlist };
-              if (!wlByDevice[data.deviceId]) wlByDevice[data.deviceId] = [];
-              wlByDevice[data.deviceId].push(data);
+              const data = d.data();
+              if (data.deviceId) {
+                if (!wlByDevice[data.deviceId]) {
+                  wlByDevice[data.deviceId] = [];
+                }
+                wlByDevice[data.deviceId].push(data);
+              }
             });
 
             const devicesToRefresh: string[] = [];
 
-            Object.keys(wlByDevice).forEach(devId => {
+            for (const devId in wlByDevice) {
               const entries = wlByDevice[devId];
-              // Find the "last" event time (max of scheduledNotifyAt or notified updatedAt)
               let lastEventTime = 0;
               let allNotified = true;
 
               entries.forEach(e => {
-                const notifyTime = e.scheduledNotifyAt?.seconds || (e.status === 'notified' ? e.updatedAt?.seconds : 0) || 0;
+                const notifyTime = e.scheduledNotifyAt?.seconds || (e.status === 'notified' && e.updatedAt?.seconds) || 0;
                 if (notifyTime > lastEventTime) lastEventTime = notifyTime;
                 if (e.status === 'waiting') allNotified = false;
               });
 
-              // Only refresh if everyone in line has been scheduled/notified AND the validity period passed
               if (allNotified && lastEventTime > 0) {
                 const expiryTime = (lastEventTime + (waitValidityHours * 3600)) * 1000;
                 if (Date.now() > expiryTime) {
                   devicesToRefresh.push(devId);
                 }
               }
-            });
+            }
 
             if (devicesToRefresh.length > 0) {
               const cleanupBatch = writeBatch(db);
               let totalDeleted = 0;
               
               wlSnapshot.docs.forEach(docSnap => {
-                if (devicesToRefresh.includes(docSnap.data().deviceId)) {
+                const deviceId = docSnap.data().deviceId;
+                if (deviceId && devicesToRefresh.includes(deviceId)) {
                   cleanupBatch.delete(docSnap.ref);
                   totalDeleted++;
                 }
@@ -223,17 +299,19 @@ export default function AdminDashboardPage() {
 
   const applicationsQuery = useMemoFirebase(() => {
     if (!db || profile?.role !== 'admin') return null;
-    return query(collection(db, 'applications'), orderBy('createdAt', 'desc'), limit(5));
+    return query(collection(db, 'applications'), orderBy('createdAt', 'desc'), limit(5)).withConverter(applicationConverter);
   }, [db, profile?.role]);
 
-  const { data: recentApplications, loading: appsLoading } = useCollection<Application>(applicationsQuery as any);
+  const { data: recentApplications, loading: appsLoading } = useCollection<Application>(applicationsQuery);
 
   const isConfigured = !!(settings?.firstpayTest?.apiKey || settings?.firstpayProd?.apiKey);
 
   const adminModules = [
     { title: '機器管理', desc: '在庫とステータス', icon: Package, href: '/admin/devices', color: 'text-blue-500', bg: 'bg-blue-50' },
+    { title: 'モジュール管理', desc: 'デバイスモジュールの設定', icon: Puzzle, href: '/admin/modules', color: 'text-teal-500', bg: 'bg-teal-50' },
     { title: '申請管理', desc: 'レンタル申込の審査', icon: Users, href: '/admin/applications', color: 'text-purple-500', bg: 'bg-purple-50' },
     { title: '支払管理', desc: '決済状況の確認', icon: CreditCard, href: '/admin/payments', color: 'text-emerald-500', bg: 'bg-emerald-50' },
+    { title: '支払データ確認', desc: '決済データの直接確認', icon: Search, href: '/admin/payment-viewer', color: 'text-cyan-500', bg: 'bg-cyan-50' },
     { title: 'キャンセル待ち', desc: '順番待ちのユーザー', icon: Clock, href: '/admin/waitlist', color: 'text-amber-500', bg: 'bg-amber-50' },
     { title: 'クーポン', desc: '割引コードの設定', icon: Ticket, href: '/admin/coupons', color: 'text-rose-500', bg: 'bg-rose-50' },
     { title: 'ニュース', desc: 'お知らせの公開', icon: Newspaper, href: '/admin/news', color: 'text-indigo-500', bg: 'bg-indigo-50' },
@@ -295,7 +373,6 @@ export default function AdminDashboardPage() {
         </Card>
       )}
 
-      {/* Admin Modules Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {adminModules.map((module) => (
           <Link key={module.href} href={module.href}>
@@ -314,7 +391,6 @@ export default function AdminDashboardPage() {
         ))}
       </div>
 
-      {/* Recent Applications Section */}
       <Card className="border-none shadow-2xl bg-white rounded-[2.5rem] overflow-hidden">
         <CardHeader className="bg-primary/5 p-8 flex flex-row items-center justify-between">
           <div>
@@ -340,7 +416,7 @@ export default function AdminDashboardPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {recentApplications.map((app) => (
+              {recentApplications && recentApplications.map((app) => (
                 <TableRow key={app.id}>
                   <TableCell className="pl-8 text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
                   <TableCell>
@@ -348,7 +424,7 @@ export default function AdminDashboardPage() {
                     <div className="text-[10px] text-muted-foreground">{app.userEmail}</div>
                   </TableCell>
                   <TableCell className="text-sm font-medium">{app.deviceType}</TableCell>
-                  <TableCell className="text-xs">{app.rentalType}ヶ月 / {app.payType === 'monthly' ? '月次' : '一括'}</TableCell>
+                  <TableCell className="text-xs">{app.rentalPeriod}ヶ月 / {app.payType === 'monthly' ? '月次' : '一括'}</TableCell>
                   <TableCell>
                     <Badge variant={app.status === 'pending' ? 'secondary' : app.status === 'approved' ? 'default' : 'outline'} className="text-[10px]">
                       {app.status}
@@ -361,7 +437,7 @@ export default function AdminDashboardPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {recentApplications.length === 0 && (
+              {(!recentApplications || recentApplications.length === 0) && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-20 text-muted-foreground">対応が必要な申請はありません</TableCell>
                 </TableRow>

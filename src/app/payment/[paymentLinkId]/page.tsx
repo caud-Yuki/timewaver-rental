@@ -92,7 +92,7 @@ export default function PaymentPage() {
       console.error('[PAYMENT_DEBUG] Widget initialization failed:', error);
       setConfigError(`ウィジェットの初期化に失敗しました: ${error.message}`);
     }
-  }, [db, profile?.tel]);
+  }, [db, profile?.tel, linkLoading, paymentLink]);
 
   useEffect(() => {
     initializeWidget();

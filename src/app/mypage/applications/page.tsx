@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, orderBy, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -9,192 +8,177 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { 
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogTrigger, 
+  DialogFooter, 
+  DialogDescription, 
+  DialogClose 
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ClipboardList, ArrowRight, ExternalLink, XCircle } from 'lucide-react';
+import { Loader2, FileText, ShoppingCart, RefreshCw, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Application } from '@/types';
 import Link from 'next/link';
+import { Separator } from '@/components/ui/separator';
 
-export default function ApplicationsPage() {
+const CancelApplicationModal = ({ application, onConfirm }: { application: Application; onConfirm: () => void }) => {
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <AlertTriangle className="text-destructive" />
+          申請のキャンセル
+        </DialogTitle>
+        <DialogDescription>
+          以下の申請を本当にキャンセルしますか？この操作は取り消せません。
+        </DialogDescription>
+      </DialogHeader>
+      <div className="py-4 space-y-2">
+        <div className="text-sm"><strong>申請ID:</strong> {application.id}</div>
+        <div className="text-sm"><strong>機器:</strong> {application.deviceType}</div>
+        <div className="text-sm"><strong>申請日:</strong> {application.createdAt?.seconds ? new Date(application.createdAt.seconds * 1000).toLocaleDateString() : '-'}</div>
+      </div>
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button variant="outline" className="rounded-lg">閉じる</Button>
+        </DialogClose>
+        <Button variant="destructive" className="rounded-lg" onClick={onConfirm}>キャンセルを実行</Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+};
+
+export default function MyApplicationsPage() {
   const { user, loading: authLoading } = useUser();
-  const router = useRouter();
   const db = useFirestore();
   const { toast } = useToast();
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.push('/auth/login');
-    }
-  }, [user, authLoading, router]);
+  const [isCancelling, setIsCancelling] = useState<string | null>(null);
 
   const applicationsQuery = useMemoFirebase(() => {
-    if (!db || !user) return null;
+    if (!user) return null;
     return query(
       collection(db, 'applications'), 
-      where('userId', '==', user.uid),
+      where('userId', '==', user.uid), 
       orderBy('createdAt', 'desc')
     );
-  }, [db, user]);
+  }, [user, db]);
 
-  const { data: applications, loading: appsLoading } = useCollection<Application>(applicationsQuery as any);
+  const { data: applications, loading: appsLoading, error } = useCollection<Application>(applicationsQuery as any);
 
-  const handleCancelApplication = (appId: string) => {
+  const handleCancelApplication = async (appId: string) => {
     if (!db) return;
-    
-    const appRef = doc(db, 'applications', appId);
-    updateDoc(appRef, {
-      status: 'cancelled',
-      updatedAt: serverTimestamp()
-    }).then(() => {
-      toast({
-        title: "申請を取り消しました",
-        description: "レンタル申請の取り下げが完了しました。"
+    setIsCancelling(appId);
+    try {
+      await updateDoc(doc(db, 'applications', appId), {
+        status: 'canceled',
+        updatedAt: serverTimestamp(),
       });
-    }).catch((err) => {
-      console.error("Cancel Error:", err);
-      toast({
-        variant: "destructive",
-        title: "エラーが発生しました",
-        description: "取り消し処理に失敗しました。時間をおいて再度お試しください。"
-      });
-    });
+      toast({ title: "申請をキャンセルしました", description: "申請が正常に取り消されました。" });
+    } catch (error) {
+      console.error("Error cancelling application: ", error);
+      toast({ variant: "destructive", title: "エラー", description: "申請のキャンセル中にエラーが発生しました。" });
+    } finally {
+      setIsCancelling(null);
+    }
   };
 
-  if (authLoading || !user) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
+  if (authLoading || appsLoading) {
+    return <div className="flex justify-center items-center h-64"><Loader2 className="animate-spin text-primary" /></div>;
+  }
+
+  if (error) {
+    return <div className="text-destructive text-center py-10">エラー: データの読み込みに失敗しました。</div>;
+  }
 
   return (
-    <div className="container mx-auto px-4 py-12 space-y-8">
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-bold font-headline">マイページ</h1>
-          <p className="text-muted-foreground">レンタル申請状況の確認</p>
-        </div>
-        <Link href="/devices">
-          <Button className="rounded-xl">新しい機器をレンタルする</Button>
-        </Link>
-      </div>
+    <div className="space-y-8">
+      <CardHeader className="px-0">
+        <CardTitle className="font-headline text-3xl flex items-center gap-3">
+          <FileText className="h-8 w-8 text-primary" />
+          申請履歴
+        </CardTitle>
+        <CardDescription>過去のレンタル申請と現在のステータスを確認できます。</CardDescription>
+      </CardHeader>
 
-      <div className="flex border-b">
-        <Link href="/mypage/devices">
-          <Button variant="ghost" className="rounded-none px-8 text-muted-foreground">レンタル中の機器</Button>
-        </Link>
-        <Button variant="ghost" className="rounded-none px-8 text-primary border-b-2 border-primary">申請履歴</Button>
-      </div>
+      <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-secondary/10">
+                <TableHead className="pl-8 py-5">申請日</TableHead>
+                <TableHead>対象機器</TableHead>
+                <TableHead>プラン</TableHead>
+                <TableHead>ステータス</TableHead>
+                <TableHead className="text-right pr-8">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {applications && applications.length > 0 ? (
+                applications.map((app) => {
+                  const canCancel = ['pending', 'approved'].includes(app.status);
 
-      {appsLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>
-      ) : applications.length === 0 ? (
-        <Card className="border-dashed border-2 py-20 text-center space-y-4">
-          <ClipboardList className="mx-auto h-16 w-16 text-muted-foreground opacity-20" />
-          <h2 className="text-xl font-bold">申請履歴はありません</h2>
-          <p className="text-muted-foreground max-w-xs mx-auto text-sm">
-            現在、進行中のレンタル申請はありません。機器一覧からお好みのTimeWaverをお選びください。
-          </p>
-          <Link href="/devices" className="block">
-            <Button variant="outline" className="rounded-xl">機器一覧を見る</Button>
-          </Link>
-        </Card>
-      ) : (
-        <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-secondary/10">
-                  <TableHead className="pl-8">申請日</TableHead>
-                  <TableHead>対象機器</TableHead>
-                  <TableHead>プラン</TableHead>
-                  <TableHead>ステータス</TableHead>
-                  <TableHead className="text-right pr-8">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {applications.map((app) => (
-                  <TableRow key={app.id}>
-                    <TableCell className="pl-8 text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
-                    <TableCell className="font-medium text-sm">{app.deviceType}</TableCell>
-                    <TableCell className="text-xs">
-                      {app.rentalType}ヶ月 / {app.payType === 'monthly' ? '月次' : '一括'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant={
-                          app.status === 'completed' ? 'default' : 
-                          app.status === 'pending' ? 'secondary' : 
-                          app.status === 'cancelled' || app.status === 'rejected' ? 'destructive' : 
-                          'outline'
-                        } 
-                        className={`text-[10px] ${app.status === 'cancelled' || app.status === 'rejected' ? 'bg-red-50 text-red-600 border-red-100' : ''}`}
-                      >
-                        {app.status === 'pending' && '審査中'}
-                        {app.status === 'approved' && '承認済'}
-                        {app.status === 'rejected' && '却下'}
-                        {app.status === 'payment_sent' && '決済待ち'}
-                        {app.status === 'completed' && '完了'}
-                        {app.status === 'cancelled' && '取り消し済み'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right pr-8">
-                      <div className="flex justify-end gap-2">
+                  const getStatusBadge = (status: Application['status']) => {
+                    switch (status) {
+                      case 'pending': return <Badge variant="secondary" className="bg-amber-100 text-amber-800">審査中</Badge>;
+                      case 'approved': return <Badge variant="secondary" className="bg-blue-100 text-blue-800">承認済み</Badge>;
+                      case 'rejected': return <Badge variant="destructive" className="bg-red-100">却下</Badge>;
+                      case 'payment_sent': return <Badge variant="secondary" className="bg-purple-100 text-purple-800">決済待ち</Badge>;
+                      case 'completed': return <Badge variant="default" className="bg-green-600">契約完了</Badge>;
+                      case 'canceled': return <Badge variant="outline">キャンセル済</Badge>;
+                      default: return <Badge variant="outline">{status}</Badge>;
+                    }
+                  };
+
+                  return (
+                    <TableRow key={app.id}>
+                      <TableCell className="pl-8 text-sm text-muted-foreground">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
+                      <TableCell className="font-medium">{app.deviceType} ({app.rentalType})</TableCell>
+                      <TableCell>{app.rentalPeriod}ヶ月 / {app.payType === 'monthly' ? '月次' : '一括'}</TableCell>
+                      <TableCell>{getStatusBadge(app.status)}</TableCell>
+                      <TableCell className="text-right pr-8">
+                        {app.status === 'approved' && (
+                           <Button size="sm" className="rounded-lg h-9 bg-primary hover:bg-primary/90" asChild>
+                            <Link href={`/mypage/applications`}>契約に進む</Link>
+                          </Button>
+                        )}
                         {app.status === 'payment_sent' && app.paymentLinkId && (
-                          <Link href={`/payment/${app.paymentLinkId}`}>
-                            <Button size="sm" className="h-8 rounded-lg bg-emerald-500 hover:bg-emerald-600">
-                              <ArrowRight className="h-3 w-3 mr-1" /> 決済する
-                            </Button>
-                          </Link>
+                           <Button size="sm" className="rounded-lg h-9 bg-emerald-500 hover:bg-emerald-600" asChild>
+                            <Link href={`/payment/${app.paymentLinkId}`}>支払いへ</Link>
+                          </Button>
                         )}
-                        
-                        {(app.status === 'pending' || app.status === 'approved' || app.status === 'payment_sent') && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button size="sm" variant="ghost" className="h-8 rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10">
-                                <XCircle className="h-3 w-3 mr-1" /> 取り消す
+                        {canCancel && (
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="ghost" size="sm" className="rounded-lg h-9 text-destructive hover:text-destructive hover:bg-destructive/10">
+                                {isCancelling === app.id ? <Loader2 className="animate-spin h-4 w-4" /> : 'キャンセル'}
                               </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent className="rounded-[2rem]">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>申請を取り消しますか？</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  {app.deviceType} のレンタル申請をキャンセルします。この操作は取り消せません。
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel className="rounded-xl">戻る</AlertDialogCancel>
-                                <AlertDialogAction 
-                                  className="rounded-xl bg-destructive hover:bg-destructive/90"
-                                  onClick={() => handleCancelApplication(app.id)}
-                                >
-                                  申請を取り消す
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                            </DialogTrigger>
+                            <CancelApplicationModal application={app} onConfirm={() => handleCancelApplication(app.id)} />
+                          </Dialog>
                         )}
-
                         {app.status === 'completed' && (
-                          <Link href="/mypage/devices">
-                            <Button size="sm" variant="ghost" className="h-8 rounded-lg">
-                              <ExternalLink className="h-3 w-3 mr-1" /> 詳細
-                            </Button>
-                          </Link>
+                          <Button disabled variant="outline" size="sm" className="rounded-lg h-9">契約完了</Button>
                         )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+                         {(app.status === 'rejected' || app.status === 'canceled') && (
+                          <Button disabled variant="ghost" size="sm" className="rounded-lg h-9">対応不要</Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-24 text-muted-foreground italic">
+                    申請履歴はありません。
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

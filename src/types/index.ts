@@ -1,9 +1,16 @@
-
 import { Timestamp } from 'firebase/firestore';
 
 export type DeviceType = "TimeWaver Mobile" | "TimeWaver Mobile Quantum" | "TimeWaver Tabletop" | "TimeWaver Frequency";
 export type DeviceTypeCode = "tw-m" | "tw-mq" | "tw-tt" | "tw-frq";
 export type DeviceStatus = "available" | "active" | "processing" | "terminated_early" | "terminated";
+
+export interface DeviceModule {
+  id: string;
+  name: string;
+  point: number;
+  order: number;
+  description?: string;
+}
 
 export interface Device {
   id: string;
@@ -27,141 +34,49 @@ export interface Device {
   updatedAt?: Timestamp;
 }
 
+export interface UserProfile {
+  id: string;
+  email: string;
+  role: 'user' | 'admin';
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'canceled';
+export type RentalType = '3m' | '6m' | '12m';
+export type PayType = 'monthly' | 'full';
+
 export interface Application {
   id: string;
   userId: string;
-  userName: string;
-  userEmail: string;
-  deviceId: string;
-  deviceSerialNumber: string;
-  deviceType: string;
-  rentalType: 3 | 6 | 12;
-  payType: "monthly" | "full";
-  payAmount: number;
-  status: "pending" | "approved" | "rejected" | "payment_sent" | "completed" | "cancelled";
-  identificationImageUrl: string;
-  agreementPdfUrl?: string;
-  paymentLinkId?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-export interface PaymentLink {
-  id: string;
-  applicationId: string;
-  userId: string;
-  deviceId: string;
-  serialNumber: string;
-  deviceName: string;
-  payType: "monthly" | "full";
-  payAmount: number;
-  cycle?: "MONTHLY";
-  currentlyPayAmount?: number;
-  recurringDayOfMonth?: 1 | 15;
-  maxExecutionNumber?: number;
-  payTimes?: 1;
-  status: "pending" | "used" | "expired";
-  expiresAt?: Timestamp;
-  createdAt: Timestamp;
-}
-
-export interface Subscription {
-  id: string;
-  userId: string;
-  deviceId: string;
-  payType: "monthly" | "full";
-  rentalMonths: number;
-  startAt: Timestamp;
-  endAt: Timestamp;
-  recurringId?: string;
-  paymentId?: string;
-  customerId: string;
-  payAmount: number;
-  status: "active" | "payment_failed" | "payment_delayed" | "completed" | "cancelled";
-  delayMonths?: number;
-  applicationId: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-export interface Waitlist {
-  id: string;
-  userId: string;
-  userName: string;
-  userEmail: string;
-  deviceId: string;
-  deviceType: string;
-  status: "waiting" | "notified" | "scheduled" | "cancelled" | "processing";
-  scheduledNotifyAt?: Timestamp;
-  createdAt: Timestamp;
-  updatedAt?: Timestamp;
-}
-
-export interface UserProfile {
-  uid: string;
-  email: string;
-  familyName: string;
-  givenName: string;
-  familyNameKana: string;
-  givenNameKana: string;
-  companyName?: string;
-  zipcode?: string;
-  prefectureCode?: string;
-  address1?: string;
-  address2?: string;
-  invoiceNumber?: string;
-  tel: string;
-  role: "user" | "admin";
-  customerId?: string;
-  cardToken?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-export interface News {
-  id: string;
-  title: string;
-  body: string;
-  status: "published" | "draft";
-  publishedAt?: Timestamp;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-export interface SupportRequest {
-  id: string;
-  userId: string;
-  userName: string;
-  userEmail: string;
-  deviceId?: string;
-  type: "repair" | "support";
-  description: string;
-  imageUrls?: string[];
-  status: "open" | "in_progress" | "resolved";
+  userName?: string; // Added
+  userEmail?: string; // Added
+  deviceType: DeviceType;
+  rentalPeriod: RentalType; // Updated
+  payType: PayType; // Added
+  status: ApplicationStatus; // Updated
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
 export interface GlobalSettings {
-  managerName: string;
-  managerEmail: string;
-  contactNumber: string;
-  representativeName: string;
-  companyName: string;
-  zipcode: string;
-  address: string;
-  tel: string;
-  mode: "test" | "production";
-  waitlistEmailInterval?: number;
-  waitlistValidityHours?: number;
-  applicationSessionMinutes?: number;
-  firstpayTest?: {
-    apiKey: string;
-    bearerToken: string;
-  };
-  firstpayProd?: {
-    apiKey: string;
-    bearerToken: string;
-  };
+  firstpayTest: { apiKey: string; bearerToken: string };
+  firstpayProd: { apiKey: string; bearerToken: string };
+  waitlistEmailInterval: number;
+  waitlistValidityHours: number;
+  applicationSessionMinutes: number;
   updatedAt: Timestamp;
+}
+
+export type WaitlistStatus = 'waiting' | 'notified' | 'scheduled' | 'expired';
+
+export interface Waitlist {
+  id: string;
+  userId: string;
+  deviceType: DeviceType;
+  deviceId?: string;
+  status: WaitlistStatus; // Added
+  createdAt: Timestamp;
+  updatedAt?: Timestamp; // Added
+  scheduledNotifyAt?: Timestamp; // Added
 }

@@ -38,6 +38,12 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: process.env.FIREBASE_MESSAGING_SENDER_ID,
     NEXT_PUBLIC_FIREBASE_APP_ID: process.env.FIREBASE_APP_ID,
   },
+  devServer: {
+    allowedDevOrigins: [
+      "https://6000-firebase-studio-1773224421769.cluster-osvg2nzmmzhzqqjio6oojllbg4.cloudworkstations.dev",
+      "https://9000-firebase-studio-1773224421769.cluster-osvg2nzmmzhzqqjio6oojllbg4.cloudworkstations.dev"
+    ]
+  }
 };
 
 export default nextConfig;

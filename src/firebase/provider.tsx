@@ -53,7 +53,3 @@ export function useFirestore() {
 export function useAuth() {
   return useFirebase().auth;
 }
-
-export function useStorage() {
-  return useFirebase().storage;
-}

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Activity, User, LogOut, Menu, ShieldCheck, LayoutDashboard, Package, Newspaper } from 'lucide-react';
+import { Activity, User, LogOut, Menu, ShieldCheck, LayoutDashboard, Package, Newspaper, Box } from 'lucide-react';
 import { useUser, useAuth, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { signOut } from 'firebase/auth';
 import { doc } from 'firebase/firestore';
@@ -77,12 +77,20 @@ export function Navbar() {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {profile?.role === 'admin' && (
-                  <DropdownMenuItem asChild>
-                    <Link href="/admin">
-                      <ShieldCheck className="mr-2 h-4 w-4 text-primary" />
-                      <span className="font-bold">管理者ダッシュボード</span>
-                    </Link>
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin">
+                        <ShieldCheck className="mr-2 h-4 w-4 text-primary" />
+                        <span className="font-bold">管理者ダッシュボード</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin/modules">
+                        <Box className="mr-2 h-4 w-4" />
+                        <span>Modules</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
                 )}
                 <DropdownMenuItem asChild>
                   <Link href="/mypage">
@@ -117,4 +125,4 @@ export function Navbar() {
       </div>
     </header>
   );
-}
+};
