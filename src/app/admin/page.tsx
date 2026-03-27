@@ -57,6 +57,13 @@ import {
 } from '@/types';
 import Link from 'next/link';
 
+/**
+ * Checks if a value is a Firestore Timestamp and not a FieldValue (sentinel)
+ */
+export const isTimestamp = (val: any): val is Timestamp => {
+  return val && typeof val.toDate === 'function';
+};
+
 export default function AdminDashboardPage() {
   const { user, loading: authLoading } = useUser();
   const router = useRouter();
@@ -134,7 +141,11 @@ export default function AdminDashboardPage() {
               if (!waitlistSnap.empty) {
                 const waitlistBatch = writeBatch(db);
                 const items = waitlistSnap.docs.map(d => d.data());
-                items.sort((a, b) => (a.createdAt.seconds || 0) - (b.createdAt.seconds || 0));
+                items.sort((a, b) => {
+                  const timeA = a.createdAt instanceof Timestamp ? a.createdAt.seconds : 0;
+                  const timeB = b.createdAt instanceof Timestamp ? b.createdAt.seconds : 0;
+                  return timeA - timeB;
+                });
                 
                 const intervalHours = settings.waitlistEmailInterval || 24;
                 const batchNow = new Date();
@@ -186,7 +197,7 @@ export default function AdminDashboardPage() {
               let allNotified = true;
 
               entries.forEach(e => {
-                const notifyTime = e.scheduledNotifyAt?.seconds || (e.status === 'notified' && e.updatedAt?.seconds) || 0;
+                const notifyTime = isTimestamp(e.scheduledNotifyAt) ? e.scheduledNotifyAt.seconds : 0;
                 if (notifyTime > lastEventTime) lastEventTime = notifyTime;
                 if (e.status === 'waiting') allNotified = false;
               });
@@ -229,7 +240,7 @@ export default function AdminDashboardPage() {
       };
       reconcile();
     }
-  }, [db, profile?.role, settings, toast, isReconciling]);
+  }, [db, profile?.role, settings, toast]);
 
   const applicationsQuery = useMemo(() => {
     if (!db || profile?.role !== 'admin') return null;
@@ -352,7 +363,11 @@ export default function AdminDashboardPage() {
             <TableBody>
               {recentApplications && recentApplications.map((app) => (
                 <TableRow key={app.id}>
-                  <TableCell className="pl-8 text-xs">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
+                  <TableCell className="pl-8 text-xs">
+                    {app.createdAt && 'seconds' in app.createdAt 
+                      ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() 
+                      : '-'}
+                  </TableCell>
                   <TableCell>
                     <div className="font-medium text-sm">{app.userName}</div>
                     <div className="text-[10px] text-muted-foreground">{app.userEmail}</div>

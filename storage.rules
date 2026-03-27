@@ -1,11 +1,37 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /identifications/{userId}/{allPaths=**} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if request.auth != null && request.auth.uid == userId
-                   && request.resource.size < 10 * 1024 * 1024
-                   && request.resource.contentType.matches('image/.*|application/pdf');
+    function isAdmin() {
+      // 1. Check if user is logged in
+      // 2. Use 'get' to fetch the doc
+      // 3. Ensure the document data is NOT null before checking the role field
+      return request.auth != null && 
+            firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+            firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    // All user-related data lives under this path
+    match /users/{userId}/{allPaths=**} {
+      
+      // Basic rule: Users can only read/write their own data
+      // Users can read their own, OR if the helper returns true for admin
+      allow read: if (request.auth != null && request.auth.uid == userId) || isAdmin();
+      
+      // Folder-specific write validations
+      
+      // 1. Identifications Folder
+      match /identifications/{fileName} {
+        allow write: if request.auth != null && request.auth.uid == userId
+                     && request.resource.size < 10 * 1024 * 1024
+                     && request.resource.contentType.matches('image/.*|application/pdf');
+      }
+
+      // 2. Application-specific files (Consent Forms)
+      match /applications/{applicationId}/consentForm/{fileName} {
+        allow write: if request.auth != null && request.auth.uid == userId
+                      && request.resource.size < 5 * 1024 * 1024
+                      && request.resource.contentType.matches('image/.*|application/pdf');
+      }
     }
   }
 }

@@ -1,7 +1,6 @@
-
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -39,15 +38,26 @@ export default function DeviceDetailPage() {
 
   const { data: device, loading } = useDoc<Device>(deviceRef as any);
 
-  const waitlistQuery = useMemoFirebase(() => {
-    if (!db || !id || !user) return null;
+  const deviceWaitlistQuery = useMemoFirebase(() => {
+    if (!db || !id) return null;
     return query(
       collection(db, 'waitlist'),
       where('deviceId', '==', id),
       where('status', '==', 'waiting')
     );
-  }, [db, id, user]);
-  const { data: waitlistItems } = useCollection<Waitlist>(waitlistQuery as any);
+  }, [db, id]);
+  const { data: deviceWaitlistItems } = useCollection<Waitlist>(deviceWaitlistQuery as any);
+  
+  const userWaitlistQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return query(collection(db, 'waitlist'), where('userId', '==', user.uid));
+  }, [db, user]);
+
+  const { data: userWaitlist } = useCollection<Waitlist>(userWaitlistQuery as any);
+
+  const userWaitlistDeviceTypes = useMemo(() => 
+    userWaitlist ? userWaitlist.map(entry => entry.deviceType) : []
+  , [userWaitlist]);
 
   const handleVisualize = async () => {
     if (!intent.trim()) return;
@@ -103,16 +113,17 @@ export default function DeviceDetailPage() {
     );
   }
 
-  const getDeviceImage = (code?: DeviceTypeCode) => {
-    const hint = PlaceHolderImages.find(i => i.id === code?.replace('tw-', 'tw'));
+  const getDeviceImage = (code?: Device) => {
+    if (!code?.id) return 'https://picsum.photos/seed/placeholder/800/600';
+    const hint = PlaceHolderImages.find(i => i.id === code.id.replace('tw-', 'tw'));
     return hint?.imageUrl || 'https://picsum.photos/seed/placeholder/800/600';
   };
 
   const isAvailable = device.status === 'available';
   const isProcessing = device.status === 'processing';
   const isMeProcessing = isProcessing && device.currentUserId === user?.uid;
-  const isOtherProcessing = isProcessing && device.currentUserId !== user?.uid;
-  const waitlistCount = waitlistItems?.length || 0;
+  const isOnWaitlist = userWaitlistDeviceTypes.includes(device.type);
+  const waitlistCount = deviceWaitlistItems?.length || 0;
 
   return (
     <div className="container mx-auto px-4 py-12">
@@ -124,7 +135,7 @@ export default function DeviceDetailPage() {
         <div className="space-y-6">
           <div className="relative aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white">
             <Image
-              src={getDeviceImage(device.typeCode) || 'https://picsum.photos/seed/1/800/600'}
+              src={getDeviceImage(device.typeCode)}
               alt={device.type || ''}
               fill
               className="object-cover"
@@ -182,15 +193,17 @@ export default function DeviceDetailPage() {
         <div className="space-y-8">
           <div>
             <div className="flex flex-wrap items-center gap-3 mb-4">
-              <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase px-3 py-1">{device.typeCode}</Badge>
+              <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase px-3 py-1">{device.type}</Badge>
               {isAvailable ? (
                 <Badge className="bg-emerald-500 hover:bg-emerald-600 border-none px-3 py-1">利用可能</Badge>
               ) : isProcessing ? (
                 <Badge className="bg-blue-500 text-white border-none px-3 py-1">手続き中</Badge>
+              ) : isOnWaitlist ? (
+                 <Badge variant="secondary" className="bg-gray-400 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">キャンセル待ち済</Badge>
               ) : (
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none px-3 py-1">キャンセル待ち受付中</Badge>
-                  {user && (
+                  {user && waitlistCount > 0 && (
                     <span className="text-xs font-bold text-amber-600 flex items-center gap-1 bg-amber-50 px-2 py-1 rounded-full border border-amber-100">
                       <Users className="h-3 w-3" /> 現在 {waitlistCount} 名が空き待ち中です
                     </span>
@@ -256,6 +269,10 @@ export default function DeviceDetailPage() {
                   受付順番待ち
                 </Button>
               )
+            ) : isOnWaitlist ? (
+               <Button variant="secondary" disabled className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl bg-gray-400 text-white border-none">
+                  <Clock className="mr-2 h-6 w-6" /> キャンセル待ち済
+              </Button>
             ) : (
               <Link href={`/apply/waitlist?deviceId=${device.id}`} className="block">
                 <Button variant="secondary" className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl bg-amber-500 hover:bg-amber-600 text-white border-none">

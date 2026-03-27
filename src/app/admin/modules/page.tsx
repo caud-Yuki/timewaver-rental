@@ -2,19 +2,19 @@
 
 import { useState, useMemo } from 'react';
 import { useFirestore, useCollection } from '@/firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, writeBatch } from 'firebase/firestore';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Loader2, ToyBrick } from 'lucide-react';
-import { DeviceModule } from '@/types';
+import { DeviceModule, deviceModuleConverter } from '@/types';
 import { ModuleForm } from './_components/module-form';
 import { ModuleList } from './_components/module-list';
 
 export default function ModulesPage() {
   const db = useFirestore();
-  const modulesQuery = useMemo(() => query(collection(db, 'deviceModules'), orderBy('order')), [db]);
+  const modulesQuery = useMemo(() => query(collection(db, 'modules'), orderBy('order')).withConverter(deviceModuleConverter), [db]);
   const { data: modules, loading, error } = useCollection<DeviceModule>(modulesQuery);
   const { toast } = useToast();
 
@@ -25,29 +25,46 @@ export default function ModulesPage() {
     try {
       if (moduleData.id) {
         const { id, ...dataToUpdate } = moduleData;
-        await updateDoc(doc(db, 'deviceModules', id), dataToUpdate);
-        toast({ title: "Success", description: "Module updated successfully." });
+        await updateDoc(doc(db, 'modules', id), dataToUpdate);
+        toast({ title: "成功", description: "モジュールが正常に更新されました。" });
       } else {
-        await addDoc(collection(db, 'deviceModules'), { ...moduleData, createdAt: serverTimestamp() });
-        toast({ title: "Success", description: "Module created successfully." });
+        await addDoc(collection(db, 'modules'), { ...moduleData, createdAt: serverTimestamp() });
+        toast({ title: "成功", description: "モジュールが正常に作成されました。" });
       }
       setIsFormOpen(false);
       setSelectedModule(null);
     } catch (e) {
-      toast({ variant: "destructive", title: "Error", description: "An error occurred while saving the module." });
+      console.error(e);
+      toast({ variant: "destructive", title: "エラー", description: "モジュールの保存中にエラーが発生しました。" });
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this module?")) {
+    if (window.confirm("このモジュールを本当に削除しますか？")) {
       try {
-        await deleteDoc(doc(db, 'deviceModules', id));
-        toast({ title: "Success", description: "Module deleted successfully." });
+        await deleteDoc(doc(db, 'modules', id));
+        toast({ title: "成功", description: "モジュールを正常に削除しました。" });
       } catch (e) {
-        toast({ variant: "destructive", title: "Error", description: "An error occurred while deleting the module." });
+        console.error(e);
+        toast({ variant: "destructive", title: "エラー", description: "モジュールの削除中にエラーが発生しました。" });
       }
     }
   };
+  
+  const handleReorder = async (reorderedModules: DeviceModule[]) => {
+    try {
+      const batch = writeBatch(db);
+      reorderedModules.forEach((item, index) => {
+        const docRef = doc(db, 'modules', item.id);
+        batch.update(docRef, { order: index });
+      });
+      await batch.commit();
+      toast({ title: "成功", description: "モジュールの順序が正常に更新されました。" });
+    } catch (e) {
+        console.error(e);
+        toast({ variant: "destructive", title: "エラー", description: "モジュールの順序の更新中にエラーが発生しました。" });
+    }
+  }
 
   const handleEdit = (module: DeviceModule) => {
     setSelectedModule(module);
@@ -65,13 +82,13 @@ export default function ModulesPage() {
         <div>
           <h1 className="text-3xl font-bold font-headline flex items-center gap-3">
             <ToyBrick className="h-8 w-8 text-primary" />
-            Device Modules
+            デバイスモジュール
           </h1>
-          <p className="text-muted-foreground">Manage optional modules for rental devices.</p>
+          <p className="text-muted-foreground">レンタルデバイス用のオプションモジュールを管理します。</p>
         </div>
         <Button className="rounded-xl" onClick={handleAddNew}>
           <PlusCircle className="h-4 w-4 mr-2" />
-          Add New Module
+          新規モジュールを追加
         </Button>
       </div>
 
@@ -82,9 +99,9 @@ export default function ModulesPage() {
               <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
             </div>
           ) : error ? (
-            <p className="text-center py-20 text-destructive">Error loading modules.</p>
+            <p className="text-center py-20 text-destructive">モジュールの読み込み中にエラーが発生しました。</p>
           ) : (
-            <ModuleList modules={modules || []} onEdit={handleEdit} onDelete={handleDelete} />
+            <ModuleList modules={modules || []} onEdit={handleEdit} onDelete={handleDelete} onReorder={handleReorder} />
           )}
         </CardContent>
       </Card>
@@ -92,9 +109,9 @@ export default function ModulesPage() {
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{selectedModule?.id ? 'Edit Module' : 'Add New Module'}</DialogTitle>
+            <DialogTitle>{selectedModule?.id ? 'モジュールを編集' : '新規モジュールを追加'}</DialogTitle>
             <DialogDescription>
-              Fill in the details for the device module.
+              デバイスモジュールの詳細を入力してください。
             </DialogDescription>
           </DialogHeader>
           <ModuleForm 

@@ -28,11 +28,25 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     body: `{{userName}} 様\n\nTimeWaverのレンタルお申し込みをいただき、ありがとうございます。\n\n対象機器: {{deviceName}}\n現在、管理者にて審査を行っております。\n通常1〜3営業日以内に、結果をご案内させていただきます。`
   },
   {
+    id: 'sys_consent_form_required',
+    name: '[標準] 審査承認・同意書提出のお願い',
+    subject: '【ChronoRent】審査承認および同意書のご提出について',
+    type: 'application',
+    body: `{{userName}} 様\n\nお申し込みいただいたTimeWaverのレンタル審査が承認されました。\n契約を完了するには、同意書の提出が必要です。\n\nマイページへログインし、「申請履歴」から同意書をダウンロード・署名の上、アップロードしてください。\n\nご提出いただいた同意書を管理者が確認次第、決済手続きのご案内をお送りします。`
+  },
+  {
+    id: 'sys_consent_form_submitted',
+    name: '[標準] 同意書提出のお知らせ（管理者宛）',
+    subject: '【ChronoRent管理者】同意書の提出がありました',
+    type: 'application',
+    body: `管理者様\n\n以下の申請について、ユーザーから同意書の提出がありました。\n内容を確認し、承認処理を行ってください。\n\nユーザー名: {{userName}}\n申請ID: {{applicationId}}`
+  },
+  {
     id: 'sys_application_approved',
     name: '[標準] 審査承認・決済案内',
-    subject: '【ChronoRent】審査承認および決済のご案内',
+    subject: '【ChronoRent】同意書承認および決済のご案内',
     type: 'application',
-    body: `{{userName}} 様\n\nお申し込みいただいたTimeWaverのレンタル審査が承認されました。\n以下のリンクより決済のお手続きをお願いいたします。\n\n■決済リンク\n{{paymentLink}}`
+    body: `{{userName}} 様\n\nご提出いただいた同意書を確認し、承認いたしました。\n以下のリンクより決済のお手続きをお願いいたします。\n\n■決済リンク\n{{paymentLink}}`
   },
   {
     id: 'sys_application_rejected',

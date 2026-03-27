@@ -1,114 +1,123 @@
-
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
-import { doc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { useUser, useFirestore, useDoc } from '@/firebase';
+import { doc, addDoc, collection, serverTimestamp, where, query, getDocs } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Clock, CheckCircle2, Package } from 'lucide-react';
-import { Device, UserProfile } from '@/types';
-import Link from 'next/link';
+import { Loader2, AlertTriangle } from 'lucide-react';
+import { Device, deviceConverter, UserProfile, userProfileConverter } from '@/types'; // Import userProfileConverter
 
-function WaitlistForm() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const { user } = useUser();
+export default function WaitlistPage() {
+  const { user, loading: userLoading } = useUser();
   const db = useFirestore();
-  const { toast } = useToast();
-  
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const deviceId = searchParams.get('deviceId');
+  const { toast } = useToast();
+
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [alreadyOnWaitlist, setAlreadyOnWaitlist] = useState(false);
 
-  const deviceRef = useMemoFirebase(() => {
-    if (!db || !deviceId) return null;
-    return doc(db, 'devices', deviceId);
-  }, [db, deviceId]);
-  const { data: device, loading: deviceLoading } = useDoc<Device>(deviceRef as any);
+  const deviceRef = useMemo(() => 
+    deviceId ? doc(db, 'devices', deviceId).withConverter(deviceConverter) : null
+  , [db, deviceId]);
+  const { data: device, loading: deviceLoading } = useDoc<Device>(deviceRef);
 
-  const profileRef = useMemoFirebase(() => {
-    if (!db || !user) return null;
-    return doc(db, 'users', user.uid);
-  }, [db, user]);
-  const { data: profile } = useDoc<UserProfile>(profileRef as any);
+  const profileRef = user ? doc(db, 'users', user.uid).withConverter(userProfileConverter) : null;
+  const { data: profile } = useDoc<UserProfile>(profileRef);
 
-  const handleJoinWaitlist = async () => {
-    if (!user || !device || !db) return;
+  useEffect(() => {
+    if (user && device) {
+      const checkWaitlist = async () => {
+        const q = query(
+          collection(db, 'waitlist'),
+          where('userId', '==', user.uid),
+          where('deviceType', '==', device.type)
+        );
+        const snapshot = await getDocs(q);
+        setAlreadyOnWaitlist(!snapshot.empty);
+      };
+      checkWaitlist();
+    }
+  }, [user, device, db]);
+
+  const handleWaitlistSubmit = async () => {
+    if (!user || !device) return;
+
     setIsSubmitting(true);
 
-    const waitlistData = {
-      userId: user.uid,
-      userName: `${profile?.familyName} ${profile?.givenName}`,
-      userEmail: user.email,
-      deviceId: device.id,
-      deviceType: device.type,
-      status: 'waiting',
-      createdAt: serverTimestamp(),
-    };
+    try {
+      await addDoc(collection(db, 'waitlist'), {
+        userId: user.uid,
+        userEmail: user.email || '',
+        userName: profile ? `${profile.familyName} ${profile.givenName}` : (user.email || '-'),
+        deviceId: device.id,
+        deviceType: device.type, // Correctly use device.type
+        status: 'waiting',
+        createdAt: serverTimestamp(), // Correctly use serverTimestamp
+      });
 
-    addDoc(collection(db, 'waitlist'), waitlistData)
-      .then(() => {
-        toast({ title: "キャンセル待ちに登録しました", description: "在庫が確保され次第、ご案内をお送りします。" });
-        router.push('/mypage/devices');
-      })
-      .finally(() => setIsSubmitting(false));
+      toast({ 
+        title: "キャンセル待ちに登録しました", 
+        description: "在庫が確保され次第、ご案内をお送りします。"
+      });
+      router.push('/mypage/waitlist');
+
+    } catch (error: any) {
+        console.error("Error adding to waitlist: ", error);
+        toast({ 
+            variant: "destructive",
+            title: "登録エラー", 
+            description: "キャンセル待ちの登録中にエラーが発生しました。" 
+        });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  if (deviceLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
+  const loading = userLoading || deviceLoading;
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
+
+  if (!deviceId || !device) {
+    return <div className="text-center py-20">デバイスが見つかりません。</div>;
+  }
 
   return (
-    <div className="container mx-auto px-4 py-20 max-w-2xl text-center">
-      <Card className="border-none shadow-2xl rounded-[3rem] overflow-hidden bg-white">
-        <CardHeader className="bg-primary/5 p-12">
-          <Clock className="mx-auto h-16 w-16 text-primary mb-6" />
-          <CardTitle className="text-3xl font-headline">キャンセル待ち登録</CardTitle>
-          <CardDescription className="text-lg">
-            現在、{device?.type}は在庫切れです
-          </CardDescription>
+    <div className="container mx-auto max-w-lg py-12">
+      <Card className="border-none shadow-xl rounded-[2rem] bg-white/80 backdrop-blur-sm">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl font-headline">キャンセル待ち登録</CardTitle>
+          <CardDescription className="pt-2">ご希望のデバイスの在庫が確保でき次第、メールでお知らせします。</CardDescription>
         </CardHeader>
-        <CardContent className="p-12 space-y-8">
-          <p className="text-muted-foreground leading-relaxed">
-            キャンセル待ちにご登録いただくと、次回の在庫入荷時や解約が発生した際に、
-            優先的にご案内メールを送信させていただきます。
-          </p>
-
-          <div className="bg-secondary/30 p-6 rounded-[2rem] flex items-center gap-4 text-left">
-            <div className="h-12 w-12 bg-white rounded-xl flex items-center justify-center shadow-sm">
-              <Package className="h-6 w-6 text-primary" />
+        <CardContent className="space-y-6 pt-6">
+          <div className="border rounded-xl p-4 bg-slate-50/70 space-y-3">
+            <div>
+              <h3 className="text-xs text-muted-foreground">対象デバイス</h3>
+              <p className="font-bold text-lg">{device.type}</p>
+              <p className="font-mono text-xs text-muted-foreground">{device.type}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">対象機器</p>
-              <p className="font-bold text-lg">{device?.type}</p>
+              <h3 className="text-xs text-muted-foreground">登録メールアドレス</h3>
+              <p className="font-semibold">{user?.email}</p>
             </div>
           </div>
 
-          <div className="space-y-4">
-            <Button 
-              size="lg" 
-              className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl shadow-primary/20" 
-              onClick={handleJoinWaitlist}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? <Loader2 className="animate-spin" /> : '案内を受け取る'}
+          {alreadyOnWaitlist ? (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0"/>
+              <p className="text-sm text-amber-900">既にこのタイプのデバイスのキャンセル待ちに登録済みです。 <br/>状況はマイページの<a href="/mypage/waitlist" className="font-bold underline">キャンセル待ち状況</a>から確認できます。</p>
+            </div>
+          ) : (
+            <Button onClick={handleWaitlistSubmit} disabled={isSubmitting} className="w-full h-12 text-base font-bold rounded-xl shadow-lg">
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : '同意して登録する'}
             </Button>
-            <Link href="/devices" className="block">
-              <Button variant="ghost" className="w-full h-12 rounded-xl">
-                機器一覧に戻る
-              </Button>
-            </Link>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-export default function ApplyWaitlistPage() {
-  return (
-    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>}>
-      <WaitlistForm />
-    </Suspense>
   );
 }

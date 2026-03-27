@@ -158,7 +158,7 @@ export default function DeviceManagementPage() {
               <TableBody>
                 {devices?.map(d => (
                   <TableRow key={d.id} className="hover:bg-muted/5 transition-colors">
-                    <TableCell className="pl-8 font-medium">{d.name}</TableCell>
+                    <TableCell className="pl-8 font-medium">{d.type}</TableCell>
                     <TableCell className="font-mono text-xs">{d.serialNumber}</TableCell>
                     <TableCell><Badge variant={d.status === 'available' ? 'default' : 'secondary'} className={d.status === 'available' ? 'bg-emerald-500' : ''}>{d.status}</Badge></TableCell>
                     <TableCell>¥{(d.price?.["12m"]?.monthly ?? 0).toLocaleString()}</TableCell>
@@ -184,7 +184,7 @@ export default function DeviceManagementPage() {
                   <Badge variant="outline" className="uppercase text-[10px]">{deviceTypeMap[d.typeCode]}</Badge>
                   <Badge variant={d.status === 'available' ? 'default' : 'secondary'}>{d.status}</Badge>
                 </div>
-                <CardTitle className="text-xl font-headline group-hover:text-primary transition-colors">{d.name}</CardTitle>
+                <CardTitle className="text-xl font-headline group-hover:text-primary transition-colors">{d.type}</CardTitle>
                 <CardDescription className="font-mono text-[10px]">{d.serialNumber}</CardDescription>
               </CardHeader>
               <CardContent className="pt-6 space-y-4">

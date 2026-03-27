@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useFirestore, useDoc, useUser } from '@/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -22,9 +22,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 export default function SettingsPage() {
   const db = useFirestore();
   const { user } = useUser();
-  const settingsRef = doc(db, 'settings', 'global');
+
+  const settingsRef = useMemo(() => doc(db, 'settings', 'global'), [db]);
+  const userProfileRef = useMemo(() => user ? doc(db, 'users', user.uid) : null, [db, user]);
+
   const { data: initialSettings, loading: settingsLoading, error: settingsError } = useDoc<GlobalSettings>(settingsRef as any);
-  const {data: userProfile, loading: userLoading} = useDoc<UserProfile>(user ? doc(db, 'users', user.uid) : null);
+  const {data: userProfile, loading: userLoading} = useDoc<UserProfile>(userProfileRef as any);
 
   const [settings, setSettings] = useState<Partial<GlobalSettings>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -173,8 +176,8 @@ export default function SettingsPage() {
                     <Input id="testApiKey" value={settings.firstpayTest?.apiKey || ''} onChange={(e) => handleInputChange('firstpayTest.apiKey', e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="testBearerToken">Bearer Token</Label>
-                    <Input id="testBearerToken" value={settings.firstpayTest?.bearerToken || ''} onChange={(e) => handleInputChange('firstpayTest.bearerToken', e.target.value)} />
+                    <Label htmlFor="testApiSecret">API Secret</Label>
+                    <Input id="testApiSecret" value={settings.firstpayTest?.apiSecret || ''} onChange={(e) => handleInputChange('firstpayTest.apiSecret', e.target.value)} />
                   </div>
                 </div>
               </div>
@@ -187,8 +190,8 @@ export default function SettingsPage() {
                     <Input id="prodApiKey" value={settings.firstpayProd?.apiKey || ''} onChange={(e) => handleInputChange('firstpayProd.apiKey', e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="prodBearerToken">Bearer Token</Label>
-                    <Input id="prodBearerToken" value={settings.firstpayProd?.bearerToken || ''} onChange={(e) => handleInputChange('firstpayProd.bearerToken', e.target.value)} />
+                    <Label htmlFor="prodApiSecret">API Secret</Label>
+                    <Input id="prodApiSecret" value={settings.firstpayProd?.apiSecret || ''} onChange={(e) => handleInputChange('firstpayProd.apiSecret', e.target.value)} />
                   </div>
                 </div>
               </div>

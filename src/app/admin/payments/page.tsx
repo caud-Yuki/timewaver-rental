@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, DollarSign, Search } from 'lucide-react';
-import { Subscription, paymentConverter } from '@/types';
+import { Subscription, subscriptionConverter } from '../../../types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
@@ -21,7 +21,7 @@ export default function AdminPaymentsPage() {
   
   const subscriptionsQuery = useMemo(() => 
     query(collection(db, 'subscriptions'), orderBy('createdAt', 'desc'))
-    .withConverter(paymentConverter)
+    .withConverter(subscriptionConverter)
   , [db]);
   
   const { data: subscriptions, loading, error } = useCollection<Subscription>(subscriptionsQuery);
@@ -33,7 +33,7 @@ export default function AdminPaymentsPage() {
     }
     setIsSearching(true);
     try {
-      const docRef = doc(db, 'subscriptions', searchTerm.trim()).withConverter(paymentConverter);
+      const docRef = doc(db, 'subscriptions', searchTerm.trim()).withConverter(subscriptionConverter);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
         setSearchResults([docSnap.data()]);

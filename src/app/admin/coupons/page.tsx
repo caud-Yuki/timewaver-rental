@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Edit, Trash2, Ticket, Loader2 } from 'lucide-react';
-import { Coupon, couponConverter } from '@/types';
+import { Coupon, couponConverter } from '../../../types';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Timestamp } from 'firebase/firestore';
 

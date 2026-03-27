@@ -1,9 +1,12 @@
 
 import {onCall, HttpsError} from "firebase-functions/v2/https";
+import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import {log} from "firebase-functions/logger";
 import {initializeApp} from "firebase-admin/app";
+import { getStorage } from "firebase-admin/storage";
 import {getFirestore, Timestamp} from "firebase-admin/firestore";
 import axios from "axios";
+import {sendTriggeredEmail} from "./triggers";
 
 log("Top-level: functions/index.ts file loaded. If you see this, the function is starting.");
 
@@ -21,6 +24,7 @@ interface GlobalSettings {
     apiKey?: string;
     bearerToken?: string;
   };
+  adminEmail?: string;
 }
 
 export const getPaymentData = onCall(async (request) => {
@@ -182,6 +186,74 @@ export const getSubscriptionsList = onCall(async (request) => {
       const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
       log("[getSubscriptionsList] Throwing internal error:", { errorMessage, originalError: error });
       throw new HttpsError("internal", "Failed to fetch subscription list. See function logs for details.");
+    }
+  }
+});
+
+export const onApplicationUpdate = onDocumentUpdated("applications/{applicationId}", async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  const applicationId = event.params.applicationId;
+
+  if (!before || !after) {
+    log("[onApplicationUpdate] Data missing, exiting.");
+    return;
+  }
+
+  // If status has not changed, do nothing.
+  if (before.status === after.status) {
+    return;
+  }
+
+  log(`[onApplicationUpdate] Status changed for application ${applicationId} from '${before.status}' to '${after.status}'`);
+
+  const user = { name: after.userName, email: after.userEmail };
+  const applicationData = { ...after, applicationId };
+
+  // --- Status Change Handlers ---
+
+  if (after.status === 'awaiting_consent_form') {
+    await sendTriggeredEmail('application.awaiting_consent', user, applicationData);
+  }
+  
+  if (after.status === 'consent_form_review') {
+    const db = getFirestore();
+    const settingsDoc = await db.collection('settings').doc('global').get();
+    const adminEmail = settingsDoc.data()?.adminEmail;
+
+    if (adminEmail) {
+      await sendTriggeredEmail('application.consent_submitted', { name: "Admin", email: adminEmail }, applicationData);
+    } else {
+      log("[onApplicationUpdate] Admin email not configured. Cannot send consent form submission notification.");
+    }
+  }
+
+  if (after.status === 'consent_form_approved') {
+    // This will generate the payment link and send the approval email
+    await sendTriggeredEmail('application.consent_approved', user, applicationData);
+  }
+
+  // --- Cleanup for Canceled/Rejected Applications ---
+  const isNowCanceled = ['canceled', 'rejected'].includes(after.status);
+  const wasNotCanceled = !['canceled', 'rejected'].includes(before.status);
+
+  if (isNowCanceled && wasNotCanceled) {
+    log(`[onApplicationUpdate] Cleanup initiated for ${applicationId} due to status: ${after.status}.`);
+    const bucket = getStorage().bucket();
+    const filesToDelete = [after.identificationImageUrl, after.agreementPdfUrl].filter(Boolean);
+
+    for (const url of filesToDelete) {
+      try {
+        const decodedUrl = decodeURIComponent(url.split('/o/')[1].split('?')[0]);
+        const file = bucket.file(decodedUrl);
+        const [exists] = await file.exists();
+        if (exists) {
+          await file.delete();
+          log(`[onApplicationUpdate] Deleted file: ${decodedUrl}`);
+        }
+      } catch (err) {
+        log(`[onApplicationUpdate] Failed to delete file at ${url}:`, err);
+      }
     }
   }
 });

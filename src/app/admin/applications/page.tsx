@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useCollection, useDoc } from '@/firebase';
 import { collection, query, orderBy, updateDoc, doc, serverTimestamp, addDoc } from 'firebase/firestore';
@@ -45,6 +45,8 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 function ApplicationDetailModal({ application }: { application: Application }) {
+  const isDeleted = application.status === 'canceled';
+
   const db = useFirestore();
   const [activeDoc, setActiveDoc] = useState<'agreement' | 'id'>('id'); 
 
@@ -98,7 +100,7 @@ function ApplicationDetailModal({ application }: { application: Application }) {
             </Tabs>
           </div>
 
-          {currentDocUrl ? (
+          {currentDocUrl && !isDeleted ? (
             <div className="flex-1 min-h-[400px] bg-white rounded-2xl shadow-inner border overflow-hidden relative">
               <iframe 
                 src={currentDocUrl} 
@@ -108,9 +110,12 @@ function ApplicationDetailModal({ application }: { application: Application }) {
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed">
-              <AlertTriangle className="h-12 w-12 text-slate-300 mb-2" />
-              <p className="text-xs text-slate-400">
-                {activeDoc === 'id' ? "本人確認書類がアップロードされていません" : "同意書がまだアップロードされていません"}
+              <AlertTriangle className={`h-12 w-12 mb-2 ${isDeleted ? 'text-amber-400' : 'text-slate-300'}`} />
+              <p className="text-xs text-slate-500 text-center px-8">
+                {isDeleted 
+                  ? "この申請は取り消し済みのため、個人情報保護の観点から書類は自動削除されました。" 
+                  : (activeDoc === 'id' ? "本人確認書類がアップロードされていません" : "同意書がまだアップロードされていません")
+                }
               </p>
             </div>
           )}
@@ -207,14 +212,33 @@ export default function AdminApplicationsPage() {
   }, [db]);
   const { data: applications, loading: appsLoading } = useCollection<Application>(applicationsQuery);
 
+  // 1. Add this helper to handle the confirmation toast
   const handleUpdateStatus = async (appId: string, status: Application['status']) => {
     if (!db) return;
-    updateDoc(doc(db, 'applications', appId), {
-      status,
-      updatedAt: serverTimestamp(),
-    }).then(() => {
-      toast({ title: "ステータスを更新しました" });
-    });
+
+    // Optional: Visual confirmation for destructive actions
+    const isDestructive = status === 'canceled';
+
+    try {
+      await updateDoc(doc(db, 'applications', appId), {
+        status,
+        updatedAt: serverTimestamp(),
+      });
+
+      toast({ 
+        title: "ステータスを更新しました", 
+        description: isDestructive 
+          ? "この申請に関連する提出書類はバックエンドで自動削除されます。" 
+          : "変更が保存されました。" 
+      });
+    } catch (error) {
+      console.error("Update error:", error);
+      toast({ 
+        variant: "destructive", 
+        title: "更新に失敗しました", 
+        description: "通信状態を確認してください。" 
+      });
+    }
   };
 
   const handleCreatePaymentLink = async (application: Application) => {
@@ -316,7 +340,9 @@ export default function AdminApplicationsPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="pending">審査中</SelectItem>
-                        <SelectItem value="approved">承認</SelectItem>
+                        <SelectItem value="awaiting_consent_form">承認(同意書待ち)</SelectItem>
+                        <SelectItem value="consent_form_review">同意書確認中</SelectItem>
+                        <SelectItem value="consent_form_approved">同意書承認</SelectItem>
                         <SelectItem value="rejected">却下</SelectItem>
                         <SelectItem value="payment_sent">決済リンク送信済</SelectItem>
                         <SelectItem value="completed">決済完了</SelectItem>
@@ -344,7 +370,7 @@ export default function AdminApplicationsPage() {
                       <Mail className="h-4 w-4 text-muted-foreground" />
                     </Button>
 
-                    {app.status === 'approved' && (
+                    {app.status === 'consent_form_approved' && (
                       <Button size="sm" className="h-8 rounded-lg bg-emerald-500 hover:bg-emerald-600" onClick={() => handleCreatePaymentLink(app)}>
                         <Send className="h-3.5 w-3.5 mr-1" /> 決済リンク
                       </Button>

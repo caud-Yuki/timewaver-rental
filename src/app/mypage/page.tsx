@@ -17,7 +17,8 @@ import {
   ClipboardList,
   ChevronRight,
   Sparkles,
-  LayoutDashboard
+  LayoutDashboard,
+  Clock
 } from 'lucide-react';
 import { UserProfile } from '@/types';
 
@@ -61,6 +62,14 @@ export default function MyPageDashboard() {
       href: '/mypage/applications', 
       color: 'text-purple-500', 
       bg: 'bg-purple-50' 
+    },
+    { 
+      title: 'キャンセル待ち状況', 
+      desc: '登録済のキャンセル待ち一覧', 
+      icon: Clock, 
+      href: '/mypage/waitlist', 
+      color: 'text-orange-500', 
+      bg: 'bg-orange-50' 
     },
     { 
       title: '支払履歴', 

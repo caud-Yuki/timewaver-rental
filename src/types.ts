@@ -1,9 +1,9 @@
 
-import { Timestamp, DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, SnapshotOptions } from 'firebase/firestore';
+import { FieldValue, Timestamp, DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, SnapshotOptions, WithFieldValue, PartialWithFieldValue } from 'firebase/firestore';
 
-const createConverter = <T extends { id: string }>() => ({
-  toFirestore(data: Partial<T>): DocumentData {
-    const { id, ...rest } = data;
+const createConverter = <T extends { id: string }>(): FirestoreDataConverter<T> => ({
+  toFirestore(data: WithFieldValue<T> | PartialWithFieldValue<T>): DocumentData {
+    const { id, ...rest } = data as any; 
     return rest;
   },
   fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): T {
@@ -39,7 +39,7 @@ export const userProfileConverter = createConverter<UserProfile>();
 // =============================================================================
 // Application
 // =============================================================================
-export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'canceled' | 'payment_sent' | 'completed';
+export type ApplicationStatus = 'pending' | 'awaiting_consent_form' | 'consent_form_review' | 'consent_form_approved' | 'approved' | 'rejected' | 'canceled' | 'payment_sent' | 'completed';
 
 export interface Application {
   id: string;
@@ -70,7 +70,7 @@ export interface DeviceModule {
   name: string;
   description: string;
   price?: number;
-  point: string;
+  point: number;
   order?: number;
 }
 export const deviceModuleConverter = createConverter<DeviceModule>();
@@ -93,11 +93,10 @@ export type DeviceStatus = 'available' | 'in_use' | 'maintenance' | 'processing'
 
 export interface Device {
   id: string;
-  name: string;
-  description?: string;
+  type: string; // This is the "Name" (e.g., TimeWaver Mobile)
   serialNumber: string;
-  type: string; 
-  typeCode: string; 
+  typeCode: string; // Based on your screenshot, this is a string "tw-m", not an object
+  description?: string;
   price: {
     "3m": { full: number; monthly: number };
     "6m": { full: number; monthly: number };
@@ -105,7 +104,7 @@ export interface Device {
   };
   fullPaymentDiscountRate?: number;
   status: DeviceStatus;
-  modules?: DeviceModule[];
+  modules?: DeviceModule[]; // Firestore often stores these as IDs; check if these are objects or strings
   currentUserId?: string | null;
   contractStartAt?: Timestamp | null;
   contractEndAt?: Timestamp | null;

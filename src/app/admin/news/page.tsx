@@ -13,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Edit, Trash2, Newspaper, Loader2 } from 'lucide-react';
-import { News, newsConverter } from '@/types';
+import { News, newsConverter } from '../../../types';
 import { Timestamp } from 'firebase/firestore';
 
 const NewsForm = ({ article, onSave, onCancel }: { article?: Partial<News>, onSave: (n: Partial<News>) => void, onCancel: () => void }) => {
@@ -67,7 +67,7 @@ const NewsForm = ({ article, onSave, onCancel }: { article?: Partial<News>, onSa
 export default function NewsPage() {
   const db = useFirestore();
   const newsQuery = useMemo(() => query(collection(db, 'news'), orderBy('createdAt', 'desc')).withConverter(newsConverter), [db]);
-  const { data: news, loading, error } = useCollection<News>(newsQuery);
+  const { data: news, loading, error } = useCollection<News>(newsQuery as any);
   const { toast } = useToast();
 
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -84,7 +84,7 @@ export default function NewsPage() {
 
       if (articleData.id) {
         const { id, ...updateData } = dataToSave;
-        await updateDoc(doc(db, 'news', id), updateData);
+        await updateDoc(doc(db, 'news', articleData.id), updateData);
         toast({ title: "Success", description: "News article updated." });
       } else {
         await addDoc(collection(db, 'news'), { ...dataToSave, createdAt: serverTimestamp() });

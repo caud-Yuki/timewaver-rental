@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
@@ -8,13 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
-import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, orderBy } from 'firebase/firestore';
+import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
+import { collection, query, where, orderBy } from 'firebase/firestore';
 import { Activity, Cpu, CheckCircle2, Clock, Loader2, AlertCircle, Timer } from 'lucide-react';
-import { Device, DeviceTypeCode } from '@/types';
+import { Device, DeviceTypeCode, Waitlist } from '@/types';
 
 export default function DeviceListPage() {
-  const [filter, setFilter] = useState<string>('all');
+  const [filter, setFilter] = useState<DeviceTypeCode | 'all'>('all');
+  const { user } = useUser();
   const db = useFirestore();
 
   const devicesQuery = useMemoFirebase(() => {
@@ -22,14 +23,27 @@ export default function DeviceListPage() {
     return query(collection(db, 'devices'), orderBy('typeCode'));
   }, [db]);
 
+  const userWaitlistQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return query(collection(db, 'waitlist'), where('userId', '==', user.uid));
+  }, [db, user]);
+
   const { data: devices, loading, error } = useCollection<Device>(devicesQuery as any);
+  const { data: userWaitlist } = useCollection<Waitlist>(userWaitlistQuery as any);
+
+  const userWaitlistDeviceTypes = useMemo(() => 
+    userWaitlist.map(entry => entry.deviceType)
+  , [userWaitlist]);
 
   const filteredDevices = devices.filter(d => 
-    filter === 'all' || d.typeCode === filter
+    filter === 'all' || (d.typeCode as DeviceTypeCode | 'all') === filter
   );
 
   const getDeviceImage = (code?: DeviceTypeCode) => {
-    const hint = PlaceHolderImages.find(i => i.id === code?.replace('tw-', 'tw'));
+    if (!code) return 'https://picsum.photos/seed/placeholder/800/600';
+    
+    const hint = PlaceHolderImages.find(i => i.id === (code as unknown as string).replace('tw-', 'tw'));
+    
     return hint?.imageUrl || 'https://picsum.photos/seed/placeholder/600/400';
   };
 
@@ -58,7 +72,7 @@ export default function DeviceListPage() {
       </div>
 
       <div className="flex justify-center mb-12">
-        <Tabs defaultValue="all" className="w-full max-w-2xl" onValueChange={setFilter}>
+        <Tabs defaultValue="all" className="w-full max-w-2xl" onValueChange={(value) => setFilter(value as DeviceTypeCode | 'all')}>
           <TabsList className="grid w-full grid-cols-5 h-12 rounded-2xl bg-secondary/50 p-1">
             <TabsTrigger value="all" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">すべて</TabsTrigger>
             <TabsTrigger value="tw-m" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">Mobile</TabsTrigger>
@@ -83,6 +97,7 @@ export default function DeviceListPage() {
             filteredDevices.map((device) => {
               const isAvailable = device.status === 'available';
               const isProcessing = device.status === 'processing';
+              const isOnWaitlist = userWaitlistDeviceTypes.includes(device.type);
 
               return (
                 <Card key={device.id} className="overflow-hidden group hover:shadow-2xl transition-all duration-300 border-none shadow-lg bg-white rounded-[2rem]">
@@ -102,6 +117,10 @@ export default function DeviceListPage() {
                         <Badge variant="secondary" className="bg-blue-500 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
                           <Timer className="h-3.5 w-3.5" /> 手続き中
                         </Badge>
+                      ) : isOnWaitlist ? (
+                        <Badge variant="secondary" className="bg-gray-400 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
+                          <Clock className="h-3.5 w-3.5" /> キャンセル待ち済
+                        </Badge>
                       ) : (
                         <Badge variant="secondary" className="bg-amber-500 hover:bg-amber-600 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
                           <Clock className="h-3.5 w-3.5" /> キャンセル待ち受付中
@@ -111,7 +130,7 @@ export default function DeviceListPage() {
                   </div>
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between mb-2">
-                      <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase">{device.typeCode}</Badge>
+                      <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase">{device.typeCode.type}</Badge>
                       <span className="text-xs text-muted-foreground font-mono">{device.serialNumber}</span>
                     </div>
                     <CardTitle className="font-headline text-2xl group-hover:text-primary transition-colors">{device.type}</CardTitle>
@@ -130,8 +149,9 @@ export default function DeviceListPage() {
                       <Button 
                         className="w-full font-bold h-12 rounded-xl shadow-md group-hover:shadow-primary/20 transition-all" 
                         variant={isAvailable ? 'default' : 'outline'}
+                        disabled={isOnWaitlist} // Disable button if on waitlist
                       >
-                        {isAvailable ? '詳細・お申し込み' : '詳細'}
+                        {isAvailable ? '詳細・お申し込み' : (isOnWaitlist ? 'キャンセル待ち済' : '詳細')}
                       </Button>
                     </Link>
                   </CardFooter>

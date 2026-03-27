@@ -29,30 +29,30 @@ const EmailTemplateForm = ({ template, onSave, onCancel }: { template?: Partial<
   return (
     <DialogContent className="sm:max-w-2xl">
       <DialogHeader>
-        <DialogTitle>{template?.id ? 'Edit Email Template' : 'Create New Email Template'}</DialogTitle>
-        <DialogDescription>Fill in the details for the email template. You can use placeholders like {'{{userName}}'}.</DialogDescription>
+        <DialogTitle>{template?.id ? 'メールテンプレートを編集' : '新規メールテンプレートを作成'}</DialogTitle>
+        <DialogDescription>テンプレート詳細を入力してください。{'{{userName}}'}のようなプレースホルダーを使用できます。</DialogDescription>
       </DialogHeader>
       <div className="space-y-4 py-4">
         <div className="grid grid-cols-4 items-center gap-4">
-          <Label htmlFor="type" className="text-right">Template Type</Label>
-          <Input id="type" value={currentTemplate.type || ''} onChange={(e) => handleChange('type', e.target.value)} className="col-span-3" placeholder="e.g., application-approved" />
+          <Label htmlFor="type" className="text-right">テンプレートタイプ</Label>
+          <Input id="type" value={currentTemplate.type || ''} onChange={(e) => handleChange('type', e.target.value)} className="col-span-3" placeholder="例: application-approved" />
         </div>
         <div className="grid grid-cols-4 items-center gap-4">
-          <Label htmlFor="name" className="text-right">Template Name</Label>
+          <Label htmlFor="name" className="text-right">テンプレート名</Label>
           <Input id="name" value={currentTemplate.name || ''} onChange={(e) => handleChange('name', e.target.value)} className="col-span-3" />
         </div>
         <div className="grid grid-cols-4 items-center gap-4">
-          <Label htmlFor="subject" className="text-right">Subject</Label>
+          <Label htmlFor="subject" className="text-right">件名</Label>
           <Input id="subject" value={currentTemplate.subject || ''} onChange={(e) => handleChange('subject', e.target.value)} className="col-span-3" />
         </div>
         <div className="grid grid-cols-1 gap-4">
-          <Label htmlFor="body">Body</Label>
+          <Label htmlFor="body">本文</Label>
           <Textarea id="body" value={currentTemplate.body || ''} onChange={(e) => handleChange('body', e.target.value)} className="min-h-[200px]" />
         </div>
       </div>
       <DialogFooter>
-        <Button variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button onClick={handleSave}>Save</Button>
+        <Button variant="outline" onClick={onCancel}>キャンセル</Button>
+        <Button onClick={handleSave}>保存</Button>
       </DialogFooter>
     </DialogContent>
   );
@@ -61,7 +61,7 @@ const EmailTemplateForm = ({ template, onSave, onCancel }: { template?: Partial<
 export default function EmailTemplatesPage() {
   const db = useFirestore();
   const templatesQuery = useMemo(() => query(collection(db, 'emailTemplates'), orderBy('createdAt', 'desc')).withConverter(emailTemplateConverter), [db]);
-  const { data: templates, loading, error } = useCollection<EmailTemplate>(templatesQuery);
+  const { data: templates, loading, error } = useCollection<EmailTemplate>(templatesQuery as any);
   const { toast } = useToast();
 
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -72,25 +72,25 @@ export default function EmailTemplatesPage() {
       if (templateData.id) {
         const { id, ...dataToUpdate } = templateData;
         await updateDoc(doc(db, 'emailTemplates', id), { ...dataToUpdate, updatedAt: serverTimestamp() });
-        toast({ title: "Success", description: "Email template updated." });
+        toast({ title: "成功", description: "メールテンプレートを更新しました。" });
       } else {
         await addDoc(collection(db, 'emailTemplates'), { ...templateData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-        toast({ title: "Success", description: "Email template created." });
+        toast({ title: "成功", description: "メールテンプレートを作成しました。" });
       }
       setIsFormOpen(false);
       setSelectedTemplate(undefined);
     } catch (e) {
-      toast({ variant: "destructive", title: "Error", description: "An error occurred while saving the template." });
+      toast({ variant: "destructive", title: "エラー", description: "テンプレートの保存中にエラーが発生しました。" });
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this template?")) {
+    if (window.confirm("このテンプレートを本当に削除しますか？")) {
       try {
         await deleteDoc(doc(db, 'emailTemplates', id));
-        toast({ title: "Success", description: "Email template deleted." });
+        toast({ title: "成功", description: "メールテンプレートを削除しました。" });
       } catch (e) {
-        toast({ variant: "destructive", title: "Error", description: "An error occurred while deleting the template." });
+        toast({ variant: "destructive", title: "エラー", description: "テンプレートの削除中にエラーが発生しました。" });
       }
     }
   };
@@ -100,15 +100,15 @@ export default function EmailTemplatesPage() {
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold font-headline flex items-center gap-3">
-            <Mail className="h-8 w-8 text-primary" /> Email Template Management
+            <Mail className="h-8 w-8 text-primary" /> メールテンプレート管理
           </h1>
-          <p className="text-muted-foreground">Create and manage automated email templates.</p>
+          <p className="text-muted-foreground">自動送信メールのテンプレートを作成・管理します。</p>
         </div>
         <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
           <DialogTrigger asChild>
             <Button className="rounded-xl" onClick={() => setSelectedTemplate(undefined)}>
               <PlusCircle className="h-4 w-4 mr-2" />
-              Create New Template
+              新規テンプレートを作成
             </Button>
           </DialogTrigger>
           <EmailTemplateForm onSave={handleSave} onCancel={() => setIsFormOpen(false)} template={selectedTemplate} />
@@ -120,11 +120,11 @@ export default function EmailTemplatesPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-secondary/10">
-                <TableHead className="pl-8 py-5">Template Name</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Subject</TableHead>
-                <TableHead>Last Updated</TableHead>
-                <TableHead className="text-right pr-8">Actions</TableHead>
+                <TableHead className="pl-8 py-5">テンプレート名</TableHead>
+                <TableHead>タイプ</TableHead>
+                <TableHead>件名</TableHead>
+                <TableHead>最終更新日</TableHead>
+                <TableHead className="text-right pr-8">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
