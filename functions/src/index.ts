@@ -7,9 +7,10 @@ import { getStorage } from "firebase-admin/storage";
 import {getFirestore, Timestamp} from "firebase-admin/firestore";
 import axios from "axios";
 import {sendTriggeredEmail} from "./triggers";
+import {sendMail} from "./gmail";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
 
-log("Top-level: functions/index.ts file loaded. If you see this, the function is starting.");
+log("Top-level: functions/index.ts loaded. v2 with sendAdHocEmail.");
 
 // Initialize Firebase Admin SDK
 initializeApp();
@@ -846,6 +847,65 @@ export const getPaymentHistory = onCall(async (request) => {
     log("[getPaymentHistory] ERROR:", error);
     if (error instanceof HttpsError) throw error;
     throw new HttpsError("internal", "Failed to fetch payment history.");
+  }
+});
+
+/**
+ * Send an ad-hoc email from the admin panel.
+ * Wraps body in the HTML email template with company branding.
+ */
+export const sendAdHocEmail = onCall(async (request) => {
+  const { to, subject, body } = request.data;
+
+  if (!to || !subject || !body) {
+    throw new HttpsError("invalid-argument", "to, subject, and body are required.");
+  }
+
+  log(`[sendAdHocEmail] Sending email to: ${to}, subject: ${subject}`);
+
+  try {
+    // Fetch email design settings
+    const db = getFirestore();
+    const settingsDoc = await db.collection('settings').doc('global').get();
+    const settings = settingsDoc.exists ? settingsDoc.data() || {} : {};
+    const d = settings.emailDesign || {
+      primaryColor: '#2563eb',
+      fontFamily: "'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif",
+      footerText: '© 2026 ChronoRent. All rights reserved.\nこのメールはChronoRentシステムから自動送信されています。',
+    };
+
+    const isRichHtml = body.includes('<') && body.includes('>');
+    const processedBody = isRichHtml ? body : body.replace(/\n/g, '<br>');
+    const footerHtml = (d.footerText || '').replace(/\n/g, '<br>');
+
+    const htmlBody = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>.email-body p { margin: 0 0 4px 0; } .email-body br { line-height: 1.6; }</style>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:${d.fontFamily || "'Helvetica Neue', Arial, sans-serif"};">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7;padding:32px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+<tr><td style="background-color:${d.primaryColor || '#2563eb'};padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
+<h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">ChronoRent</h1>
+</td></tr>
+<tr><td style="background-color:#ffffff;padding:32px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
+<div class="email-body" style="color:#1f2937;font-size:14px;line-height:1.6;">${processedBody}</div>
+</td></tr>
+<tr><td style="background-color:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none;text-align:center;">
+<p style="margin:0;color:#9ca3af;font-size:11px;line-height:1.6;">${footerHtml}</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`;
+
+    await sendMail(to, subject, htmlBody);
+    log(`[sendAdHocEmail] Email sent successfully to ${to}`);
+    return { success: true };
+  } catch (error: any) {
+    log(`[sendAdHocEmail] Error:`, error);
+    throw new HttpsError("internal", error.message || "Failed to send email.");
   }
 });
 

@@ -22,11 +22,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { 
-  Loader2, 
-  FileText, 
-  Send, 
+import {
+  Loader2,
+  FileText,
+  Send,
   Mail, 
   CheckCircle2, 
   XCircle, 
@@ -39,10 +41,13 @@ import {
   AlertTriangle,
   UserCheck
 } from 'lucide-react';
-import { Application, UserProfile, applicationConverter, userProfileConverter } from '@/types';
+import { Application, UserProfile, EmailTemplate, applicationConverter, userProfileConverter, emailTemplateConverter } from '@/types';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 function ApplicationDetailModal({ application }: { application: Application }) {
   const isDeleted = application.status === 'canceled';
@@ -57,10 +62,7 @@ function ApplicationDetailModal({ application }: { application: Application }) {
   
   const { data: profile, loading } = useDoc<UserProfile>(userProfileRef);
 
-  const handleEmailUser = () => {
-    const subject = encodeURIComponent(`【ChronoRent】レンタル申請について - ${application.id}`);
-    window.location.href = `mailto:${application.userEmail}?subject=${subject}`;
-  };
+  const [showDetailEmail, setShowDetailEmail] = useState(false);
 
   const currentDocUrl = activeDoc === 'agreement' ? application.agreementPdfUrl : application.identificationImageUrl;
 
@@ -76,7 +78,7 @@ function ApplicationDetailModal({ application }: { application: Application }) {
               <Mail className="h-3 w-3" /> {application.userEmail}
             </div>
           </div>
-          <Button variant="outline" className="rounded-xl" onClick={handleEmailUser}>
+          <Button variant="outline" className="rounded-xl" onClick={() => setShowDetailEmail(true)}>
             <Mail className="h-4 w-4 mr-2" /> メール作成
           </Button>
         </div>
@@ -182,7 +184,175 @@ function ApplicationDetailModal({ application }: { application: Application }) {
           </section>
         </div>
       </div>
+
+      {/* Email compose from detail modal */}
+      <EmailComposeModal
+        application={application}
+        open={showDetailEmail}
+        onOpenChange={setShowDetailEmail}
+      />
     </DialogContent>
+  );
+}
+
+function EmailComposeModal({ application, open, onOpenChange }: { application: Application; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const db = useFirestore();
+  const { toast } = useToast();
+
+  const templatesQuery = useMemo(() => query(collection(db, 'emailTemplates'), orderBy('createdAt', 'desc')).withConverter(emailTemplateConverter), [db]);
+  const { data: templates } = useCollection<EmailTemplate>(templatesQuery as any);
+
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('blank');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [sending, setSending] = useState(false);
+
+  // Auto-fill placeholders from application data
+  const fillPlaceholders = (text: string) => {
+    const baseUrl = 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app';
+    const replacements: Record<string, string> = {
+      userName: application.userName || '',
+      userEmail: application.userEmail || '',
+      deviceType: application.deviceType || '',
+      deviceId: application.deviceId || '',
+      deviceSerialNumber: (application as any).deviceSerialNumber || '',
+      applicationId: application.id || '',
+      payAmount: (application.payAmount ?? 0).toLocaleString(),
+      payType: application.payType === 'monthly' ? '月々払い' : '一括払い',
+      rentalType: String((application as any).rentalType || (application as any).rentalPeriod || ''),
+      shippingZipcode: (application as any).shippingZipcode || '',
+      shippingPrefecture: (application as any).shippingPrefecture || '',
+      shippingAddress1: (application as any).shippingAddress1 || '',
+      shippingAddress2: (application as any).shippingAddress2 || '',
+      shippingTel: (application as any).shippingTel || '',
+      shippingCompanyName: (application as any).shippingCompanyName || '',
+      linkMypage: `${baseUrl}/mypage`,
+      linkApplications: `${baseUrl}/mypage/applications`,
+      linkDevices: `${baseUrl}/mypage/devices`,
+      linkPaymentHistory: `${baseUrl}/mypage/payment-history`,
+      linkProfile: `${baseUrl}/mypage/profile`,
+      linkDeviceList: `${baseUrl}/devices`,
+    };
+
+    let result = text;
+    for (const [key, value] of Object.entries(replacements)) {
+      result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+    }
+    return result;
+  };
+
+  // When template selection changes
+  const handleTemplateChange = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    if (templateId === 'blank') {
+      setEmailSubject(`【ChronoRent】${application.deviceType} - ${application.userName}様`);
+      setEmailBody('');
+    } else {
+      const template = templates?.find(t => t.id === templateId);
+      if (template) {
+        setEmailSubject(fillPlaceholders(template.subject || ''));
+        setEmailBody(fillPlaceholders(template.body || ''));
+      }
+    }
+  };
+
+  // Initialize with blank on open
+  useEffect(() => {
+    if (open) {
+      setSelectedTemplateId('blank');
+      setEmailSubject(`【ChronoRent】${application.deviceType} - ${application.userName}様`);
+      setEmailBody('');
+    }
+  }, [open, application]);
+
+  const handleSend = async () => {
+    if (!emailSubject.trim() || !emailBody.trim()) {
+      toast({ variant: 'destructive', title: '件名と本文を入力してください' });
+      return;
+    }
+
+    setSending(true);
+    try {
+      const functions = getFunctions();
+      const sendEmail = httpsCallable(functions, 'sendAdHocEmail');
+      await sendEmail({
+        to: application.userEmail,
+        subject: emailSubject,
+        body: emailBody,
+      });
+      toast({ title: 'メール送信完了', description: `${application.userEmail} に送信しました。` });
+      onOpenChange(false);
+    } catch (error: any) {
+      console.error('Email send error:', error);
+      toast({ variant: 'destructive', title: '送信に失敗しました', description: error.message });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5 text-primary" />
+            メール作成
+          </DialogTitle>
+          <div className="text-sm text-muted-foreground">
+            宛先: <span className="font-medium text-foreground">{application.userName}</span> ({application.userEmail})
+          </div>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto space-y-4 py-2">
+          {/* Template selector */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground">テンプレート選択</Label>
+            <Select value={selectedTemplateId} onValueChange={handleTemplateChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="テンプレートを選択..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="blank">
+                  <span className="flex items-center gap-2">
+                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                    白紙メール（新規作成）
+                  </span>
+                </SelectItem>
+                {templates?.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    <span className="flex items-center gap-2">
+                      <Mail className="h-3.5 w-3.5 text-primary" />
+                      {t.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Subject */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground">件名</Label>
+            <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="メールの件名..." />
+          </div>
+
+          {/* Body with rich text editor */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground">本文</Label>
+            <RichTextEditor value={emailBody} onChange={setEmailBody} placeholder="メール本文を入力..." />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 pt-3 border-t">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>キャンセル</Button>
+          <Button onClick={handleSend} disabled={sending}>
+            {sending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+            送信
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -205,6 +375,15 @@ export default function AdminApplicationsPage() {
       router.push('/');
     }
   }, [user, authLoading, adminProfile, router]);
+
+  // Email compose modal state
+  const [emailTarget, setEmailTarget] = useState<Application | null>(null);
+  const [showEmailCompose, setShowEmailCompose] = useState(false);
+
+  const openEmailCompose = (app: Application) => {
+    setEmailTarget(app);
+    setShowEmailCompose(true);
+  };
 
   const applicationsQuery = useMemo(() => {
     if (!db) return null;
@@ -368,12 +547,12 @@ export default function AdminApplicationsPage() {
                       <ApplicationDetailModal application={app} />
                     </Dialog>
 
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 rounded-lg" 
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-lg"
                       title="メールを送信"
-                      onClick={() => window.location.href = `mailto:${app.userEmail}?subject=${encodeURIComponent(`【ChronoRent】申請内容の確認 - ${app.deviceType}`)}`}
+                      onClick={() => openEmailCompose(app)}
                     >
                       <Mail className="h-4 w-4 text-muted-foreground" />
                     </Button>
@@ -397,6 +576,18 @@ export default function AdminApplicationsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Email Compose Modal */}
+      {emailTarget && (
+        <EmailComposeModal
+          application={emailTarget}
+          open={showEmailCompose}
+          onOpenChange={(open) => {
+            setShowEmailCompose(open);
+            if (!open) setEmailTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }
