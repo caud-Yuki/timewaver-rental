@@ -23,6 +23,7 @@ const TRIGGER_POINTS = [
   { id: 'consent_form_submitted', name: '同意書提出時', desc: 'ユーザーが同意書を提出した時（管理者宛）', sysId: 'sys_consent_form_submitted' },
   { id: 'consent_form_approved', name: '同意書承認時', desc: '管理者が同意書を承認し決済リンクを送付した時', sysId: 'sys_consent_form_approved' },
   // 決済
+  { id: 'payment_link_sent', name: '決済リンク送付時', desc: '管理者が決済リンクを作成・送信した時', sysId: 'sys_payment_link_sent' },
   { id: 'payment_completed', name: '決済完了時', desc: '支払いが正常に完了した時', sysId: 'sys_payment_completed' },
   { id: 'payment_failed', name: '決済失敗時', desc: '月次決済に失敗した時', sysId: 'sys_payment_failed' },
   // 発送・利用

@@ -892,9 +892,14 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
     }
   }
 
-  // 同意書承認 → 決済リンク送付
+  // 同意書承認（決済リンクはまだない段階 — 承認のみ通知）
   if (after.status === 'consent_form_approved') {
     await sendTriggeredEmail('consent_form_approved', user, applicationData);
+  }
+
+  // 決済リンク送付（paymentLinkIdがセットされたタイミングで決済案内メール）
+  if (after.status === 'payment_sent' && after.paymentLinkId) {
+    await sendTriggeredEmail('payment_link_sent', user, applicationData);
   }
 
   // 決済完了 → スタッフに発送準備を依頼
