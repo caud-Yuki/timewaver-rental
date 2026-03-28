@@ -531,7 +531,7 @@ function ApplyForm() {
                             className="flex flex-col items-center justify-between rounded-2xl border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all cursor-pointer"
                           >
                             <span className="text-sm font-bold">{m}ヶ月</span>
-                            <span className="text-xs text-muted-foreground">¥{device.price[`${m}m` as keyof Device['price']].monthly.toLocaleString()}/月</span>
+                            <span className="text-xs text-muted-foreground">¥{calculateTotalMonthly(device.price[`${m}m` as keyof Device['price']].monthly, device.modules, moduleBasePrice).toLocaleString()}/月</span>
                           </Label>
                         </div>
                       ))}
