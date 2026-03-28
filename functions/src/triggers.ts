@@ -59,13 +59,50 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
 
     let { subject, body } = templateDoc.data() as { subject: string; body: string };
 
-    const templateData = {
+    // Fetch company info from settings for placeholders
+    const settingsDoc = await db.collection('settings').doc('global').get();
+    const settings = settingsDoc.exists ? settingsDoc.data() || {} : {};
+
+    // Base URL for links
+    const baseUrl = 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app';
+
+    // Build full company address
+    const companyFullAddress = [
+      settings.companyPostalCode ? `〒${settings.companyPostalCode}` : '',
+      settings.companyPrefecture || '',
+      settings.companyCity || '',
+      settings.companyAddress || '',
+      settings.companyBuilding || '',
+    ].filter(Boolean).join(' ');
+
+    const templateData: Record<string, any> = {
+      // User info
       userName: recipient.name,
       userEmail: recipient.email,
+      // Company info from admin settings
+      companyName: settings.companyName || '',
+      managerName: settings.managerName || '',
+      managerEmail: settings.managerEmail || '',
+      companyPhone: settings.companyPhone || '',
+      companyPostalCode: settings.companyPostalCode || '',
+      companyPrefecture: settings.companyPrefecture || '',
+      companyCity: settings.companyCity || '',
+      companyAddress: settings.companyAddress || '',
+      companyBuilding: settings.companyBuilding || '',
+      companyFullAddress,
+      // Page links
+      linkMypage: `${baseUrl}/mypage`,
+      linkApplications: `${baseUrl}/mypage/applications`,
+      linkDevices: `${baseUrl}/mypage/devices`,
+      linkPaymentHistory: `${baseUrl}/mypage/payment-history`,
+      linkProfile: `${baseUrl}/mypage/profile`,
+      linkDeviceList: `${baseUrl}/devices`,
+      // Dynamic data (from the trigger caller)
       ...data,
     };
 
     for (const [key, value] of Object.entries(templateData)) {
+      if (value === undefined || value === null) continue;
       const placeholder = `{{${key}}}`;
       subject = subject.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "g"), String(value));
       body = body.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "g"), String(value));
