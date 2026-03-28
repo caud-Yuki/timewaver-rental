@@ -22,7 +22,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck, Timer, Percent, Mail, UserPlus } from 'lucide-react';
+import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck, Timer, Percent, Mail, UserPlus, Tag, X, CheckCircle2 } from 'lucide-react';
 import { Device, UserProfile, GlobalSettings } from '@/types';
 import { calculateTotalMonthly, calculateTotalFull } from '@/lib/module-pricing';
 import Link from 'next/link';
@@ -194,7 +194,73 @@ function ApplyForm() {
 
   const moduleBasePrice = settings?.moduleBasePrice || 0;
 
-  const calculateAmount = () => {
+  // Coupon state
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [couponError, setCouponError] = useState('');
+  const [couponLoading, setCouponLoading] = useState(false);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim() || !db || !user) return;
+    setCouponLoading(true);
+    setCouponError('');
+    setAppliedCoupon(null);
+
+    try {
+      const couponQuery = query(collection(db, 'coupons'), where('code', '==', couponCode.trim().toUpperCase()));
+      const couponSnap = await getDocs(couponQuery);
+
+      if (couponSnap.empty) {
+        setCouponError('クーポンコードが見つかりません。');
+        setCouponLoading(false);
+        return;
+      }
+
+      const couponDoc = couponSnap.docs[0];
+      const coupon = { id: couponDoc.id, ...couponDoc.data() } as any;
+
+      // Check if active
+      if (!coupon.isActive || coupon.status !== 'active') {
+        setCouponError('このクーポンは現在無効です。');
+        setCouponLoading(false);
+        return;
+      }
+
+      // Check expiration
+      if (coupon.expiresAt && coupon.expiresAt.toDate() < new Date()) {
+        setCouponError('このクーポンの有効期限が切れています。');
+        setCouponLoading(false);
+        return;
+      }
+
+      // Check usage limit
+      if (coupon.maxTotalUsers && (coupon.currentUsageCount || 0) >= coupon.maxTotalUsers) {
+        setCouponError('このクーポンの利用上限に達しました。');
+        setCouponLoading(false);
+        return;
+      }
+
+      // Check newCustomerOnly
+      if (coupon.newCustomerOnly) {
+        const appsQuery = query(collection(db, 'applications'), where('userId', '==', user.uid));
+        const appsSnap = await getDocs(appsQuery);
+        if (!appsSnap.empty) {
+          setCouponError('このクーポンは新規申込の方のみご利用いただけます。');
+          setCouponLoading(false);
+          return;
+        }
+      }
+
+      setAppliedCoupon(coupon);
+      toast({ title: 'クーポンを適用しました', description: coupon.name });
+    } catch (e) {
+      setCouponError('クーポンの確認中にエラーが発生しました。');
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const calculateBaseAmount = () => {
     if (!device) return 0;
     const tier = `${formData.rentalType}m` as keyof Device['price'];
     if (formData.payType === 'monthly') {
@@ -202,6 +268,19 @@ function ApplyForm() {
     } else {
       return calculateTotalFull(device.price[tier].full, device.modules, moduleBasePrice, formData.rentalType);
     }
+  };
+
+  const calculateDiscount = () => {
+    if (!appliedCoupon) return 0;
+    const base = calculateBaseAmount();
+    if (appliedCoupon.discountType === 'percentage') {
+      return Math.floor(base * (appliedCoupon.discountValue / 100));
+    }
+    return Math.min(appliedCoupon.discountValue, base);
+  };
+
+  const calculateAmount = () => {
+    return calculateBaseAmount() - calculateDiscount();
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -306,9 +385,23 @@ function ApplyForm() {
       zip: formData.zipcode,
       address: `${formData.address1} ${formData.address2}`.trim(),
       identificationImageUrl: uploadedFileUrl,
+      // Coupon info
+      couponId: appliedCoupon?.id || null,
+      couponCode: appliedCoupon?.code || null,
+      couponDiscount: calculateDiscount(),
+      originalAmount: calculateBaseAmount(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
+
+    // Increment coupon usage count
+    if (appliedCoupon?.id) {
+      const couponRef = doc(db, 'coupons', appliedCoupon.id);
+      updateDoc(couponRef, {
+        currentUsageCount: (appliedCoupon.currentUsageCount || 0) + 1,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
+    }
 
     // Also update user profile with shipping address
     if (user) {
@@ -445,6 +538,42 @@ function ApplyForm() {
                     </RadioGroup>
                   </div>
 
+                  {/* Coupon Code */}
+                  <div className="space-y-3">
+                    <Label className="text-base font-bold flex items-center gap-2">
+                      <Tag className="h-4 w-4" /> クーポンコード
+                    </Label>
+                    {appliedCoupon ? (
+                      <div className="flex items-center justify-between p-3 rounded-xl border-2 border-green-200 bg-green-50">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4 text-green-600" />
+                          <div>
+                            <span className="text-sm font-bold text-green-700">{appliedCoupon.name}</span>
+                            <span className="text-xs text-green-600 ml-2">
+                              ({appliedCoupon.discountType === 'percentage' ? `${appliedCoupon.discountValue}% OFF` : `¥${appliedCoupon.discountValue.toLocaleString()} OFF`})
+                            </span>
+                          </div>
+                        </div>
+                        <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={() => { setAppliedCoupon(null); setCouponCode(''); }}>
+                          <X className="h-3 w-3 mr-1" /> 解除
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="クーポンコードを入力"
+                          value={couponCode}
+                          onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError(''); }}
+                          className="rounded-xl uppercase"
+                        />
+                        <Button variant="outline" className="rounded-xl shrink-0" onClick={handleApplyCoupon} disabled={couponLoading || !couponCode.trim()}>
+                          {couponLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : '適用'}
+                        </Button>
+                      </div>
+                    )}
+                    {couponError && <p className="text-xs text-red-500">{couponError}</p>}
+                  </div>
+
                   <div className="space-y-4">
                     <Label className="text-base font-bold">お支払い方法</Label>
                     <Select 
@@ -574,22 +703,33 @@ function ApplyForm() {
                 
                 <Separator className="bg-white/50" />
                 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">プラン</span>
                     <span className="font-bold">{formData.rentalType}ヶ月 / {formData.payType === 'monthly' ? '月次' : '一括'}</span>
                   </div>
-                  <div className="flex justify-between items-end mt-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">小計</span>
+                    <span>¥{calculateBaseAmount().toLocaleString()}</span>
+                  </div>
+                  {appliedCoupon && calculateDiscount() > 0 && (
+                    <div className="flex justify-between text-sm text-green-600">
+                      <span className="flex items-center gap-1"><Tag className="h-3 w-3" /> クーポン割引（{appliedCoupon.name}）</span>
+                      <span className="font-bold">-¥{calculateDiscount().toLocaleString()}</span>
+                    </div>
+                  )}
+                  <Separator />
+                  <div className="flex justify-between items-end">
                     <span className="text-sm font-bold">お支払い合計金額</span>
                     <div className="text-right">
-                      {formData.payType === 'full' && device.fullPaymentDiscountRate && (
-                        <span className="text-[10px] text-rose-500 font-bold block mb-1 line-through opacity-50">
-                          ¥{(device.price[`${formData.rentalType}m` as keyof Device['price']].monthly * formData.rentalType).toLocaleString()}
+                      {(appliedCoupon || (formData.payType === 'full' && device.fullPaymentDiscountRate)) && (
+                        <span className="text-[10px] text-muted-foreground block mb-1 line-through opacity-50">
+                          ¥{calculateBaseAmount().toLocaleString()}
                         </span>
                       )}
                       <span className="text-2xl font-bold text-primary">¥{calculateAmount().toLocaleString()}</span>
                       <span className="text-xs text-muted-foreground block">
-                        {formData.payType === 'monthly' ? '(初回分)' : '(全額分)'} (税込)
+                        {formData.payType === 'monthly' ? '(月額)' : '(全額分)'} (税込)
                       </span>
                     </div>
                   </div>

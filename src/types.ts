@@ -182,6 +182,7 @@ export interface Coupon {
   expiresAt?: Timestamp;
   maxTotalUsers?: number;
   currentUsageCount?: number;
+  newCustomerOnly?: boolean;
   isActive: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;

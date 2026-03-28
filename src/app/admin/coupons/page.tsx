@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { 
   Select, 
   SelectContent, 
@@ -102,6 +103,13 @@ const CouponForm = ({ coupon, onSave, onCancel }: { coupon?: Partial<Coupon>, on
          <div className="grid grid-cols-4 items-center gap-4">
           <Label htmlFor="maxTotalUsers" className="text-right">最大利用回数</Label>
           <Input id="maxTotalUsers" type="number" value={currentCoupon.maxTotalUsers || ''} onChange={(e) => handleChange('maxTotalUsers', parseInt(e.target.value, 10))} className="col-span-3" />
+        </div>
+        <div className="grid grid-cols-4 items-center gap-4">
+          <Label className="text-right">新規申込限定</Label>
+          <div className="col-span-3 flex items-center gap-3">
+            <Switch checked={currentCoupon.newCustomerOnly || false} onCheckedChange={(checked) => handleChange('newCustomerOnly', checked)} />
+            <span className="text-xs text-muted-foreground">過去に申込履歴がないユーザーのみ利用可能</span>
+          </div>
         </div>
       </div>
       <DialogFooter>
@@ -188,7 +196,10 @@ export default function CouponsPage() {
               {loading && <TableRow><TableCell colSpan={7} className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>}
               {!loading && coupons?.map((coupon) => (
                 <TableRow key={coupon.id}>
-                  <TableCell className="pl-8 font-medium">{coupon.name}</TableCell>
+                  <TableCell className="pl-8 font-medium">
+                    {coupon.name}
+                    {coupon.newCustomerOnly && <Badge variant="outline" className="ml-2 text-[9px] border-purple-300 text-purple-600">新規限定</Badge>}
+                  </TableCell>
                   <TableCell><code className="bg-muted px-2 py-1 rounded-md text-sm">{coupon.code}</code></TableCell>
                   <TableCell>{coupon.discountType === 'percentage' ? `${coupon.discountValue}%` : `¥${coupon.discountValue.toLocaleString()}`}</TableCell>
                   <TableCell>{coupon.expiresAt ? coupon.expiresAt.toDate().toLocaleDateString() : '-'}</TableCell>
