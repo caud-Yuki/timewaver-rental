@@ -5,7 +5,8 @@ import { collection, query, where, orderBy } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Clock, AlertCircle } from 'lucide-react';
+import { Loader2, Clock, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Waitlist, waitlistConverter } from '@/types';
 import Link from 'next/link';
 
@@ -33,8 +34,12 @@ export default function MyWaitlistPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-12 max-w-4xl">
-      <div className="mb-8">
+    <div className="container mx-auto px-4 py-12 max-w-4xl space-y-8">
+      <Button variant="outline" size="sm" className="rounded-xl" onClick={() => window.location.href = '/mypage'}>
+        <ArrowLeft className="h-4 w-4 mr-1" />
+        マイページに戻る
+      </Button>
+      <div>
         <h1 className="text-3xl font-bold font-headline flex items-center gap-3">
           <Clock className="h-8 w-8 text-primary" />
           キャンセル待ち状況

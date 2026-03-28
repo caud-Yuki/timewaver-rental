@@ -11,6 +11,7 @@
  */
 
 import { doc, getDoc, Firestore } from 'firebase/firestore';
+import { getFirstPaySecrets } from '@/lib/secret-actions';
 
 // --- Types ---
 
@@ -72,24 +73,29 @@ const parseGatewayError = (data: any, status: number) => {
 
 // --- Config ---
 
+/**
+ * Get FirstPay configuration.
+ * Reads the mode (test/production) from Firestore, then fetches
+ * API credentials from Google Cloud Secret Manager.
+ */
 export async function getFirstPayConfig(db: Firestore): Promise<FirstPayConfig | null> {
+  // Read mode from Firestore (non-sensitive setting)
   const settingsRef = doc(db, 'settings', 'global');
   const snap = await getDoc(settingsRef);
 
   if (!snap.exists()) return null;
 
   const data = snap.data();
-  const mode = data.mode || 'test';
-  const creds = mode === 'production' ? data.firstpayProd : data.firstpayTest;
+  const mode = (data.mode || 'test') as 'test' | 'production';
 
-  if (!creds || !creds.apiKey?.trim() || !creds.bearerToken?.trim()) {
-    return null;
-  }
+  // Read credentials from Secret Manager
+  const secrets = await getFirstPaySecrets(mode);
+  if (!secrets) return null;
 
   return {
-    apiKey: creds.apiKey.trim(),
-    bearerToken: creds.bearerToken.trim(),
-    mode: mode as 'test' | 'production',
+    apiKey: secrets.apiKey,
+    bearerToken: secrets.bearerToken,
+    mode,
   };
 }
 

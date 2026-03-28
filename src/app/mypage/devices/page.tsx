@@ -9,6 +9,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { 
   Loader2, 
   Package, 
@@ -19,6 +20,7 @@ import {
   Clock, 
   CheckCircle2, 
   ArrowRight,
+  ArrowLeft,
   Upload,
   UserCheck,
   Send
@@ -70,6 +72,17 @@ export default function MyDevicesPage() {
     );
   }, [db, user]);
   const { data: applications, loading: appsLoading } = useCollection<Application>(appsQuery as any);
+
+  // 2b. Archived Applications (canceled/expired)
+  const archivedAppsQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return query(
+      collection(db, 'applications'),
+      where('userId', '==', user.uid),
+      where('status', 'in', ['canceled', 'expired'])
+    );
+  }, [db, user]);
+  const { data: archivedApps, loading: archivedLoading } = useCollection<Application>(archivedAppsQuery as any);
 
   // 3. User's own Waitlist entries
   const waitlistQuery = useMemoFirebase(() => {
@@ -181,6 +194,10 @@ export default function MyDevicesPage() {
 
   return (
     <div className="container mx-auto px-4 py-12 space-y-12">
+      <Button variant="outline" size="sm" className="rounded-xl" onClick={() => router.push('/mypage')}>
+        <ArrowLeft className="h-4 w-4 mr-1" />
+        マイページに戻る
+      </Button>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
           <h1 className="text-4xl font-bold font-headline">マイデバイス</h1>
@@ -268,11 +285,39 @@ export default function MyDevicesPage() {
                           <Button variant="outline" className="w-full rounded-xl h-11 text-xs">修理依頼</Button>
                         </Link>
                         {eligible ? (
-                          <Link href={`/apply/renew?deviceId=${device.id}`}>
+                          <Link href={`/apply/renew?deviceId=${device.id}${subscription?.id ? `&subscriptionId=${subscription.id}` : ''}`}>
                             <Button variant="secondary" className="w-full rounded-xl h-11 text-xs font-bold text-primary bg-white hover:bg-primary/5">契約更新</Button>
                           </Link>
                         ) : (
-                          <Button variant="secondary" disabled className="w-full rounded-xl h-11 text-[10px] opacity-50">更新期間外</Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="secondary" className="w-full rounded-xl h-11 text-[10px] opacity-50">更新期間外</Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>契約更新はまだできません</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  契約更新は終了日の1ヶ月前から手続き可能です。
+                                  {contractEndAt && (
+                                    <>
+                                      <br /><br />
+                                      更新手続き開始日: <strong>{(() => {
+                                        const end = contractEndAt.seconds ? new Date(contractEndAt.seconds * 1000) : new Date(contractEndAt);
+                                        const renewFrom = new Date(end);
+                                        renewFrom.setMonth(renewFrom.getMonth() - 1);
+                                        return renewFrom.toLocaleDateString('ja-JP');
+                                      })()}</strong>
+                                      <br />
+                                      契約終了日: <strong>{contractEndAt.seconds ? new Date(contractEndAt.seconds * 1000).toLocaleDateString('ja-JP') : '-'}</strong>
+                                    </>
+                                  )}
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>閉じる</AlertDialogCancel>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         )}
                       </CardFooter>
                     </Card>
@@ -358,6 +403,43 @@ export default function MyDevicesPage() {
             </section>
           )}
         </div>
+      )}
+
+      {/* Archive Section — canceled/expired rentals */}
+      {!archivedLoading && archivedApps && archivedApps.length > 0 && (
+        <section className="space-y-6 mt-12">
+          <h2 className="text-xl font-bold flex items-center gap-2 text-muted-foreground">
+            <Package className="h-5 w-5" />
+            過去のレンタル
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 opacity-60">
+            {archivedApps.map((app) => (
+              <Card key={app.id} className="border-none shadow-md rounded-[2rem] bg-gray-50">
+                <CardContent className="p-8 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline" className="text-xs">{app.deviceType}</Badge>
+                    <Badge variant={app.status === 'expired' ? 'secondary' : 'destructive'} className="text-xs">
+                      {app.status === 'expired' ? '契約満了' : '解約済み'}
+                    </Badge>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold">{app.deviceType}</h3>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" /> 利用開始日</span>
+                      <span>{app.createdAt?.toDate ? app.createdAt.toDate().toLocaleDateString() : '-'}</span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" /> 終了日</span>
+                      <span>{app.updatedAt?.toDate ? app.updatedAt.toDate().toLocaleDateString() : '-'}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

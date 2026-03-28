@@ -146,8 +146,7 @@ export interface Application {
 }
 
 export interface GlobalSettings {
-  firstpayTest: { apiKey: string; apiSecret: string; };
-  firstpayProd: { apiKey: string; apiSecret: string; };
+  // Non-sensitive fields (stored in Firestore)
   waitlistEmailInterval: number;
   waitlistValidityHours: number;
   applicationSessionMinutes: number;
@@ -156,6 +155,18 @@ export interface GlobalSettings {
   managerName: string;
   managerEmail: string;
   mode: 'test' | 'production';
+  companyPhone?: string;
+  companyPostalCode?: string;
+  companyPrefecture?: string;
+  companyCity?: string;
+  companyAddress?: string;
+  companyBuilding?: string;
+  geminiModel?: string;
+  shippingBufferDays?: number;
+  moduleBasePrice?: number;
+  staff?: Array<{ name: string; email: string; role: 'operations' | 'support' | 'admin' }>;
+  // Sensitive fields are stored in Google Cloud Secret Manager, NOT in Firestore.
+  // See src/lib/secret-actions.ts for read/write operations.
 }
 
 export type WaitlistStatus = 'waiting' | 'notified' | 'scheduled' | 'expired' | 'converted';

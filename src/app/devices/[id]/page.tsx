@@ -14,7 +14,8 @@ import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2, Users, Timer, Percent } from 'lucide-react';
-import { Device, DeviceTypeCode, Waitlist } from '@/types';
+import { Device, DeviceTypeCode, Waitlist, GlobalSettings } from '@/types';
+import { calculateTotalMonthly, calculateTotalFull, calculateModuleAddon } from '@/lib/module-pricing';
 import { visualizeField, VisualizeFieldOutput } from '@/ai/flows/visualize-field-flow';
 import { useToast } from '@/hooks/use-toast';
 
@@ -25,6 +26,10 @@ export default function DeviceDetailPage() {
   const { user } = useUser();
   const { toast } = useToast();
   const id = params.id as string;
+
+  const settingsRef = useMemo(() => db ? doc(db, 'settings', 'global') : null, [db]);
+  const { data: globalSettings } = useDoc<GlobalSettings>(settingsRef as any);
+  const moduleBasePrice = globalSettings?.moduleBasePrice || 0;
 
   const [intent, setIntent] = useState('');
   const [visualization, setVisualization] = useState<VisualizeFieldOutput | null>(null);
@@ -231,12 +236,15 @@ export default function DeviceDetailPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-6 rounded-2xl border-2 border-primary bg-primary/5 shadow-sm">
                     <span className="text-xs text-primary font-bold block mb-1">月々払い</span>
-                    <span className="text-3xl font-bold text-primary">¥{device.price?.[m as keyof Device['price']].monthly.toLocaleString()}</span>
+                    <span className="text-3xl font-bold text-primary">¥{calculateTotalMonthly(device.price?.[m as keyof Device['price']].monthly || 0, device.modules, moduleBasePrice).toLocaleString()}</span>
                     <span className="text-sm text-muted-foreground"> / 月</span>
+                    {moduleBasePrice > 0 && device.modules && device.modules.length > 0 && (
+                      <span className="text-[10px] text-muted-foreground block mt-1">（モジュール加算 +¥{calculateModuleAddon(device.modules, moduleBasePrice).toLocaleString()}/月）</span>
+                    )}
                   </div>
                   <div className="p-6 rounded-2xl border-2 border-secondary bg-secondary/5 relative">
                     <span className="text-xs text-muted-foreground font-bold block mb-1">一括払い</span>
-                    <span className="text-3xl font-bold">¥{device.price?.[m as keyof Device['price']].full.toLocaleString()}</span>
+                    <span className="text-3xl font-bold">¥{calculateTotalFull(device.price?.[m as keyof Device['price']].full || 0, device.modules, moduleBasePrice, parseInt(m)).toLocaleString()}</span>
                     {device.fullPaymentDiscountRate && device.fullPaymentDiscountRate > 0 && (
                       <Badge className="absolute -top-3 -right-2 bg-rose-500 text-white font-bold text-[10px]">
                         {device.fullPaymentDiscountRate}% OFF
@@ -282,15 +290,38 @@ export default function DeviceDetailPage() {
             )}
           </div>
 
+          {/* Installed Modules */}
+          {device.modules && device.modules.length > 0 && (
+            <div className="bg-purple-50/50 rounded-2xl p-6 space-y-4">
+              <h4 className="font-bold flex items-center gap-2">
+                <Zap className="h-5 w-5 text-purple-500" /> 搭載モジュール
+              </h4>
+              <div className="grid grid-cols-2 gap-2">
+                {device.modules.map((mod, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm bg-white rounded-xl px-3 py-2 border">
+                    <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+                    <span>{mod.name}</span>
+                    {moduleBasePrice > 0 && mod.point > 0 && (
+                      <span className="text-[10px] text-muted-foreground ml-auto">+¥{(moduleBasePrice * mod.point).toLocaleString()}/月</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Package Contents */}
           <div className="bg-secondary/20 rounded-2xl p-6 space-y-4">
             <h4 className="font-bold flex items-center gap-2">
               <Package className="h-5 w-5 text-primary" /> パッケージ内容
             </h4>
             <ul className="text-sm space-y-2">
-              <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-500" /> TimeWaver 本体デバイス</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-500" /> 専用キャリングケース</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-500" /> 電源アダプター・各種ケーブル</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-500" /> 基本操作マニュアル・ガイドブック</li>
+              {(device.packageContents && device.packageContents.length > 0
+                ? device.packageContents
+                : ['TimeWaver 本体デバイス', '専用キャリングケース', '電源アダプター・各種ケーブル', '基本操作マニュアル・ガイドブック']
+              ).map((item, i) => (
+                <li key={i} className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-500" /> {item}</li>
+              ))}
             </ul>
           </div>
         </div>

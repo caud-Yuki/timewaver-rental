@@ -38,7 +38,7 @@ export default function DeviceManagementPage() {
   const deviceTypeCodesQuery = useMemo(() => collection(db, 'deviceTypeCodes').withConverter(deviceTypeCodeConverter), [db]);
   const { data: deviceTypeCodes, loading: typeCodesLoading } = useCollection<DeviceTypeCode>(deviceTypeCodesQuery);
 
-  const deviceModulesQuery = useMemo(() => collection(db, 'deviceModules').withConverter(deviceModuleConverter), [db]);
+  const deviceModulesQuery = useMemo(() => collection(db, 'modules').withConverter(deviceModuleConverter), [db]);
   const { data: deviceModules, loading: modulesLoading } = useCollection<DeviceModule>(deviceModulesQuery);
 
   const deviceTypeMap = useMemo(() => {

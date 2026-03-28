@@ -302,7 +302,7 @@ export default function AdminApplicationsPage() {
               {(applications ?? []).map((app) => (
                 <TableRow 
                   key={app.id} 
-                  className={`group hover:bg-muted/5 transition-colors ${app.status === 'canceled' ? 'opacity-50 bg-slate-50' : ''}`}
+                  className={`group hover:bg-muted/5 transition-colors ${['canceled', 'closed'].includes(app.status) ? 'opacity-50 bg-slate-50' : ''}`}
                 >
                   <TableCell className="pl-8">
                     <div className={`font-bold text-sm ${app.status === 'canceled' ? 'line-through text-muted-foreground' : ''}`}>
@@ -346,6 +346,14 @@ export default function AdminApplicationsPage() {
                         <SelectItem value="rejected">却下</SelectItem>
                         <SelectItem value="payment_sent">決済リンク送信済</SelectItem>
                         <SelectItem value="completed">決済完了</SelectItem>
+                        <SelectItem value="shipped">発送済み</SelectItem>
+                        <SelectItem value="in_use">利用中</SelectItem>
+                        <SelectItem value="expired">契約満了</SelectItem>
+                        <SelectItem value="returning">返却手続中</SelectItem>
+                        <SelectItem value="inspection">点検中</SelectItem>
+                        <SelectItem value="returned">返却完了</SelectItem>
+                        <SelectItem value="damaged" className="text-orange-600 font-bold">破損・不具合あり</SelectItem>
+                        <SelectItem value="closed" disabled>終了</SelectItem>
                         <SelectItem value="canceled" className="text-destructive font-bold">取り消し済み</SelectItem>
                       </SelectContent>
                     </Select>

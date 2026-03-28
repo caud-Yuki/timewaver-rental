@@ -39,7 +39,7 @@ export const userProfileConverter = createConverter<UserProfile>();
 // =============================================================================
 // Application
 // =============================================================================
-export type ApplicationStatus = 'pending' | 'awaiting_consent_form' | 'consent_form_review' | 'consent_form_approved' | 'approved' | 'rejected' | 'canceled' | 'payment_sent' | 'completed';
+export type ApplicationStatus = 'pending' | 'awaiting_consent_form' | 'consent_form_review' | 'consent_form_approved' | 'approved' | 'rejected' | 'canceled' | 'payment_sent' | 'completed' | 'shipped' | 'in_use' | 'expired' | 'returning' | 'inspection' | 'returned' | 'damaged' | 'closed';
 
 export interface Application {
   id: string;
@@ -104,7 +104,8 @@ export interface Device {
   };
   fullPaymentDiscountRate?: number;
   status: DeviceStatus;
-  modules?: DeviceModule[]; // Firestore often stores these as IDs; check if these are objects or strings
+  modules?: DeviceModule[];
+  packageContents?: string[];
   currentUserId?: string | null;
   contractStartAt?: Timestamp | null;
   contractEndAt?: Timestamp | null;
@@ -118,8 +119,7 @@ export const deviceConverter = createConverter<Device>();
 // =============================================================================
 export interface GlobalSettings {
   id: string;
-  firstpayTest?: { apiKey: string; apiSecret: string; };
-  firstpayProd?: { apiKey: string; apiSecret: string; };
+  // Non-sensitive fields (stored in Firestore)
   waitlistEmailInterval?: number;
   waitlistValidityHours?: number;
   applicationSessionMinutes?: number;
@@ -127,7 +127,26 @@ export interface GlobalSettings {
   managerName?: string;
   managerEmail?: string;
   companyName?: string;
+  companyPhone?: string;
+  companyPostalCode?: string;
+  companyPrefecture?: string;
+  companyCity?: string;
+  companyAddress?: string;
+  companyBuilding?: string;
+  geminiModel?: string;
+  shippingBufferDays?: number;
+  moduleBasePrice?: number;
+  staff?: Array<{ name: string; email: string; role: 'operations' | 'support' | 'admin' }>;
+  emailDesign?: {
+    primaryColor?: string;
+    buttonColor?: string;
+    buttonRadius?: string;
+    fontFamily?: string;
+    footerText?: string;
+  };
   updatedAt?: Timestamp;
+  // Sensitive fields (FirstPay, Gemini, Chatwork, Google Chat) are stored in Google Cloud Secret Manager.
+  // See src/lib/secret-actions.ts for read/write operations.
 }
 export const globalSettingsConverter = createConverter<GlobalSettings>();
 

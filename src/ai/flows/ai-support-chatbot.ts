@@ -4,12 +4,14 @@
  * @fileOverview An AI support chatbot for the TimeWaver rental platform.
  *
  * - askChatbot - A function that handles user queries for the AI chatbot.
+ * - Fetches the Gemini API key from Google Cloud Secret Manager.
  */
 
-import {ai} from '@/ai/genkit';
+import {ai, createAi} from '@/ai/genkit';
 import {z} from 'genkit';
 import { initializeFirebase } from '@/firebase';
-import { collection, getDocs, query, where, limit, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, limit, orderBy } from 'firebase/firestore';
+import { getGeminiSecret } from '@/lib/secret-actions';
 
 const ChatbotInputSchema = z.object({
   query: z.string().describe('The user\'s question about the TimeWaver rental platform, rental procedures, payment, or TimeWaver devices.'),
@@ -23,82 +25,97 @@ const ChatbotOutputSchema = z.object({
 export type ChatbotOutput = z.infer<typeof ChatbotOutputSchema>;
 
 /**
- * Tool to list available devices in the catalog.
+ * Returns the appropriate AI instance — using the Secret Manager key and
+ * the admin-selected model from Firestore settings.
  */
-const getAvailableDevices = ai.defineTool(
-  {
-    name: 'getAvailableDevices',
-    description: 'Returns a list of currently available TimeWaver devices in the rental catalog.',
-    inputSchema: z.object({}),
-    outputSchema: z.array(z.object({
-      id: z.string(),
-      type: z.string(),
-      typeCode: z.string(),
-      monthlyPrice: z.number(),
-      description: z.string().optional()
-    })),
-  },
-  async () => {
-    const { firestore } = initializeFirebase();
-    const q = query(collection(firestore, 'devices'), where('status', '==', 'available'), limit(10));
-    const snapshot = await getDocs(q);
-    
-    return snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        type: data.type,
-        typeCode: data.typeCode,
-        monthlyPrice: data.price?.['12m']?.monthly || 0,
-        description: data.description
-      };
-    });
-  }
-);
+async function getAiInstance() {
+  const { firestore } = initializeFirebase();
+  const settingsSnap = await getDoc(doc(firestore, 'settings', 'global'));
+  const geminiModel = settingsSnap.exists() ? settingsSnap.data()?.geminiModel : undefined;
 
-/**
- * Tool to check the status of the user's applications.
- */
-const checkMyApplicationStatus = ai.defineTool(
-  {
-    name: 'checkMyApplicationStatus',
-    description: 'Checks the status of the user\'s recent rental applications.',
-    inputSchema: z.object({
-      userId: z.string().describe('The ID of the user whose applications to check.')
-    }),
-    outputSchema: z.array(z.object({
-      deviceType: z.string(),
-      status: z.string(),
-      createdAt: z.string()
-    })),
-  },
-  async ({ userId }) => {
-    const { firestore } = initializeFirebase();
-    const q = query(
-      collection(firestore, 'applications'), 
-      where('userId', '==', userId), 
-      orderBy('createdAt', 'desc'),
-      limit(3)
-    );
-    const snapshot = await getDocs(q);
-    
-    return snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        deviceType: data.deviceType,
-        status: data.status,
-        createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : '不明'
-      };
-    });
+  const apiKey = await getGeminiSecret();
+  if (apiKey) {
+    return createAi(apiKey, geminiModel);
   }
-);
+  return ai;
+}
 
-const aiSupportChatbotPrompt = ai.definePrompt({
-  name: 'aiSupportChatbotPrompt',
-  input: {schema: ChatbotInputSchema},
-  output: {schema: ChatbotOutputSchema},
-  tools: [getAvailableDevices, checkMyApplicationStatus],
-  prompt: `You are an AI support assistant for the TimeWaver rental platform "ChronoRent". 
+export async function askChatbot(input: ChatbotInput): Promise<ChatbotOutput> {
+  const currentAi = await getAiInstance();
+
+  // Define tools with the current AI instance
+  const getAvailableDevices = currentAi.defineTool(
+    {
+      name: 'getAvailableDevices',
+      description: 'Returns a list of currently available TimeWaver devices in the rental catalog.',
+      inputSchema: z.object({}),
+      outputSchema: z.array(z.object({
+        id: z.string(),
+        type: z.string(),
+        typeCode: z.string(),
+        monthlyPrice: z.number(),
+        description: z.string().optional()
+      })),
+    },
+    async () => {
+      const { firestore } = initializeFirebase();
+      const q = query(collection(firestore, 'devices'), where('status', '==', 'available'), limit(10));
+      const snapshot = await getDocs(q);
+
+      return snapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          type: data.type,
+          typeCode: data.typeCode,
+          monthlyPrice: data.price?.['12m']?.monthly || 0,
+          description: data.description
+        };
+      });
+    }
+  );
+
+  const checkMyApplicationStatus = currentAi.defineTool(
+    {
+      name: 'checkMyApplicationStatus',
+      description: 'Checks the status of the user\'s recent rental applications.',
+      inputSchema: z.object({
+        userId: z.string().describe('The ID of the user whose applications to check.')
+      }),
+      outputSchema: z.array(z.object({
+        deviceType: z.string(),
+        status: z.string(),
+        createdAt: z.string()
+      })),
+    },
+    async ({ userId }) => {
+      const { firestore } = initializeFirebase();
+      const q = query(
+        collection(firestore, 'applications'),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc'),
+        limit(3)
+      );
+      const snapshot = await getDocs(q);
+
+      return snapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return {
+          deviceType: data.deviceType,
+          status: data.status,
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : '不明'
+        };
+      });
+    }
+  );
+
+  // Define prompt with the current AI instance
+  const aiSupportChatbotPrompt = currentAi.definePrompt({
+    name: 'aiSupportChatbotPrompt',
+    input: {schema: ChatbotInputSchema},
+    output: {schema: ChatbotOutputSchema},
+    tools: [getAvailableDevices, checkMyApplicationStatus],
+    prompt: `You are an AI support assistant for the TimeWaver rental platform "ChronoRent".
 Your role is to provide helpful, accurate, and professional information to users.
 
 If a user asks about what devices are available or for recommendations, use the 'getAvailableDevices' tool.
@@ -117,9 +134,8 @@ Guidelines:
 
 User's Query: {{{query}}}
 User Context ID: {{{userId}}}`
-});
+  });
 
-export async function askChatbot(input: ChatbotInput): Promise<ChatbotOutput> {
   const {output} = await aiSupportChatbotPrompt(input);
   return output!;
 }

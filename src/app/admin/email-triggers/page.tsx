@@ -16,12 +16,28 @@ import { SYSTEM_TEMPLATES } from '@/lib/email-defaults';
 import Link from 'next/link';
 
 const TRIGGER_POINTS = [
+  // 申請フロー
   { id: 'application_submitted', name: '申込送信時', desc: 'ユーザーが申込を送信した時', sysId: 'sys_application_submitted' },
   { id: 'application_approved', name: '審査承認時', desc: '管理者が申請を承認した時', sysId: 'sys_application_approved' },
-  { id: 'application_rejected', name: '審査却下時', desc: '管理者が申請を却却した時', sysId: 'sys_application_rejected' },
+  { id: 'application_rejected', name: '審査却下時', desc: '管理者が申請を却下した時', sysId: 'sys_application_rejected' },
+  { id: 'consent_form_submitted', name: '同意書提出時', desc: 'ユーザーが同意書を提出した時（管理者宛）', sysId: 'sys_consent_form_submitted' },
+  { id: 'consent_form_approved', name: '同意書承認時', desc: '管理者が同意書を承認し決済リンクを送付した時', sysId: 'sys_consent_form_approved' },
+  // 決済
   { id: 'payment_completed', name: '決済完了時', desc: '支払いが正常に完了した時', sysId: 'sys_payment_completed' },
   { id: 'payment_failed', name: '決済失敗時', desc: '月次決済に失敗した時', sysId: 'sys_payment_failed' },
+  // 発送・利用
+  { id: 'device_prep_required', name: '発送準備依頼（スタッフ宛）', desc: '決済完了後、スタッフに発送準備を依頼する時', sysId: 'sys_device_prep_required' },
+  { id: 'device_shipped', name: '発送通知', desc: '管理者がデバイスを発送した時', sysId: 'sys_device_shipped' },
+  // 契約更新・終了・解約
+  { id: 'contract_renewal_reminder', name: '契約終了1ヶ月前', desc: '契約終了1ヶ月前にユーザーへ更新案内を送信', sysId: 'sys_contract_renewal_reminder' },
+  { id: 'subscription_canceled', name: '解約通知', desc: '管理者がサブスクリプションを解約した時', sysId: 'sys_subscription_canceled' },
   { id: 'contract_expired', name: '契約終了時', desc: '契約期間が終了した時', sysId: 'sys_contract_expired' },
+  // 返却・点検
+  { id: 'device_return_guide', name: '返却案内', desc: '契約終了・解約時に返却手順を案内する時', sysId: 'sys_device_return_guide' },
+  { id: 'device_inspection', name: '点検依頼（スタッフ宛）', desc: 'デバイス到着時にスタッフへ点検を依頼する時', sysId: 'sys_device_inspection' },
+  { id: 'device_returned', name: '返却完了時', desc: '点検完了・問題なしの時にユーザーへ通知', sysId: 'sys_device_returned' },
+  { id: 'device_damaged', name: '破損・不具合通知', desc: '点検で破損・不具合が見つかった時にユーザーへ通知', sysId: 'sys_device_damaged' },
+  // その他
   { id: 'news_published', name: 'ニュース公開時', desc: '新しいお知らせを公開した時', sysId: 'sys_news_published' },
   { id: 'waitlist_device_available', name: '在庫確保時', desc: 'キャンセル待ち対象に空きが出た時', sysId: 'sys_waitlist_available' },
   { id: 'welcome_registration', name: '会員登録時', desc: '新規ユーザーが登録した時', sysId: 'sys_welcome_registration' },
@@ -113,7 +129,9 @@ export default function EmailTriggersPage() {
                 <TableHead className="pl-8">イベント名称</TableHead>
                 <TableHead>説明</TableHead>
                 <TableHead>使用テンプレート</TableHead>
-                <TableHead className="text-center pr-8">有効</TableHead>
+                <TableHead className="text-center">有効</TableHead>
+                <TableHead className="text-center">CW</TableHead>
+                <TableHead className="text-center pr-8">GC</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -155,10 +173,30 @@ export default function EmailTriggersPage() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-center pr-8">
-                      <Switch 
-                        checked={trigger?.enabled || false} 
+                    <TableCell className="text-center">
+                      <Switch
+                        checked={trigger?.enabled || false}
                         onCheckedChange={(checked) => handleUpdateTrigger(point.id, 'enabled', checked)}
+                        disabled={!currentTemplateId}
+                      />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Switch
+                        checked={trigger?.channels?.chatwork || false}
+                        onCheckedChange={(checked) => {
+                          const channels = { ...(trigger?.channels || {}), chatwork: checked };
+                          handleUpdateTrigger(point.id, 'channels', channels);
+                        }}
+                        disabled={!currentTemplateId}
+                      />
+                    </TableCell>
+                    <TableCell className="text-center pr-8">
+                      <Switch
+                        checked={trigger?.channels?.googleChat || false}
+                        onCheckedChange={(checked) => {
+                          const channels = { ...(trigger?.channels || {}), googleChat: checked };
+                          handleUpdateTrigger(point.id, 'channels', channels);
+                        }}
                         disabled={!currentTemplateId}
                       />
                     </TableCell>

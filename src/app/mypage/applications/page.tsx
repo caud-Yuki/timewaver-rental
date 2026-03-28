@@ -18,7 +18,7 @@ import {
   DialogClose 
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, FileText, ShoppingCart, RefreshCw, AlertTriangle, ExternalLink, Upload } from 'lucide-react';
+import { Loader2, FileText, ShoppingCart, RefreshCw, AlertTriangle, ExternalLink, Upload, ArrowLeft } from 'lucide-react';
 import { Application, applicationConverter } from '@/types';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
@@ -191,6 +191,14 @@ export default function MyApplicationsPage() {
       case 'rejected': return <Badge variant="destructive" className="bg-red-100">却下</Badge>;
       case 'payment_sent': return <Badge variant="secondary" className="bg-purple-100 text-purple-800">決済待ち</Badge>;
       case 'completed': return <Badge variant="default" className="bg-green-600">契約完了</Badge>;
+      case 'shipped': return <Badge variant="secondary" className="bg-indigo-100 text-indigo-800">発送済み</Badge>;
+      case 'in_use': return <Badge variant="default" className="bg-emerald-500">利用中</Badge>;
+      case 'expired': return <Badge variant="secondary" className="bg-amber-100 text-amber-800">契約満了</Badge>;
+      case 'returning': return <Badge variant="secondary" className="bg-orange-100 text-orange-800">返却手続中</Badge>;
+      case 'inspection': return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">点検中</Badge>;
+      case 'returned': return <Badge variant="secondary" className="bg-teal-100 text-teal-800">返却完了</Badge>;
+      case 'damaged': return <Badge variant="destructive" className="bg-red-100 text-red-800">破損・不具合あり</Badge>;
+      case 'closed': return <Badge variant="secondary" className="bg-gray-200 text-gray-500">終了</Badge>;
       case 'canceled': return <Badge variant="outline">キャンセル済</Badge>;
       default: return <Badge variant="outline">{status}</Badge>;
     }
@@ -198,6 +206,10 @@ export default function MyApplicationsPage() {
 
   return (
     <div className="space-y-8">
+      <Button variant="outline" size="sm" className="rounded-xl" onClick={() => window.location.href = '/mypage'}>
+        <ArrowLeft className="h-4 w-4 mr-1" />
+        マイページに戻る
+      </Button>
       <CardHeader className="px-0">
         <CardTitle className="font-headline text-3xl flex items-center gap-3">
           <FileText className="h-8 w-8 text-primary" />
@@ -224,7 +236,7 @@ export default function MyApplicationsPage() {
                   const canCancel = ['pending', 'awaiting_consent_form'].includes(app.status);
 
                   return (
-                    <TableRow key={app.id} className={app.status === 'canceled' ? 'opacity-60 bg-slate-50' : ''}>
+                    <TableRow key={app.id} className={['canceled', 'closed', 'returned'].includes(app.status) ? 'opacity-60 bg-slate-50' : ''}>
                       <TableCell className="pl-8 text-sm text-muted-foreground">{app.createdAt?.seconds ? new Date(app.createdAt.seconds * 1000).toLocaleDateString() : '-'}</TableCell>
                       <TableCell className="font-medium">{app.deviceType}</TableCell>
                       <TableCell>{app.rentalType}ヶ月 / {app.payType === 'monthly' ? '月次' : '一括'}</TableCell>

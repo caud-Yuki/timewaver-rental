@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "next-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 9003
+    },
+    {
+      "name": "genkit-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "genkit:dev"],
+      "port": 4000
+    },
+    {
+      "name": "firebase-emulators",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["firebase", "emulators:start"],
+      "port": 4000
+    }
+  ]
+}

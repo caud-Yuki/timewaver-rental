@@ -2,10 +2,14 @@
 'use server';
 /**
  * @fileOverview A flow that generates an artistic "Quantum Field Visualization" using Imagen 4.
+ * Fetches the Gemini API key from Google Cloud Secret Manager.
  */
 
-import {ai} from '@/ai/genkit';
+import {ai, createAi} from '@/ai/genkit';
 import {z} from 'genkit';
+import { initializeFirebase } from '@/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { getGeminiSecret } from '@/lib/secret-actions';
 
 const VisualizeFieldInputSchema = z.object({
   intent: z.string().describe('The user\'s intent or focus for the visualization (e.g., "Health and Vitality", "Business Success").')
@@ -18,47 +22,50 @@ const VisualizeFieldOutputSchema = z.object({
 });
 export type VisualizeFieldOutput = z.infer<typeof VisualizeFieldOutputSchema>;
 
-const interpretationPrompt = ai.definePrompt({
-  name: 'interpretationPrompt',
-  input: {schema: VisualizeFieldInputSchema},
-  output: {schema: z.object({ text: z.string() })},
-  prompt: `You are a visionary interpreter of quantum information fields. 
-A user has set an intent: "{{{intent}}}".
-Provide a brief (1-2 sentences), poetic, and inspiring interpretation of what their unique information field looks like in this moment. 
-Focus on light, color, and geometric harmony.`
-});
+async function getAiInstance() {
+  const { firestore } = initializeFirebase();
+  const settingsSnap = await getDoc(doc(firestore, 'settings', 'global'));
+  const geminiModel = settingsSnap.exists() ? settingsSnap.data()?.geminiModel : undefined;
 
-export async function visualizeField(input: VisualizeFieldInput): Promise<VisualizeFieldOutput> {
-  return visualizeFieldFlow(input);
+  const apiKey = await getGeminiSecret();
+  if (apiKey) {
+    return createAi(apiKey, geminiModel);
+  }
+  return ai;
 }
 
-const visualizeFieldFlow = ai.defineFlow(
-  {
-    name: 'visualizeFieldFlow',
-    inputSchema: VisualizeFieldInputSchema,
-    outputSchema: VisualizeFieldOutputSchema,
-  },
-  async (input) => {
-    // Generate the interpretation first
-    const { output: interpretationOutput } = await interpretationPrompt(input);
-    const interpretation = interpretationOutput?.text || 'Your field resonates with infinite potential.';
+export async function visualizeField(input: VisualizeFieldInput): Promise<VisualizeFieldOutput> {
+  const currentAi = await getAiInstance();
 
-    // Generate the image using Imagen 4
-    const { media } = await ai.generate({
-      model: 'googleai/imagen-4.0-fast-generate-001',
-      prompt: `An abstract, high-tech, and ethereal digital art piece representing a "Quantum Information Field". 
-      The visualization is based on the theme: "${input.intent}". 
-      Use vibrant glowing lines, sacred geometry, flowing energy particles, and a deep, cosmic background. 
-      Professional medical technology aesthetic, clean, serene, and awe-inspiring.`,
-    });
+  const interpretationPrompt = currentAi.definePrompt({
+    name: 'interpretationPrompt',
+    input: {schema: VisualizeFieldInputSchema},
+    output: {schema: z.object({ text: z.string() })},
+    prompt: `You are a visionary interpreter of quantum information fields.
+A user has set an intent: "{{{intent}}}".
+Provide a brief (1-2 sentences), poetic, and inspiring interpretation of what their unique information field looks like in this moment.
+Focus on light, color, and geometric harmony.`
+  });
 
-    if (!media) {
-      throw new Error('Failed to generate field visualization.');
-    }
+  // Generate the interpretation first
+  const { output: interpretationOutput } = await interpretationPrompt(input);
+  const interpretation = interpretationOutput?.text || 'Your field resonates with infinite potential.';
 
-    return {
-      imageUrl: media.url,
-      interpretation
-    };
+  // Generate the image using Imagen 4
+  const { media } = await currentAi.generate({
+    model: 'googleai/imagen-4.0-fast-generate-001',
+    prompt: `An abstract, high-tech, and ethereal digital art piece representing a "Quantum Information Field".
+    The visualization is based on the theme: "${input.intent}".
+    Use vibrant glowing lines, sacred geometry, flowing energy particles, and a deep, cosmic background.
+    Professional medical technology aesthetic, clean, serene, and awe-inspiring.`,
+  });
+
+  if (!media) {
+    throw new Error('Failed to generate field visualization.');
   }
-);
+
+  return {
+    imageUrl: media.url,
+    interpretation
+  };
+}

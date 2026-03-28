@@ -1,8 +1,10 @@
 'use client';
 
 import React from 'react';
-import ReactQuill from 'react-quill';
-import 'react-quill/dist/quill.snow.css'; // import styles
+import dynamic from 'next/dynamic';
+import 'react-quill/dist/quill.snow.css';
+
+const ReactQuill = dynamic(() => import('react-quill'), { ssr: false, loading: () => <div className="h-[200px] border rounded animate-pulse bg-gray-50" /> });
 
 interface RichTextEditorProps {
   value: string;
@@ -29,7 +31,7 @@ export const RichTextEditor = ({ value, onChange, placeholder }: RichTextEditorP
   ];
 
   return (
-    <ReactQuill 
+    <ReactQuill
       theme="snow"
       value={value}
       onChange={onChange}

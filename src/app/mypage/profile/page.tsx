@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, User, Building2, MapPin, Phone, Mail, FileText } from 'lucide-react';
+import { Loader2, User, Building2, MapPin, Phone, Mail, FileText, ArrowLeft } from 'lucide-react';
 import { UserProfile } from '@/types';
 
 export default function ProfilePage() {
@@ -56,6 +56,10 @@ export default function ProfilePage() {
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl space-y-8">
+      <Button variant="outline" size="sm" className="rounded-xl" onClick={() => window.location.href = '/mypage'}>
+        <ArrowLeft className="h-4 w-4 mr-1" />
+        マイページに戻る
+      </Button>
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold font-headline">会員情報設定</h1>

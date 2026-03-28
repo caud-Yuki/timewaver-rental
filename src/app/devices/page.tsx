@@ -11,12 +11,19 @@ import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, orderBy } from 'firebase/firestore';
 import { Activity, Cpu, CheckCircle2, Clock, Loader2, AlertCircle, Timer } from 'lucide-react';
-import { Device, DeviceTypeCode, Waitlist } from '@/types';
+import { Device, DeviceTypeCode, Waitlist, GlobalSettings } from '@/types';
+import { doc } from 'firebase/firestore';
+import { useDoc } from '@/firebase';
+import { calculateTotalMonthly } from '@/lib/module-pricing';
 
 export default function DeviceListPage() {
   const [filter, setFilter] = useState<DeviceTypeCode | 'all'>('all');
   const { user } = useUser();
   const db = useFirestore();
+
+  const settingsRef = useMemo(() => db ? doc(db, 'settings', 'global') : null, [db]);
+  const { data: globalSettings } = useDoc<GlobalSettings>(settingsRef as any);
+  const moduleBasePrice = globalSettings?.moduleBasePrice || 0;
 
   const devicesQuery = useMemoFirebase(() => {
     if (!db) return null;
@@ -140,7 +147,7 @@ export default function DeviceListPage() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">月額料金 (12ヶ月〜)</span>
-                        <span className="font-bold text-xl text-primary">¥{device.price?.['12m'].monthly.toLocaleString()} <span className="text-xs text-muted-foreground font-normal">/ 月</span></span>
+                        <span className="font-bold text-xl text-primary">¥{calculateTotalMonthly(device.price?.['12m'].monthly || 0, device.modules, moduleBasePrice).toLocaleString()} <span className="text-xs text-muted-foreground font-normal">/ 月</span></span>
                       </div>
                     </div>
                   </CardContent>

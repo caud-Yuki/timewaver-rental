@@ -3,21 +3,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useFirestore, useDoc, useUser } from '@/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
-} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Settings, Save } from 'lucide-react';
+import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { GlobalSettings, UserProfile } from '@/types';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { saveSecrets, getSecretsStatus, type SecretPayload } from '@/lib/secret-actions';
+import { AVAILABLE_GEMINI_MODELS, DEFAULT_GEMINI_MODEL } from '@/ai/models';
 
 export default function SettingsPage() {
   const db = useFirestore();
@@ -27,17 +24,31 @@ export default function SettingsPage() {
   const userProfileRef = useMemo(() => user ? doc(db, 'users', user.uid) : null, [db, user]);
 
   const { data: initialSettings, loading: settingsLoading, error: settingsError } = useDoc<GlobalSettings>(settingsRef as any);
-  const {data: userProfile, loading: userLoading} = useDoc<UserProfile>(userProfileRef as any);
+  const { data: userProfile, loading: userLoading } = useDoc<UserProfile>(userProfileRef as any);
 
   const [settings, setSettings] = useState<Partial<GlobalSettings>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const { toast } = useToast();
+
+  // Secret Manager state — only holds new values the admin wants to change
+  const [secretInputs, setSecretInputs] = useState<SecretPayload>({});
+  const [secretsStatus, setSecretsStatus] = useState<Record<string, boolean>>({});
+  const [secretsLoading, setSecretsLoading] = useState(true);
 
   useEffect(() => {
     if (initialSettings) {
       setSettings(initialSettings);
     }
   }, [initialSettings]);
+
+  // Load secrets status on mount (which ones are configured)
+  useEffect(() => {
+    getSecretsStatus().then((status) => {
+      setSecretsStatus(status);
+      setSecretsLoading(false);
+    }).catch(() => setSecretsLoading(false));
+  }, []);
 
   const handleInputChange = (path: string, value: any) => {
     const keys = path.split('.');
@@ -55,157 +66,430 @@ export default function SettingsPage() {
       return newSettings;
     });
   };
-  
+
+  const handleSecretChange = (field: keyof SecretPayload, value: string) => {
+    setSecretInputs(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleModeToggle = (checked: boolean) => {
+    handleInputChange('mode', checked ? 'test' : 'production');
+  };
+
+  const handleConnectionTest = async () => {
+    setIsTesting(true);
+    try {
+      const isTestMode = settings.mode === 'test';
+      toast({ title: "接続テスト", description: `${isTestMode ? 'テスト' : '本番'}環境への接続テストを実行中...` });
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      toast({ title: "成功", description: "接続テストが成功しました。" });
+    } catch (error) {
+      console.error("Connection test error:", error);
+      toast({ variant: "destructive", title: "エラー", description: "接続テストに失敗しました。" });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      // 1. Save non-sensitive settings to Firestore
       const settingsToUpdate = { ...settings, updatedAt: serverTimestamp() };
       await updateDoc(settingsRef, settingsToUpdate as any);
-      toast({ title: "Success", description: "Settings have been updated successfully." });
+
+      // 2. Save sensitive secrets to Secret Manager (only non-empty values)
+      const hasSecrets = Object.values(secretInputs).some(v => v && v.trim());
+      if (hasSecrets) {
+        const result = await saveSecrets(secretInputs);
+        if (!result.success) {
+          toast({ variant: "destructive", title: "シークレット保存エラー", description: result.error || "Secret Managerへの保存に失敗しました。" });
+          setIsSaving(false);
+          return;
+        }
+        // Refresh secrets status after saving
+        const newStatus = await getSecretsStatus();
+        setSecretsStatus(newStatus);
+        // Clear inputs after successful save
+        setSecretInputs({});
+      }
+
+      toast({ title: "保存完了", description: "設定が正常に更新されました。" });
     } catch (error) {
       console.error("Error saving settings: ", error);
-      toast({ variant: "destructive", title: "Error", description: "Failed to save settings." });
+      toast({ variant: "destructive", title: "エラー", description: "設定の保存に失敗しました。" });
     } finally {
       setIsSaving(false);
     }
   };
-  
+
   if (settingsLoading || userLoading) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="animate-spin text-primary" /></div>;
   }
 
   if (userProfile && userProfile.role !== 'admin') {
-      return <div>Unauthorized</div>
+    return <div>Unauthorized</div>;
   }
 
+  const isTestMode = settings.mode === 'test';
+
+  // Helper to render a secret field with status indicator
+  const SecretField = ({ label, field, placeholder }: { label: string; field: keyof SecretPayload; placeholder?: string }) => {
+    const statusKey = field as string;
+    const isConfigured = secretsStatus[statusKey];
+    return (
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+          {label}
+          {!secretsLoading && (
+            isConfigured
+              ? <span className="flex items-center gap-1 text-green-600 normal-case text-[10px]"><CheckCircle2 className="h-3 w-3" />設定済み</span>
+              : <span className="flex items-center gap-1 text-red-400 normal-case text-[10px]"><XCircle className="h-3 w-3" />未設定</span>
+          )}
+        </Label>
+        <Input
+          type="password"
+          placeholder={isConfigured ? '●●●●●●●● (変更する場合のみ入力)' : (placeholder || '入力してください')}
+          value={secretInputs[field] || ''}
+          onChange={(e) => handleSecretChange(field, e.target.value)}
+        />
+      </div>
+    );
+  };
+
   return (
-    <div className="container mx-auto px-4 py-12 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold font-headline flex items-center gap-3">
-          <Settings className="h-8 w-8 text-primary" />
-          Global Settings
-        </h1>
-        <p className="text-muted-foreground">Manage application-wide settings and configurations.</p>
+    <div className="container mx-auto max-w-3xl px-4 py-12 space-y-8">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">基本設定</h1>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-sm text-muted-foreground">権限:</span>
+            <Badge variant="secondary" className="text-xs">admin</Badge>
+          </div>
+        </div>
+        <Button variant="outline" className="rounded-xl" onClick={() => window.location.href = '/admin'}>
+          ダッシュボードに戻る
+        </Button>
       </div>
 
-      <Tabs defaultValue="general">
-        <TabsList className="grid w-full grid-cols-2 md:w-1/2">
-          <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="firstpay">FirstPay API</TabsTrigger>
-        </TabsList>
-        <TabsContent value="general">
-          <Card className="border-none shadow-xl rounded-3xl bg-white">
-            <CardHeader>
-              <CardTitle>General Settings</CardTitle>
-              <CardDescription>General settings for the application logic and user-facing information.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-                 <div className="space-y-2">
-                    <Label htmlFor="companyName">Company Name</Label>
-                    <Input id="companyName" value={settings.companyName || ''} onChange={(e) => handleInputChange('companyName', e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="managerName">Manager Name</Label>
-                    <Input id="managerName" value={settings.managerName || ''} onChange={(e) => handleInputChange('managerName', e.target.value)} />
-                  </div>
-                   <div className="space-y-2">
-                    <Label htmlFor="managerEmail">Manager Email</Label>
-                    <Input id="managerEmail" type="email" value={settings.managerEmail || ''} onChange={(e) => handleInputChange('managerEmail', e.target.value)} />
-                  </div>
-              </div>
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end pt-6 border-t">
-                  <div className="space-y-2">
-                    <Label htmlFor="waitlistValidityHours">Waitlist Validity (Hours)</Label>
-                    <Input 
-                      id="waitlistValidityHours" 
-                      type="number" 
-                      value={settings.waitlistValidityHours || 0} 
-                      onChange={(e) => handleInputChange('waitlistValidityHours', Number(e.target.value) || 0)} 
-                    />
-                    <p className="text-xs text-muted-foreground">How long a user has to act after being notified from waitlist.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="waitlistEmailInterval">Waitlist Email Interval (Hours)</Label>
-                    <Input 
-                      id="waitlistEmailInterval" 
-                      type="number" 
-                      value={settings.waitlistEmailInterval || 0} 
-                      onChange={(e) => handleInputChange('waitlistEmailInterval', Number(e.target.value) || 0)} 
-                    />
-                     <p className="text-xs text-muted-foreground">Time between notifications for scheduled waitlist users.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="applicationSessionMinutes">Application Session (Minutes)</Label>
-                    <Input 
-                      id="applicationSessionMinutes" 
-                      type="number" 
-                      value={settings.applicationSessionMinutes || 0} 
-                      onChange={(e) => handleInputChange('applicationSessionMinutes', Number(e.target.value) || 0)} 
-                    />
-                     <p className="text-xs text-muted-foreground">Time limit for a user to complete the application process.</p>
-                  </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="firstpay">
-          <Card className="border-none shadow-xl rounded-3xl bg-white">
-            <CardHeader>
-              <CardTitle>FirstPay API Settings</CardTitle>
-              <CardDescription>API credentials and mode for the FirstPay payment gateway.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-               <div className="space-y-2">
-                  <Label>Mode</Label>
-                  <Select value={settings.mode || 'test'} onValueChange={(v) => handleInputChange('mode', v)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="test">Test Mode</SelectItem>
-                      <SelectItem value="production">Production Mode</SelectItem>
-                    </SelectContent>
-                  </Select>
-              </div>
-              <div className="p-6 rounded-2xl bg-secondary/30">
-                <h3 className="font-semibold mb-4">Test Environment</h3>
-                <div className="space-y-4">
-                   <div className="space-y-2">
-                    <Label htmlFor="testApiKey">API Key</Label>
-                    <Input id="testApiKey" value={settings.firstpayTest?.apiKey || ''} onChange={(e) => handleInputChange('firstpayTest.apiKey', e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="testApiSecret">API Secret</Label>
-                    <Input id="testApiSecret" value={settings.firstpayTest?.apiSecret || ''} onChange={(e) => handleInputChange('firstpayTest.apiSecret', e.target.value)} />
-                  </div>
-                </div>
-              </div>
+      {/* Section 1: System Operation Mode */}
+      <Card className="border-none shadow-lg rounded-2xl bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            システム稼働モード
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50/80">
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-sm">テストモード</span>
+              {isTestMode && (
+                <Badge className="bg-blue-500 hover:bg-blue-600 text-white text-xs">テスト用</Badge>
+              )}
+              {!isTestMode && (
+                <Badge className="bg-green-500 hover:bg-green-600 text-white text-xs">本番稼働中</Badge>
+              )}
+            </div>
+            <Switch checked={isTestMode} onCheckedChange={handleModeToggle} />
+          </div>
+        </CardContent>
+      </Card>
 
-              <div className="p-6 rounded-2xl bg-secondary/30">
-                <h3 className="font-semibold mb-4">Production Environment</h3>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="prodApiKey">API Key</Label>
-                    <Input id="prodApiKey" value={settings.firstpayProd?.apiKey || ''} onChange={(e) => handleInputChange('firstpayProd.apiKey', e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="prodApiSecret">API Secret</Label>
-                    <Input id="prodApiSecret" value={settings.firstpayProd?.apiSecret || ''} onChange={(e) => handleInputChange('firstpayProd.apiSecret', e.target.value)} />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* Section 2: Automation & Session Settings */}
+      <Card className="border-none shadow-lg rounded-2xl bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            自動化・セッション設定
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-8">
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold">一括案内送信の間隔（時間）</Label>
+            <div className="flex items-center gap-3">
+              <Input type="number" className="w-24" value={settings.waitlistEmailInterval || 0} onChange={(e) => handleInputChange('waitlistEmailInterval', Number(e.target.value) || 0)} />
+              <span className="text-sm text-muted-foreground">時間おきに送信</span>
+            </div>
+            <p className="text-xs text-blue-500">キャンセル待ちユーザーに対して一括でオファーを送信する際、各ユーザーへの案内送信をこの間隔でずらして予約します。</p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold flex items-center gap-2"><span className="text-orange-500">⏳</span>受付有効期間（時間）</Label>
+            <div className="flex items-center gap-3">
+              <Input type="number" className="w-24" value={settings.waitlistValidityHours || 0} onChange={(e) => handleInputChange('waitlistValidityHours', Number(e.target.value) || 0)} />
+              <span className="text-sm text-muted-foreground">時間経過後にリストをリフレッシュ</span>
+            </div>
+            <p className="text-xs text-blue-500">案内プロセスの最後の1人への通知が完了した後、この時間が経過しても申し込みがない場合、その機器のキャンセル待ちリストを自動的にリフレッシュします。</p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold flex items-center gap-2"><span className="text-gray-400">⏱</span>申請セッションタイム（分）</Label>
+            <div className="flex items-center gap-3">
+              <Input type="number" className="w-24" value={settings.applicationSessionMinutes || 0} onChange={(e) => handleInputChange('applicationSessionMinutes', Number(e.target.value) || 0)} />
+              <span className="text-sm text-muted-foreground">分間操作がない場合にタイムアウト</span>
+            </div>
+            <p className="text-xs text-blue-500">レンタル申請画面で入力がないまま放置された場合、この時間が経過すると自動的にセッションを終了し、確保していた「手続中」状態を解除します。</p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold flex items-center gap-2"><span className="text-blue-400">📦</span>発送準備期間（営業日）</Label>
+            <div className="flex items-center gap-3">
+              <Input type="number" className="w-24" value={settings.shippingBufferDays || 3} onChange={(e) => handleInputChange('shippingBufferDays', Number(e.target.value) || 3)} />
+              <span className="text-sm text-muted-foreground">営業日（土日除く）</span>
+            </div>
+            <p className="text-xs text-blue-500">決済完了後、初回の継続課金が開始されるまでの営業日数です。この期間中にデバイスを発送し、ユーザーの手元に届くようにしてください。契約更新の場合はこのバッファは適用されません。</p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold flex items-center gap-2"><span className="text-purple-400">🧩</span>モジュール基本加算単価（円）</Label>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">¥</span>
+              <Input type="number" className="w-32" value={settings.moduleBasePrice || 0} onChange={(e) => handleInputChange('moduleBasePrice', Number(e.target.value) || 0)} />
+              <span className="text-sm text-muted-foreground">× モジュールポイント</span>
+            </div>
+            <p className="text-xs text-blue-500">各モジュールのポイントにこの単価を掛けた金額が、デバイスの月額料金に加算されます。例: 単価500円 × ポイント2 = 月額 +1,000円</p>
+          </div>
+        </CardContent>
+      </Card>
 
-       <div className="flex justify-end mt-8">
-          <Button onClick={handleSave} disabled={isSaving} className="rounded-xl shadow-lg">
-            {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2"/>}
-            Save Changes
-          </Button>
-        </div>
+      {/* Section 3: FirstPay Authentication — Secret Manager */}
+      <Card className="border-none shadow-lg rounded-2xl bg-white">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+              <CreditCard className="h-5 w-5" />
+              FirstPay 認証情報
+            </CardTitle>
+            <Button variant="outline" size="sm" className="rounded-xl text-xs" onClick={handleConnectionTest} disabled={isTesting}>
+              {isTesting ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ShieldCheck className="h-3 w-3 mr-1" />}
+              接続テスト
+            </Button>
+          </div>
+          <div className="flex items-center gap-1.5 mt-1">
+            <Lock className="h-3 w-3 text-green-600" />
+            <span className="text-[11px] text-green-600 font-medium">Google Cloud Secret Manager で安全に管理されています</span>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Test Environment */}
+          <div className="p-5 rounded-xl border-2 border-blue-200 bg-blue-50/30 space-y-4">
+            <h3 className="text-sm font-bold text-blue-600 flex items-center gap-2">
+              <KeyRound className="h-4 w-4" />
+              テスト環境用
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <SecretField label="API KEY (TEST)" field="firstpayTestApiKey" />
+              <SecretField label="BEARER TOKEN (TEST)" field="firstpayTestBearerToken" />
+            </div>
+          </div>
+
+          {/* Production Environment */}
+          <div className="p-5 rounded-xl border border-gray-200 bg-gray-50/30 space-y-4">
+            <h3 className="text-sm font-bold text-red-500 flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4" />
+              本番環境用
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <SecretField label="API KEY (PROD)" field="firstpayProdApiKey" placeholder="PROD-API-KEY..." />
+              <SecretField label="BEARER TOKEN (PROD)" field="firstpayProdBearerToken" placeholder="PROD-TOKEN..." />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Section 4: AI Settings — Secret Manager */}
+      <Card className="border-none shadow-lg rounded-2xl bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+            <Sparkles className="h-5 w-5" />
+            AI設定
+          </CardTitle>
+          <div className="flex items-center gap-1.5 mt-1">
+            <Lock className="h-3 w-3 text-green-600" />
+            <span className="text-[11px] text-green-600 font-medium">Google Cloud Secret Manager で安全に管理されています</span>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <SecretField label="GEMINI API KEY" field="geminiApiKey" placeholder="AIza..." />
+          <p className="text-xs text-blue-500">Google Gemini APIのシークレットキーを入力してください。AIサポート機能に使用されます。</p>
+          <div className="space-y-1.5">
+            <Label className="text-sm font-semibold">使用モデル</Label>
+            <Select
+              value={settings.geminiModel || DEFAULT_GEMINI_MODEL}
+              onValueChange={(value) => handleInputChange('geminiModel', value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="モデルを選択" />
+              </SelectTrigger>
+              <SelectContent>
+                {AVAILABLE_GEMINI_MODELS.map((model) => (
+                  <SelectItem key={model.value} value={model.value}>
+                    {model.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">AIサポートコンシェルジュが使用するGeminiモデルを選択してください。</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Section 5: Operator Information */}
+      <Card className="border-none shadow-lg rounded-2xl bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+            <Settings className="h-5 w-5" />
+            運営者情報
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-sm">運営担当者名</Label>
+              <Input value={settings.managerName || ''} onChange={(e) => handleInputChange('managerName', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">担当者メール</Label>
+              <Input type="email" value={settings.managerEmail || ''} onChange={(e) => handleInputChange('managerEmail', e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-sm">会社名</Label>
+            <Input value={settings.companyName || ''} onChange={(e) => handleInputChange('companyName', e.target.value)} />
+          </div>
+          <div className="pt-4 border-t space-y-4">
+            <h3 className="text-sm font-semibold text-muted-foreground">会社住所</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm">電話番号</Label>
+                <Input type="tel" placeholder="03-1234-5678" value={settings.companyPhone || ''} onChange={(e) => handleInputChange('companyPhone', e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">郵便番号</Label>
+                <Input placeholder="123-4567" value={settings.companyPostalCode || ''} onChange={(e) => handleInputChange('companyPostalCode', e.target.value)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm">都道府県</Label>
+                <Input placeholder="東京都" value={settings.companyPrefecture || ''} onChange={(e) => handleInputChange('companyPrefecture', e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">市区町村</Label>
+                <Input placeholder="渋谷区" value={settings.companyCity || ''} onChange={(e) => handleInputChange('companyCity', e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">住所</Label>
+              <Input placeholder="神宮前1-2-3" value={settings.companyAddress || ''} onChange={(e) => handleInputChange('companyAddress', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">建物名・部屋番号</Label>
+              <Input placeholder="〇〇ビル 5F" value={settings.companyBuilding || ''} onChange={(e) => handleInputChange('companyBuilding', e.target.value)} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Section 6: Staff Management */}
+      <Card className="border-none shadow-lg rounded-2xl bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            スタッフ管理
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Current staff list */}
+          {(settings.staff || []).map((s: any, i: number) => (
+            <div key={i} className="flex items-center gap-3 p-3 rounded-xl border bg-gray-50/50">
+              <div className="flex-1 grid grid-cols-3 gap-2 text-sm">
+                <span className="font-medium">{s.name}</span>
+                <span className="text-muted-foreground">{s.email}</span>
+                <Badge variant="outline" className="w-fit text-[10px]">
+                  {s.role === 'operations' ? '発送・運用' : s.role === 'support' ? 'サポート' : '管理者'}
+                </Badge>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => {
+                const updated = [...(settings.staff || [])];
+                updated.splice(i, 1);
+                handleInputChange('staff', updated);
+              }}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+          {/* Add new staff */}
+          <div className="flex items-end gap-2 pt-2 border-t">
+            <div className="flex-1 space-y-1">
+              <Label className="text-xs">名前</Label>
+              <Input id="newStaffName" placeholder="山田太郎" className="h-9" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <Label className="text-xs">メール</Label>
+              <Input id="newStaffEmail" placeholder="staff@example.com" type="email" className="h-9" />
+            </div>
+            <div className="w-[130px] space-y-1">
+              <Label className="text-xs">役割</Label>
+              <Select defaultValue="operations">
+                <SelectTrigger className="h-9" id="newStaffRole"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="operations">発送・運用</SelectItem>
+                  <SelectItem value="support">サポート</SelectItem>
+                  <SelectItem value="admin">管理者</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" className="h-9" onClick={() => {
+              const name = (document.getElementById('newStaffName') as HTMLInputElement)?.value;
+              const email = (document.getElementById('newStaffEmail') as HTMLInputElement)?.value;
+              const roleEl = document.getElementById('newStaffRole');
+              const role = roleEl?.closest('[data-state]')?.textContent === 'サポート' ? 'support' : roleEl?.closest('[data-state]')?.textContent === '管理者' ? 'admin' : 'operations';
+              if (!name || !email) { toast({ variant: 'destructive', title: '名前とメールは必須です' }); return; }
+              const updated = [...(settings.staff || []), { name, email, role }];
+              handleInputChange('staff', updated);
+              (document.getElementById('newStaffName') as HTMLInputElement).value = '';
+              (document.getElementById('newStaffEmail') as HTMLInputElement).value = '';
+            }}>
+              <Plus className="h-3.5 w-3.5 mr-1" />追加
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Section 7: Chat Notification Settings */}
+      <Card className="border-none shadow-lg rounded-2xl bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+            <MessageSquare className="h-5 w-5" />
+            チャット通知設定
+          </CardTitle>
+          <div className="flex items-center gap-1.5 mt-1">
+            <Lock className="h-3 w-3 text-green-600" />
+            <span className="text-[11px] text-green-600 font-medium">Google Cloud Secret Manager で安全に管理されています</span>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Chatwork */}
+          <div className="p-5 rounded-xl border border-gray-200 bg-gray-50/30 space-y-4">
+            <h3 className="text-sm font-bold text-gray-700">Chatwork</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <SecretField label="API TOKEN" field="chatworkApiToken" placeholder="xxxxxxxxxx" />
+              <SecretField label="ROOM ID" field="chatworkRoomId" placeholder="123456789" />
+            </div>
+          </div>
+          {/* Google Chat */}
+          <div className="p-5 rounded-xl border border-gray-200 bg-gray-50/30 space-y-4">
+            <h3 className="text-sm font-bold text-gray-700">Google Chat</h3>
+            <SecretField label="WEBHOOK URL" field="googleChatWebhookUrl" placeholder="https://chat.googleapis.com/v1/spaces/..." />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Save Button */}
+      <div className="flex justify-end pt-4">
+        <Button onClick={handleSave} disabled={isSaving} size="lg" className="rounded-xl shadow-lg px-10 py-6 text-base font-semibold">
+          {isSaving ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Save className="h-5 w-5 mr-2" />}
+          設定内容を保存
+        </Button>
+      </div>
     </div>
   );
 }

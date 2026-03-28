@@ -89,5 +89,75 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     subject: '【ChronoRent】ご希望の機器に空きが出ました',
     type: 'waiting',
     body: `{{userName}} 様\n\nキャンセル待ち登録をいただいておりました機器に空きが発生いたしました。\nお早めにお申し込み手続きをお願いいたします。`
+  },
+  {
+    id: 'sys_consent_form_submitted',
+    name: '[標準] 同意書提出通知（管理者宛）',
+    subject: '【ChronoRent管理者】同意書の提出がありました',
+    type: 'application',
+    body: `管理者様\n\n以下の申請について、ユーザーから同意書の提出がありました。\n内容を確認し、承認処理を行ってください。\n\nユーザー名: {{userName}}\n申請ID: {{applicationId}}`
+  },
+  {
+    id: 'sys_consent_form_approved',
+    name: '[標準] 同意書承認・決済案内',
+    subject: '【ChronoRent】同意書承認および決済のご案内',
+    type: 'application',
+    body: `{{userName}} 様\n\nご提出いただいた同意書を確認し、承認いたしました。\n以下のリンクより決済のお手続きをお願いいたします。\n\n■決済リンク\n{{paymentLink}}`
+  },
+  {
+    id: 'sys_device_prep_required',
+    name: '[標準] 発送準備依頼（スタッフ宛）',
+    subject: '【ChronoRent管理者】発送準備のお願い',
+    type: 'application',
+    body: `スタッフ各位\n\n以下のデバイスの発送準備をお願いいたします。\n\n■対象デバイス\n{{deviceType}}\n\n■配送先ユーザー\n{{userName}}\n\n■配送先住所\n{{shippingAddress}}\n\n■到着期限\n{{deadline}}\n（上記日付までにユーザーの手元に届くよう発送してください）\n\n管理画面の申請管理より発送処理を完了してください。`
+  },
+  {
+    id: 'sys_device_shipped',
+    name: '[標準] 発送通知',
+    subject: '【ChronoRent】デバイスを発送いたしました',
+    type: 'application',
+    body: `{{userName}} 様\n\nお申し込みいただいたデバイスを発送いたしました。\n\n対象機器: {{deviceType}}\n\nお届けまで通常2〜3営業日ほどお時間をいただいております。\n届きましたら、同梱のスタートガイドに沿ってセットアップをお願いいたします。\n\n何かご不明な点がございましたら、お気軽にお問い合わせください。`
+  },
+  {
+    id: 'sys_contract_renewal_reminder',
+    name: '[標準] 契約終了1ヶ月前通知',
+    subject: '【ChronoRent】契約終了まであと1ヶ月です — 更新のご案内',
+    type: 'transaction',
+    body: `{{userName}} 様\n\nいつもChronoRentをご利用いただきありがとうございます。\n\nご利用中の「{{deviceType}}」のレンタル契約が {{endDate}} に終了予定です。\n\n引き続きご利用をご希望の場合は、マイページの「マイデバイス」から「契約更新」ボタンよりお手続きいただけます。\n\n▼ マイデバイスページ\nhttps://studio--studio-3681859885-cd9c1.us-central1.hosted.app/mypage/devices\n\n更新手続きは契約終了日の1ヶ月前から可能です。\n更新されない場合、契約終了日をもって自動的にサービスが終了し、機器の返却をお願いすることになります。\n\nご不明な点がございましたら、お気軽にお問い合わせください。\n\nChronoRent 運営事務局`
+  },
+  {
+    id: 'sys_subscription_canceled',
+    name: '[標準] 解約通知',
+    subject: '【ChronoRent】サブスクリプション解約のお知らせ',
+    type: 'transaction',
+    body: `{{userName}} 様\n\nご利用いただいておりましたTimeWaverのレンタルサブスクリプションが解約されました。\n\n対象機器: {{deviceType}}\n\n機器の返却手続きについては、別途ご案内をお送りいたします。\nご利用いただきありがとうございました。`
+  },
+  {
+    id: 'sys_device_return_guide',
+    name: '[標準] 返却案内',
+    subject: '【ChronoRent】機器の返却手続きについて',
+    type: 'transaction',
+    body: `{{userName}} 様\n\nレンタル契約の終了に伴い、機器の返却をお願いいたします。\n\n対象機器: {{deviceType}}\n\n■ 返却手順\n1. 同梱されていた箱に機器を梱包してください\n2. 付属品（ケーブル、アダプター等）も忘れずにお入れください\n3. 着払いにてご返送ください\n\n■ 返送先\n〒XXX-XXXX 東京都XXX区XXX X-X-X\nChronoRent 返却受付係\n\n返却期限: お届けから7日以内\n\nご不明な点がございましたら、お気軽にお問い合わせください。`
+  },
+  {
+    id: 'sys_device_inspection',
+    name: '[標準] 点検依頼（スタッフ宛）',
+    subject: '【ChronoRent内部】デバイス点検依頼',
+    type: 'general',
+    body: `スタッフ各位\n\n以下のデバイスが返却されました。点検をお願いいたします。\n\n対象機器: {{deviceType}}\nユーザー名: {{userName}}\n申請ID: {{applicationId}}\n\n点検完了後、問題がなければ申請管理画面から「返却完了」に、\n破損・不具合がある場合は「破損・不具合あり」にステータスを変更してください。`
+  },
+  {
+    id: 'sys_device_returned',
+    name: '[標準] 返却完了通知',
+    subject: '【ChronoRent】機器の返却を確認いたしました',
+    type: 'transaction',
+    body: `{{userName}} 様\n\n機器の返却および点検が完了いたしました。問題はございませんでした。\n\n対象機器: {{deviceType}}\n\nご利用いただきありがとうございました。\nまたのご利用を心よりお待ちしております。\n\nChronoRent 運営事務局`
+  },
+  {
+    id: 'sys_device_damaged',
+    name: '[標準] 破損・不具合通知',
+    subject: '【ChronoRent】返却機器の点検結果について',
+    type: 'transaction',
+    body: `{{userName}} 様\n\nご返却いただいたデバイスを点検した結果、破損・不具合が確認されました。\n\n対象機器: {{deviceType}}\n\n契約時にお預かりしたデポジットより、修理・交換費用を充当させていただきます。\n費用の詳細につきましては、別途ご連絡いたします。\n\nご不明な点がございましたら、お気軽にお問い合わせください。\n\nChronoRent 運営事務局`
   }
 ];

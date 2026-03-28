@@ -9,7 +9,8 @@ import { Activity, ShieldCheck, CreditCard, Lock, Loader2, CheckCircle2, AlertTr
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useDoc, useMemoFirebase, useUser } from '@/firebase';
 import { doc, updateDoc, serverTimestamp, addDoc, collection, Timestamp } from 'firebase/firestore';
-import { PaymentLink, UserProfile, Application } from '@/types';
+import { PaymentLink, UserProfile, Application, GlobalSettings } from '@/types';
+import { addBusinessDays, formatDateJP } from '@/lib/business-days';
 import {
   getFirstPayConfig,
   initWidget,
@@ -49,6 +50,12 @@ export default function PaymentPage() {
     return doc(db, 'applications', paymentLink.applicationId);
   }, [db, paymentLink?.applicationId]);
   const { data: application } = useDoc<Application>(appRef as any);
+
+  const settingsRef = useMemoFirebase(() => {
+    if (!db) return null;
+    return doc(db, 'settings', 'global');
+  }, [db]);
+  const { data: globalSettings } = useDoc<GlobalSettings>(settingsRef as any);
 
   const profileRef = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -150,8 +157,22 @@ export default function PaymentPage() {
       let transactionId = '';
       let recurringId = '';
 
+      // Determine start date
+      // - Renewals: use previous subscription's endAt (no buffer)
+      // - New subscriptions: add N business days buffer for shipping
+      const isRenewal = !!application.isRenewal && !!application.previousEndAt;
+      let startDate: Date;
+      if (isRenewal) {
+        startDate = new Date(application.previousEndAt);
+      } else {
+        const bufferDays = globalSettings?.shippingBufferDays ?? 3;
+        startDate = addBusinessDays(new Date(), bufferDays);
+      }
+      const startDateStr = startDate.toISOString().split('T')[0]; // yyyy-MM-dd
+      const startDay = startDate.getDate() > 28 ? 28 : startDate.getDate();
+
       // 4. Stage 3: Execution (Charge or Recurring)
-      console.log('[PAYMENT_DEBUG] Stage 3: Payment Execution');
+      console.log('[PAYMENT_DEBUG] Stage 3: Payment Execution', { isRenewal, startDateStr, bufferDays: globalSettings?.shippingBufferDays });
       if (paymentLink.payType === 'full') {
         const paymentId = `PAY${Date.now()}`;
         const chargeResult = await createCharge(config, {
@@ -167,49 +188,75 @@ export default function PaymentPage() {
           reccuringId: recId,
           paymentName: `Monthly Rental: ${paymentLink.deviceName}`,
           customerId,
-          startAt: new Date().toISOString().split('T')[0],
+          startAt: startDateStr,
           payAmount: paymentLink.payAmount,
           currentlyPayAmount: paymentLink.payAmount,
           maxExecutionNumber: application.rentalType,
-          recurringDayOfMonth: new Date().getDate() > 28 ? 28 : new Date().getDate(),
+          recurringDayOfMonth: startDay,
         });
         recurringId = recResult.reccuringId;
       }
 
       // 5. Success: Show completion screen FIRST, then sync to Firestore in background
-      // 重要: setIsCompletedを先に呼ぶことで、Firestore書き込みによるリスナー発火→再レンダリングの
-      // 連鎖で「リンクが無効」画面が一瞬表示される問題を防ぐ
       setIsCompleted(true);
       toast({ title: '決済が完了しました' });
       console.log('[PAYMENT_DEBUG] Success! Syncing to Firestore...');
 
+      // Calculate subscription dates
+      const subStartAt = Timestamp.fromDate(startDate);
+      const endBaseDate = new Date(startDate);
+      endBaseDate.setMonth(endBaseDate.getMonth() + (application.rentalType || 12));
+      const subEndAt = Timestamp.fromDate(endBaseDate);
+
       const subscriptionData = {
         userId: user.uid,
         deviceId: paymentLink.deviceId,
+        deviceType: paymentLink.deviceName,
         payType: paymentLink.payType,
-        rentalMonths: application.rentalType, // 3, 6, or 12
-        startAt: serverTimestamp(),
-        endAt: Timestamp.fromDate(
-          new Date(new Date().setMonth(new Date().getMonth() + (application.rentalType || 12)))
-        ),
+        rentalMonths: application.rentalType,
+        startAt: subStartAt,
+        endAt: subEndAt,
         recurringId: recurringId || null,
         paymentId: transactionId || null,
         customerId: customerId,
         payAmount: paymentLink.payAmount,
         status: 'active',
         applicationId: paymentLink.applicationId,
+        previousSubscriptionId: application.previousSubscriptionId || null,
+        isRenewal: isRenewal,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
 
-      // Firestore書き込みはバックグラウンドで実行（決済自体は既に成功している）
-      Promise.allSettled([
+      // Build Firestore writes
+      const writes: Promise<any>[] = [
         addDoc(collection(db, 'subscriptions'), subscriptionData),
         updateDoc(doc(db, 'users', user.uid), { customerId, updatedAt: serverTimestamp() }),
         updateDoc(doc(db, 'paymentLinks', paymentLink.id), { status: 'used', updatedAt: serverTimestamp() }),
         updateDoc(doc(db, 'applications', paymentLink.applicationId), { status: 'completed', updatedAt: serverTimestamp() }),
-        updateDoc(doc(db, 'devices', paymentLink.deviceId), { status: 'active', currentUserId: user.uid, contractStartAt: serverTimestamp(), updatedAt: serverTimestamp() }),
-      ]).then((results) => {
+      ];
+
+      // For new rentals, update device status. For renewals, device is already active.
+      if (!isRenewal) {
+        writes.push(
+          updateDoc(doc(db, 'devices', paymentLink.deviceId), {
+            status: 'active',
+            currentUserId: user.uid,
+            contractStartAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          })
+        );
+      } else {
+        // For renewals, update the device's contract end date
+        writes.push(
+          updateDoc(doc(db, 'devices', paymentLink.deviceId), {
+            contractEndAt: subEndAt,
+            updatedAt: serverTimestamp(),
+          })
+        );
+      }
+
+      Promise.allSettled(writes).then((results) => {
         results.forEach((r, i) => {
           if (r.status === 'rejected') {
             console.warn(`[PAYMENT_DEBUG] Firestore write #${i} failed:`, r.reason?.message);
@@ -265,7 +312,7 @@ export default function PaymentPage() {
   }
 
   // --- Render: Invalid Link ---
-  if (!paymentLink || paymentLink.status !== 'pending') {
+  if (!paymentLink || !['pending', 'open', 'active'].includes(paymentLink.status)) {
     return (
       <div className="container mx-auto px-4 py-20 flex justify-center">
         <Card className="w-full max-w-md p-8 text-center space-y-4">
@@ -322,6 +369,17 @@ export default function PaymentPage() {
                 )}
               </div>
             </div>
+
+            {/* Subscription start date info */}
+            {paymentLink && application && !application.isRenewal && paymentLink.payType === 'monthly' && (
+              <div className="bg-blue-50 text-blue-700 p-4 rounded-xl text-sm">
+                <p className="font-semibold">📦 実際の決済処理開始日</p>
+                <p className="text-xs mt-1">
+                  デバイスの発送準備期間を考慮し、初回の決済処理は <strong>{formatDateJP(addBusinessDays(new Date(), globalSettings?.shippingBufferDays ?? 3))}</strong> に開始されます。
+                  サブスクリプションはデバイスがお手元に届くタイミングから開始されます。
+                </p>
+              </div>
+            )}
 
             <div className="pt-6">
               <Button

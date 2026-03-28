@@ -24,6 +24,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck, Timer, Percent, Mail, UserPlus } from 'lucide-react';
 import { Device, UserProfile, GlobalSettings } from '@/types';
+import { calculateTotalMonthly, calculateTotalFull } from '@/lib/module-pricing';
 import Link from 'next/link';
 
 function ApplyForm() {
@@ -169,14 +170,38 @@ function ApplyForm() {
     rentalType: 12,
     payType: 'monthly' as 'monthly' | 'full',
     tel: '',
-    zip: '',
-    address: '',
+    zipcode: '',
+    prefectureCode: '',
+    address1: '',
+    address2: '',
+    companyName: '',
   });
+
+  // Pre-populate shipping address from user profile
+  useEffect(() => {
+    if (profile) {
+      setFormData(prev => ({
+        ...prev,
+        tel: prev.tel || profile.tel || '',
+        zipcode: prev.zipcode || profile.zipcode || '',
+        prefectureCode: prev.prefectureCode || profile.prefectureCode || '',
+        address1: prev.address1 || profile.address1 || '',
+        address2: prev.address2 || profile.address2 || '',
+        companyName: prev.companyName || profile.companyName || '',
+      }));
+    }
+  }, [profile]);
+
+  const moduleBasePrice = settings?.moduleBasePrice || 0;
 
   const calculateAmount = () => {
     if (!device) return 0;
     const tier = `${formData.rentalType}m` as keyof Device['price'];
-    return formData.payType === 'monthly' ? device.price[tier].monthly : device.price[tier].full;
+    if (formData.payType === 'monthly') {
+      return calculateTotalMonthly(device.price[tier].monthly, device.modules, moduleBasePrice);
+    } else {
+      return calculateTotalFull(device.price[tier].full, device.modules, moduleBasePrice, formData.rentalType);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -251,6 +276,13 @@ function ApplyForm() {
     setIsSubmitting(true);
     isSubmittedRef.current = true; // Mark as submitted
 
+    // Validate shipping address
+    if (!formData.tel || !formData.zipcode || !formData.address1) {
+      toast({ variant: "destructive", title: "配送先情報が必要です", description: "電話番号、郵便番号、住所を入力してください。" });
+      setIsSubmitting(false);
+      return;
+    }
+
     const applicationData = {
       userId: user.uid,
       userName: `${profile?.familyName} ${profile?.givenName}`,
@@ -262,13 +294,34 @@ function ApplyForm() {
       payType: formData.payType,
       payAmount: calculateAmount(),
       status: 'pending',
-      tel: formData.tel || profile?.tel || '',
-      zip: formData.zip || profile?.zipcode || '',
-      address: formData.address || profile?.address1 || '',
+      // Shipping address (structured)
+      shippingTel: formData.tel,
+      shippingZipcode: formData.zipcode,
+      shippingPrefecture: formData.prefectureCode,
+      shippingAddress1: formData.address1,
+      shippingAddress2: formData.address2,
+      shippingCompanyName: formData.companyName,
+      // Legacy fields for backward compatibility
+      tel: formData.tel,
+      zip: formData.zipcode,
+      address: `${formData.address1} ${formData.address2}`.trim(),
       identificationImageUrl: uploadedFileUrl,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
+
+    // Also update user profile with shipping address
+    if (user) {
+      updateDoc(doc(db, 'users', user.uid), {
+        tel: formData.tel,
+        zipcode: formData.zipcode,
+        prefectureCode: formData.prefectureCode,
+        address1: formData.address1,
+        address2: formData.address2,
+        companyName: formData.companyName,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {}); // Non-blocking
+    }
 
     try {
       await addDoc(collection(db, 'applications'), applicationData);
@@ -461,20 +514,37 @@ function ApplyForm() {
                   <Separator />
 
                   <div className="space-y-4">
-                    <Label className="text-base font-bold">配送・ご連絡先情報</Label>
+                    <Label className="text-base font-bold">配送・請求先情報</Label>
+                    {profile?.address1 && (
+                      <p className="text-xs text-green-600">会員情報から配送先を読み込みました。変更がある場合は修正してください。</p>
+                    )}
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="zip">郵便番号</Label>
-                        <Input id="zip" placeholder="123-4567" className="rounded-xl" value={formData.zip} onChange={e => setFormData({...formData, zip: e.target.value})} required />
+                        <Label htmlFor="tel">電話番号 <span className="text-red-500">*</span></Label>
+                        <Input id="tel" placeholder="090-0000-0000" className="rounded-xl" value={formData.tel} onChange={e => setFormData({...formData, tel: e.target.value})} required />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="tel">電話番号</Label>
-                        <Input id="tel" placeholder="090-0000-0000" className="rounded-xl" value={formData.tel} onChange={e => setFormData({...formData, tel: e.target.value})} required />
+                        <Label htmlFor="zipcode">郵便番号 <span className="text-red-500">*</span></Label>
+                        <Input id="zipcode" placeholder="123-4567" className="rounded-xl" value={formData.zipcode} onChange={e => setFormData({...formData, zipcode: e.target.value})} required />
+                      </div>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="prefectureCode">都道府県</Label>
+                        <Input id="prefectureCode" placeholder="東京都" className="rounded-xl" value={formData.prefectureCode} onChange={e => setFormData({...formData, prefectureCode: e.target.value})} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="companyName">会社名（個人の場合は空欄）</Label>
+                        <Input id="companyName" placeholder="株式会社〇〇" className="rounded-xl" value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} />
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="address">配送先住所</Label>
-                      <Input id="address" placeholder="東京都...市区町村...番地" className="rounded-xl" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} required />
+                      <Label htmlFor="address1">市区町村・番地 <span className="text-red-500">*</span></Label>
+                      <Input id="address1" placeholder="渋谷区神宮前1-2-3" className="rounded-xl" value={formData.address1} onChange={e => setFormData({...formData, address1: e.target.value})} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="address2">建物名・部屋番号</Label>
+                      <Input id="address2" placeholder="〇〇ビル 5F" className="rounded-xl" value={formData.address2} onChange={e => setFormData({...formData, address2: e.target.value})} />
                     </div>
                   </div>
 
