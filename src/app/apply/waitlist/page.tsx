@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useUser, useFirestore, useDoc } from '@/firebase';
 import { doc, addDoc, collection, serverTimestamp, where, query, getDocs } from 'firebase/firestore';
@@ -8,9 +8,17 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, AlertTriangle } from 'lucide-react';
-import { Device, deviceConverter, UserProfile, userProfileConverter } from '@/types'; // Import userProfileConverter
+import { Device, deviceConverter, UserProfile, userProfileConverter } from '@/types';
 
 export default function WaitlistPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>}>
+      <WaitlistForm />
+    </Suspense>
+  );
+}
+
+function WaitlistForm() {
   const { user, loading: userLoading } = useUser();
   const db = useFirestore();
   const router = useRouter();
