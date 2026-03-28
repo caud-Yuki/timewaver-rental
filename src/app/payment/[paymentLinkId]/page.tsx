@@ -64,8 +64,10 @@ export default function PaymentPage() {
   const { data: profile } = useDoc<UserProfile>(profileRef as any);
 
   // --- Widget Initialization ---
+  const widgetInitializing = useRef(false);
   const initializeWidget = useCallback(async () => {
-    if (!db || !widgetContainerRef.current || widgetRef.current) return;
+    if (!db || !widgetContainerRef.current || widgetRef.current || widgetInitializing.current) return;
+    widgetInitializing.current = true;
 
     try {
       const config = await getFirstPayConfig(db);
@@ -98,6 +100,7 @@ export default function PaymentPage() {
     } catch (error: any) {
       console.error('[PAYMENT_DEBUG] Widget initialization failed:', error);
       setConfigError(`ウィジェットの初期化に失敗しました: ${error.message}`);
+      widgetInitializing.current = false;
     }
   }, [db, profile?.tel, linkLoading, paymentLink]);
 
