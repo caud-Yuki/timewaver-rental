@@ -902,13 +902,19 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
     await sendTriggeredEmail('payment_link_sent', user, applicationData);
   }
 
-  // 決済完了 → スタッフに発送準備を依頼
+  // 決済完了 → ユーザーに決済完了メール + スタッフに発送準備依頼
   if (after.status === 'completed' && before.status !== 'completed') {
     const settingsDoc = await db.collection('settings').doc('global').get();
     const settingsData = settingsDoc.data();
     const bufferDays = settingsData?.shippingBufferDays || 3;
     const deadline = addBusinessDays(new Date(), bufferDays);
     const deadlineStr = `${deadline.getFullYear()}/${deadline.getMonth() + 1}/${deadline.getDate()}`;
+
+    // Send payment completed email to user
+    await sendTriggeredEmail('payment_completed', user, {
+      ...applicationData,
+      deliveryDate: deadlineStr,
+    });
 
     // Build shipping address from application data
     const shippingAddress = [after.shippingZipcode, after.shippingPrefecture, after.shippingAddress1, after.shippingAddress2]
