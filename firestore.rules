@@ -110,5 +110,11 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if isAdmin();
     }
+
+    // Consent Form: Public read (terms are public-facing). Admins can write.
+    match /consentForm/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }
