@@ -6,7 +6,7 @@ import { doc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useFirestore, useDoc } from '@/firebase';
 import { ConsentFormSection, ConsentFormDoc, ConsentSectionType, consentFormConverter } from '@/types';
 import { DEFAULT_CONSENT_SECTIONS, generateConsentFormHtml, generateConsentFormText } from '@/lib/consent-form-html';
-import { optimizeConsentSection, generateConsentSection } from '@/ai/flows/consent-form-ai';
+import { optimizeConsentSection, generateConsentSection, optimizeConsentItem } from '@/ai/flows/consent-form-ai';
 import { useServiceName } from '@/hooks/use-service-name';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -21,7 +21,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import {
   Loader2, FileText, Copy, ExternalLink, Sparkles, Plus, Trash2,
-  GripVertical, Pencil, CheckCircle2, ChevronUp, ChevronDown,
+  GripVertical, Pencil, CheckCircle2, ChevronUp, ChevronDown, X,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -127,10 +127,19 @@ function HoverGap({
 // ---------------------------------------------------------------------------
 // SectionCard — displays one editable section
 // ---------------------------------------------------------------------------
+// Per-item AI popover state
+interface ItemAiState {
+  itemIndex: number;
+  prompt: string;
+  loading: boolean;
+  suggestions: Array<{ summary: string; text: string }>;
+}
+
 function SectionCard({
   section,
   index,
   total,
+  serviceName,
   onUpdate,
   onDelete,
   onMoveUp,
@@ -140,6 +149,7 @@ function SectionCard({
   section: ConsentFormSection;
   index: number;
   total: number;
+  serviceName: string;
   onUpdate: (updated: ConsentFormSection) => void;
   onDelete: () => void;
   onMoveUp: () => void;
@@ -150,6 +160,8 @@ function SectionCard({
   const [draftTitle, setDraftTitle] = useState(section.title);
   const [draftContent, setDraftContent] = useState(section.content || '');
   const [draftItems, setDraftItems] = useState<string[]>(section.items || []);
+  const [itemAi, setItemAi] = useState<ItemAiState | null>(null);
+  const { toast } = useToast();
 
   const handleSave = () => {
     const updated: ConsentFormSection = { ...section, title: draftTitle };
@@ -276,28 +288,144 @@ function SectionCard({
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">項目（1行1項目）</Label>
                   {draftItems.map((item, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-xs text-muted-foreground mt-2 w-5 text-right flex-shrink-0">
-                        {i + 1}.
-                      </span>
-                      <Textarea
-                        value={item}
-                        onChange={(e) => {
-                          const next = [...draftItems];
-                          next[i] = e.target.value;
-                          setDraftItems(next);
-                        }}
-                        rows={2}
-                        className="text-sm flex-1 resize-y"
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-red-400 mt-1 flex-shrink-0"
-                        onClick={() => setDraftItems(draftItems.filter((_, idx) => idx !== i))}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                    <div key={i} className="space-y-1">
+                      <div className="flex gap-2">
+                        {/* Number + move buttons */}
+                        <div className="flex flex-col items-center gap-0.5 flex-shrink-0 pt-1">
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-5 w-5 text-gray-400 hover:text-gray-600"
+                            disabled={i === 0}
+                            onClick={() => {
+                              const next = [...draftItems];
+                              [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                              setDraftItems(next);
+                            }}
+                          >
+                            <ChevronUp className="h-3 w-3" />
+                          </Button>
+                          <span className="text-xs text-muted-foreground w-5 text-center leading-none">
+                            {i + 1}
+                          </span>
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-5 w-5 text-gray-400 hover:text-gray-600"
+                            disabled={i === draftItems.length - 1}
+                            onClick={() => {
+                              const next = [...draftItems];
+                              [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                              setDraftItems(next);
+                            }}
+                          >
+                            <ChevronDown className="h-3 w-3" />
+                          </Button>
+                        </div>
+
+                        <Textarea
+                          value={item}
+                          onChange={(e) => {
+                            const next = [...draftItems];
+                            next[i] = e.target.value;
+                            setDraftItems(next);
+                          }}
+                          rows={2}
+                          className="text-sm flex-1 resize-y"
+                        />
+
+                        {/* Per-item actions */}
+                        <div className="flex flex-col gap-1 flex-shrink-0 pt-1">
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-7 w-7 text-violet-500 hover:text-violet-700 hover:bg-violet-50"
+                            title="AI最適化"
+                            onClick={() => setItemAi({ itemIndex: i, prompt: '', loading: false, suggestions: [] })}
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => setDraftItems(draftItems.filter((_, idx) => idx !== i))}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Per-item AI panel */}
+                      <AnimatePresence>
+                        {itemAi?.itemIndex === i && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="ml-9 overflow-hidden"
+                          >
+                            <div className="border border-violet-200 bg-violet-50/60 rounded-xl p-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-violet-700 flex items-center gap-1">
+                                  <Sparkles className="h-3 w-3" /> AI最適化 — 項目 {i + 1}
+                                </span>
+                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setItemAi(null)}>
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                              <Textarea
+                                placeholder="例：より簡潔に / 法的に強化 / やさしい言葉で"
+                                value={itemAi.prompt}
+                                onChange={(e) => setItemAi({ ...itemAi, prompt: e.target.value })}
+                                rows={2}
+                                className="text-xs resize-none"
+                              />
+                              <Button
+                                size="sm"
+                                className="w-full rounded-lg text-xs h-7"
+                                disabled={itemAi.loading || !itemAi.prompt.trim()}
+                                onClick={async () => {
+                                  setItemAi({ ...itemAi, loading: true, suggestions: [] });
+                                  try {
+                                    const result = await optimizeConsentItem({
+                                      sectionTitle: draftTitle,
+                                      itemText: item,
+                                      siblingItems: draftItems.filter((_, idx) => idx !== i),
+                                      userPrompt: itemAi.prompt,
+                                      serviceName,
+                                    });
+                                    setItemAi({ ...itemAi, loading: false, suggestions: result.suggestions });
+                                  } catch {
+                                    toast({ variant: 'destructive', title: 'AI生成に失敗しました' });
+                                    setItemAi({ ...itemAi, loading: false });
+                                  }
+                                }}
+                              >
+                                {itemAi.loading
+                                  ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />生成中...</>
+                                  : <><Sparkles className="h-3 w-3 mr-1" />生成</>}
+                              </Button>
+                              {itemAi.suggestions.length > 0 && (
+                                <div className="space-y-1.5">
+                                  {itemAi.suggestions.map((s, si) => (
+                                    <button
+                                      key={si}
+                                      type="button"
+                                      className="w-full text-left border border-violet-200 rounded-lg p-2 hover:bg-white hover:border-violet-400 transition-colors"
+                                      onClick={() => {
+                                        const next = [...draftItems];
+                                        next[i] = s.text;
+                                        setDraftItems(next);
+                                        setItemAi(null);
+                                      }}
+                                    >
+                                      <span className="text-[10px] text-violet-500 font-medium block">案 {si + 1} — {s.summary}</span>
+                                      <span className="text-xs text-gray-700 line-clamp-2">{s.text}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   ))}
                   <Button
@@ -781,6 +909,7 @@ export function ConsentFormManager() {
                     section={section}
                     index={index}
                     total={sections.length}
+                    serviceName={serviceName}
                     onUpdate={(updated) => updateSection(index, updated)}
                     onDelete={() => deleteSection(index)}
                     onMoveUp={() => moveSection(index, -1)}

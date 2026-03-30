@@ -69,6 +69,57 @@ Return exactly 3 suggestions. Each must:
 }
 
 // ---------------------------------------------------------------------------
+// Optimize a single item within a section
+// ---------------------------------------------------------------------------
+const OptimizeItemInputSchema = z.object({
+  sectionTitle: z.string(),
+  itemText: z.string().describe('The specific item/clause to optimise'),
+  siblingItems: z.array(z.string()).describe('All other items in the section for context'),
+  userPrompt: z.string().describe('Admin instructions'),
+  serviceName: z.string().optional(),
+});
+export type OptimizeItemInput = z.infer<typeof OptimizeItemInputSchema>;
+
+const OptimizeItemOutputSchema = z.object({
+  suggestions: z.array(z.object({
+    summary: z.string(),
+    text: z.string().describe('The replacement text for this single item'),
+  })),
+});
+export type OptimizeItemOutput = z.infer<typeof OptimizeItemOutputSchema>;
+
+export async function optimizeConsentItem(
+  input: OptimizeItemInput
+): Promise<OptimizeItemOutput> {
+  const currentAi = await getAiInstance();
+  const serviceName = input.serviceName || 'サービス';
+
+  const optimizeItemPrompt = currentAi.definePrompt({
+    name: 'optimizeConsentItemPrompt',
+    input: { schema: OptimizeItemInputSchema },
+    output: { schema: OptimizeItemOutputSchema },
+    prompt: `You are a Japanese legal document specialist optimising a single clause in a B2C rental consent form.
+
+Service name: ${serviceName}
+Section: "{{sectionTitle}}"
+Target clause: "{{itemText}}"
+Other clauses in this section (for context): {{siblingItems}}
+Admin instructions: "{{userPrompt}}"
+
+Return exactly 3 rewritten versions of the target clause only.
+Each must:
+- Be in polished Japanese for a B2C rental contract
+- Remain consistent in style with the other clauses
+- Be a complete, standalone clause (not a fragment)
+- Include a brief one-line summary of the approach
+- Be meaningfully different from each other`,
+  });
+
+  const { output } = await optimizeItemPrompt(input);
+  return output ?? { suggestions: [] };
+}
+
+// ---------------------------------------------------------------------------
 // Generate a brand-new section
 // ---------------------------------------------------------------------------
 const GenerateSectionInputSchema = z.object({
