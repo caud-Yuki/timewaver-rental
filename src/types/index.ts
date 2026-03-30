@@ -212,6 +212,7 @@ export interface EmailTemplate {
     subject: string;
     body: string;
     type: string;
+    isAdmin?: boolean;
     createdAt?: Timestamp;
     updatedAt?: Timestamp;
 }
@@ -223,6 +224,7 @@ export const emailTemplateConverter: FirestoreDataConverter<EmailTemplate> = {
           subject: template.subject,
           body: template.body,
           type: template.type,
+          isAdmin: template.isAdmin ?? false,
           updatedAt: template.updatedAt,
       };
   },
@@ -234,6 +236,7 @@ export const emailTemplateConverter: FirestoreDataConverter<EmailTemplate> = {
           subject: data.subject,
           body: data.body,
           type: data.type,
+          isAdmin: data.isAdmin ?? false,
           createdAt: data.createdAt,
           updatedAt: data.updatedAt,
       };
