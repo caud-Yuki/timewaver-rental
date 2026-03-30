@@ -819,7 +819,18 @@ export function ConsentFormManager() {
 
   const handleCopyText = async () => {
     const text = generateConsentFormText(sections, serviceName);
-    await navigator.clipboard.writeText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = text;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
     toast({ title: 'テキストをコピーしました' });
   };
 
