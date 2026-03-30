@@ -23,6 +23,8 @@ import { Application, applicationConverter } from '@/types';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { generateConsentFormHtml } from '@/lib/consent-form-html';
+import { useServiceName } from '@/hooks/use-service-name';
 
 const CancelApplicationModal = ({ application, onConfirm }: { application: Application; onConfirm: () => void }) => {
   return (
@@ -51,7 +53,7 @@ const CancelApplicationModal = ({ application, onConfirm }: { application: Appli
   );
 };
 
-const ConsentFormModal = ({ application, onConfirm }: { application: Application; onConfirm: (file: File) => Promise<void> }) => {
+const ConsentFormModal = ({ application, serviceName, onConfirm }: { application: Application; serviceName: string; onConfirm: (file: File) => Promise<void> }) => {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
@@ -72,21 +74,35 @@ const ConsentFormModal = ({ application, onConfirm }: { application: Application
     setIsUploading(false);
   };
 
+  const handleOpenConsentForm = () => {
+    const html = generateConsentFormHtml({ application, serviceName });
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  };
+
   return (
     <DialogContent>
       <DialogHeader>
         <DialogTitle>同意書の提出</DialogTitle>
-        <DialogDescription>署名済みの同意書をアップロードしてください。</DialogDescription>
+        <DialogDescription>同意書を開いて内容をご確認いただき、署名後にアップロードしてください。</DialogDescription>
       </DialogHeader>
       <div className="py-4 space-y-4">
+        <button
+          type="button"
+          onClick={handleOpenConsentForm}
+          className="text-sm text-primary hover:underline flex items-center gap-1"
+        >
+          <FileText className="h-4 w-4"/>
+          同意書を開く（印刷 / PDF保存）
+        </button>
+        <p className="text-xs text-muted-foreground">
+          同意書を開いたら、印刷またはPDFとして保存し、署名後にアップロードしてください。
+        </p>
         <input type="file" onChange={handleFileChange} accept="application/pdf,image/*" />
         <p className="text-xs text-muted-foreground">
           PDFまたは画像ファイルをアップロードできます。
         </p>
-        <a href="/path-to-your/consent-form.pdf" download className="text-sm text-primary hover:underline flex items-center gap-1">
-          <FileText className="h-4 w-4"/>
-          同意書をダウンロード
-        </a>
       </div>
       <DialogFooter>
         <DialogClose asChild>
@@ -105,6 +121,7 @@ export default function MyApplicationsPage() {
   const { user, loading: authLoading } = useUser();
   const db = useFirestore();
   const { toast } = useToast();
+  const serviceName = useServiceName();
   const [isCancelling, setIsCancelling] = useState<string | null>(null);
 
   const applicationsQuery = useMemoFirebase(() => {
@@ -247,7 +264,7 @@ export default function MyApplicationsPage() {
                             <DialogTrigger asChild>
                               <Button size="sm" className="rounded-lg h-9 bg-primary hover:bg-primary/90">同意書を提出</Button>
                             </DialogTrigger>
-                            <ConsentFormModal application={app} onConfirm={(file) => handleConsentFormUpload(app, file)} />
+                            <ConsentFormModal application={app} serviceName={serviceName} onConfirm={(file) => handleConsentFormUpload(app, file)} />
                           </Dialog>
                         )}
                         {app.status === 'payment_sent' && app.paymentLinkId && (

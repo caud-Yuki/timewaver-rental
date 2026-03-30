@@ -133,6 +133,7 @@ export interface GlobalSettings {
   companyCity?: string;
   companyAddress?: string;
   companyBuilding?: string;
+  serviceName?: string;
   geminiModel?: string;
   shippingBufferDays?: number;
   moduleBasePrice?: number;
@@ -198,6 +199,7 @@ export interface EmailTemplate {
   name: string;
   subject: string;
   body: string;
+  isAdmin?: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
