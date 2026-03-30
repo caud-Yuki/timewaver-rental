@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { UserProfile } from '@/types';
+import { useServiceName } from '@/hooks/use-service-name';
 
 export function Navbar() {
   const pathname = usePathname();
@@ -24,6 +25,7 @@ export function Navbar() {
   const { user } = useUser();
   const auth = useAuth();
   const db = useFirestore();
+  const serviceName = useServiceName();
 
   const profileRef = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -44,7 +46,7 @@ export function Navbar() {
       <div className="container mx-auto px-4 flex h-16 items-center justify-between">
         <Link href="/" className="flex items-center space-x-2">
           <Activity className="h-8 w-8 text-primary" />
-          <span className="font-headline text-2xl font-bold tracking-tight text-primary">ChronoRent</span>
+          <span className="font-headline text-2xl font-bold tracking-tight text-primary">{serviceName}</span>
         </Link>
         
         <nav className="hidden md:flex items-center space-x-8 text-sm font-medium">

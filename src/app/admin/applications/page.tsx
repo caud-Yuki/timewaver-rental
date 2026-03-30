@@ -25,6 +25,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { useServiceName } from '@/hooks/use-service-name';
 import {
   Loader2,
   FileText,
@@ -198,6 +199,7 @@ function ApplicationDetailModal({ application }: { application: Application }) {
 function EmailComposeModal({ application, open, onOpenChange }: { application: Application; open: boolean; onOpenChange: (open: boolean) => void }) {
   const db = useFirestore();
   const { toast } = useToast();
+  const serviceName = useServiceName();
 
   const templatesQuery = useMemo(() => query(collection(db, 'emailTemplates'), orderBy('createdAt', 'desc')).withConverter(emailTemplateConverter), [db]);
   const { data: templates } = useCollection<EmailTemplate>(templatesQuery as any);
@@ -245,7 +247,7 @@ function EmailComposeModal({ application, open, onOpenChange }: { application: A
   const handleTemplateChange = (templateId: string) => {
     setSelectedTemplateId(templateId);
     if (templateId === 'blank') {
-      setEmailSubject(`【ChronoRent】${application.deviceType} - ${application.userName}様`);
+      setEmailSubject(`【${serviceName}】${application.deviceType} - ${application.userName}様`);
       setEmailBody('');
     } else {
       const template = templates?.find(t => t.id === templateId);
@@ -260,7 +262,7 @@ function EmailComposeModal({ application, open, onOpenChange }: { application: A
   useEffect(() => {
     if (open) {
       setSelectedTemplateId('blank');
-      setEmailSubject(`【ChronoRent】${application.deviceType} - ${application.userName}様`);
+      setEmailSubject(`【${serviceName}】${application.deviceType} - ${application.userName}様`);
       setEmailBody('');
     }
   }, [open, application]);

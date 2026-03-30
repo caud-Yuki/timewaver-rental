@@ -8,9 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Newspaper, ChevronRight, Calendar } from 'lucide-react';
 import { News } from '@/types';
 import Link from 'next/link';
+import { useServiceName } from '@/hooks/use-service-name';
 
 export default function NewsListPage() {
   const db = useFirestore();
+  const serviceName = useServiceName();
 
   const newsQuery = useMemoFirebase(() => {
     if (!db) return null;
@@ -30,7 +32,7 @@ export default function NewsListPage() {
           <Newspaper className="h-10 w-10 text-primary" /> お知らせ
         </h1>
         <p className="text-muted-foreground text-lg">
-          ChronoRentからの最新情報、新機種の入荷、メンテナンス情報などをお届けします。
+          {serviceName}からの最新情報、新機種の入荷、メンテナンス情報などをお届けします。
         </p>
       </div>
 

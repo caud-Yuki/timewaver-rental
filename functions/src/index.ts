@@ -868,10 +868,11 @@ export const sendAdHocEmail = onCall(async (request) => {
     const db = getFirestore();
     const settingsDoc = await db.collection('settings').doc('global').get();
     const settings = settingsDoc.exists ? settingsDoc.data() || {} : {};
+    const svcName = settings.serviceName || 'ChronoRent';
     const d = settings.emailDesign || {
       primaryColor: '#2563eb',
       fontFamily: "'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif",
-      footerText: '© 2026 ChronoRent. All rights reserved.\nこのメールはChronoRentシステムから自動送信されています。',
+      footerText: `© ${new Date().getFullYear()} ${svcName}. All rights reserved.\nこのメールは${svcName}システムから自動送信されています。`,
     };
 
     const isRichHtml = body.includes('<') && body.includes('>');
@@ -887,7 +888,7 @@ export const sendAdHocEmail = onCall(async (request) => {
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 <tr><td style="background-color:${d.primaryColor || '#2563eb'};padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
-<h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">ChronoRent</h1>
+<h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">${svcName}</h1>
 </td></tr>
 <tr><td style="background-color:#ffffff;padding:32px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
 <div class="email-body" style="color:#1f2937;font-size:14px;line-height:1.6;">${processedBody}</div>

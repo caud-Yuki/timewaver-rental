@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Bot, User, Send, Loader2, Sparkles } from 'lucide-react';
 import { askChatbot } from '@/ai/flows/ai-support-chatbot';
+import { useServiceName } from '@/hooks/use-service-name';
 
 interface Message {
   role: 'user' | 'bot';
@@ -18,8 +19,9 @@ interface Message {
 
 export default function AISupportPage() {
   const { user } = useUser();
+  const serviceName = useServiceName();
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'bot', content: 'こんにちは！ChronoRent AIコンシェルジュです。TimeWaverの操作方法やレンタル手続きについて何でもお尋ねください。' }
+    { role: 'bot', content: `こんにちは！${serviceName} AIコンシェルジュです。TimeWaverの操作方法やレンタル手続きについて何でもお尋ねください。` }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -40,9 +42,10 @@ export default function AISupportPage() {
     setIsLoading(true);
 
     try {
-      const response = await askChatbot({ 
+      const response = await askChatbot({
         query: userMessage,
-        userId: user?.uid 
+        userId: user?.uid,
+        serviceName
       });
       setMessages(prev => [...prev, { role: 'bot', content: response.answer }]);
     } catch (error) {
@@ -68,7 +71,7 @@ export default function AISupportPage() {
               <Sparkles className="h-5 w-5 text-white" />
             </div>
             <div>
-              <CardTitle className="text-lg">ChronoRent AI</CardTitle>
+              <CardTitle className="text-lg">{serviceName} AI</CardTitle>
               <CardDescription className="text-[10px] flex items-center gap-1">
                 <span className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" /> オンライン・即時回答
               </CardDescription>

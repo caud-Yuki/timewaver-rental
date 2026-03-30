@@ -155,6 +155,7 @@ export interface GlobalSettings {
   managerName: string;
   managerEmail: string;
   mode: 'test' | 'production';
+  serviceName?: string;
   companyPhone?: string;
   companyPostalCode?: string;
   companyPrefecture?: string;

@@ -15,7 +15,8 @@ import { getGeminiSecret } from '@/lib/secret-actions';
 
 const ChatbotInputSchema = z.object({
   query: z.string().describe('The user\'s question about the TimeWaver rental platform, rental procedures, payment, or TimeWaver devices.'),
-  userId: z.string().optional().describe('The ID of the currently logged-in user.')
+  userId: z.string().optional().describe('The ID of the currently logged-in user.'),
+  serviceName: z.string().optional().describe('The service/platform name to use in responses.')
 });
 export type ChatbotInput = z.infer<typeof ChatbotInputSchema>;
 
@@ -115,7 +116,7 @@ export async function askChatbot(input: ChatbotInput): Promise<ChatbotOutput> {
     input: {schema: ChatbotInputSchema},
     output: {schema: ChatbotOutputSchema},
     tools: [getAvailableDevices, checkMyApplicationStatus],
-    prompt: `You are an AI support assistant for the TimeWaver rental platform "ChronoRent".
+    prompt: `You are an AI support assistant for the TimeWaver rental platform "{{serviceName}}".
 Your role is to provide helpful, accurate, and professional information to users.
 
 If a user asks about what devices are available or for recommendations, use the 'getAvailableDevices' tool.
@@ -129,7 +130,7 @@ Knowledge Base:
 Guidelines:
 - If a user asks about their specific application status and you don't have their userId, ask them to log in.
 - If they ask for help with the rental process, guide them through the "Guide" page steps.
-- If the question is outside your knowledge, suggest they contact human support at support@chronorent.com.
+- If the question is outside your knowledge, suggest they contact human support.
 - Always be polite and use a welcoming tone.
 
 User's Query: {{{query}}}

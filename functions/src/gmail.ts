@@ -26,6 +26,7 @@ interface EmailDesign {
 }
 
 let cachedDesign: EmailDesign | null = null;
+let cachedServiceName: string | null = null;
 let designCacheTime = 0;
 
 async function getEmailDesign(): Promise<EmailDesign> {
@@ -37,7 +38,9 @@ async function getEmailDesign(): Promise<EmailDesign> {
   try {
     const db = getFirestore();
     const settingsDoc = await db.collection('settings').doc('global').get();
-    cachedDesign = settingsDoc.data()?.emailDesign || {};
+    const data = settingsDoc.data();
+    cachedDesign = data?.emailDesign || {};
+    cachedServiceName = data?.serviceName || null;
     designCacheTime = now;
     return cachedDesign!;
   } catch {
@@ -45,15 +48,20 @@ async function getEmailDesign(): Promise<EmailDesign> {
   }
 }
 
+async function getServiceName(): Promise<string> {
+  await getEmailDesign(); // ensures cache is populated
+  return cachedServiceName || 'ChronoRent';
+}
+
 /**
  * Wrap email body content in the unified HTML email template.
  */
-function wrapInTemplate(bodyContent: string, isStaff: boolean, design: EmailDesign): string {
+function wrapInTemplate(bodyContent: string, isStaff: boolean, design: EmailDesign, serviceName: string): string {
   const d = {
     primaryColor: design.primaryColor || '#2563eb',
     buttonColor: design.buttonColor || '#2563eb',
     fontFamily: design.fontFamily || "'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif",
-    footerText: design.footerText || '© 2026 ChronoRent. All rights reserved.',
+    footerText: design.footerText || `© ${new Date().getFullYear()} ${serviceName}. All rights reserved.`,
   };
 
   // Inline p tag margins for email clients that don't support <style>
@@ -70,7 +78,7 @@ function wrapInTemplate(bodyContent: string, isStaff: boolean, design: EmailDesi
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 <tr><td style="background-color:${isStaff ? '#374151' : d.primaryColor};padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
-<h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">ChronoRent</h1>
+<h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">${serviceName}</h1>
 ${isStaff ? '<p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">管理者通知</p>' : ''}
 </td></tr>
 <tr><td style="background-color:#ffffff;padding:32px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
@@ -143,16 +151,17 @@ export async function sendMail(
     // Detect if this is a staff/admin email
     const isStaff = subject.includes('管理者') || subject.includes('スタッフ') || subject.includes('内部');
 
-    // Get email design settings
+    // Get email design settings and service name
     const design = await getEmailDesign();
+    const serviceName = await getServiceName();
 
     // Wrap in unified template
-    const htmlContent = wrapInTemplate(processedBody, isStaff, design);
+    const htmlContent = wrapInTemplate(processedBody, isStaff, design, serviceName);
 
     const base64Subject = Buffer.from(subject).toString("base64");
     const utf8Subject = `=?utf-8?B?${base64Subject}?=`;
     const messageParts = [
-      `From: ChronoRent <${ADMIN_EMAIL}>`,
+      `From: ${serviceName} <${ADMIN_EMAIL}>`,
       `To: ${to}`,
       "Content-Type: text/html; charset=utf-8",
       "MIME-Version: 1.0",

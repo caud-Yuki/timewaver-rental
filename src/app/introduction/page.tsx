@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ChevronRight, Zap, Shield, Globe, Award } from 'lucide-react';
+import { useServiceName } from '@/hooks/use-service-name';
 
 export default function IntroductionPage() {
+  const serviceName = useServiceName();
   return (
     <div className="container mx-auto px-4 py-16 space-y-24">
       {/* Hero Section */}
@@ -68,7 +70,7 @@ export default function IntroductionPage() {
         <div className="relative z-10 space-y-8">
           <h2 className="font-headline text-3xl md:text-5xl font-bold">あなたの未来を最適化する</h2>
           <p className="text-primary-foreground/80 text-xl max-w-2xl mx-auto">
-            ChronoRentは、この革命的なテクノロジーをより身近にするためのプラットフォームです。
+            {serviceName}は、この革命的なテクノロジーをより身近にするためのプラットフォームです。
             まずはラインナップから、あなたに最適な一台を見つけてください。
           </p>
           <Link href="/devices">

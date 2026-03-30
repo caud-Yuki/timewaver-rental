@@ -10,9 +10,11 @@ import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, orderBy, limit } from 'firebase/firestore';
 import { News } from '@/types';
+import { useServiceName } from '@/hooks/use-service-name';
 
 export default function Home() {
   const heroImage = PlaceHolderImages?.find(img => img.id === 'hero-bg');
+  const serviceName = useServiceName();
   const db = useFirestore();
 
   const newsQuery = useMemoFirebase(() => {
@@ -63,7 +65,7 @@ export default function Home() {
             <div className="relative aspect-video lg:aspect-square rounded-3xl overflow-hidden shadow-2xl border-8 border-white">
               <Image
                 src={heroImage?.imageUrl || "https://images.unsplash.com/photo-1576091160550-2173dad99901?q=80&w=2070&auto=format&fit=crop"}
-                alt="ChronoRent Hero"
+                alt={`${serviceName} Hero`}
                 fill
                 className="object-cover"
                 priority
@@ -111,7 +113,7 @@ export default function Home() {
       <section className="py-12 md:py-24 lg:py-32 bg-white">
         <div className="container mx-auto px-4">
           <div className="flex flex-col items-center justify-center space-y-4 text-center mb-12">
-            <h2 className="font-headline text-3xl font-bold tracking-tighter sm:text-5xl">なぜChronoRentなのか？</h2>
+            <h2 className="font-headline text-3xl font-bold tracking-tighter sm:text-5xl">なぜ{serviceName}なのか？</h2>
             <p className="max-w-[900px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
               高価なデバイスを安心して利用いただくための、充実したサポートと柔軟なプラン。
             </p>

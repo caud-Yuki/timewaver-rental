@@ -1,7 +1,10 @@
 
 'use client';
 
+import { useServiceName } from '@/hooks/use-service-name';
+
 export default function TermsPage() {
+  const serviceName = useServiceName();
   return (
     <div className="container mx-auto px-4 py-20 max-w-4xl space-y-8">
       <h1 className="text-4xl font-bold font-headline mb-12">利用規約</h1>
@@ -9,7 +12,7 @@ export default function TermsPage() {
       <section className="space-y-4">
         <h2 className="text-2xl font-bold">第1条（適用）</h2>
         <p className="text-muted-foreground leading-relaxed">
-          本規約は、ChronoRent（以下、「当社」）が提供するTimeWaverレンタルサービス（以下、「本サービス」）の利用条件を定めるものです。本サービスを利用する全てのユーザーに適用されます。
+          本規約は、{serviceName}（以下、「当社」）が提供するTimeWaverレンタルサービス（以下、「本サービス」）の利用条件を定めるものです。本サービスを利用する全てのユーザーに適用されます。
         </p>
       </section>
 

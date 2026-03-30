@@ -340,6 +340,11 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-sm">サービス名</Label>
+            <Input placeholder="ChronoRent" value={settings.serviceName || ''} onChange={(e) => handleInputChange('serviceName', e.target.value)} />
+            <p className="text-xs text-muted-foreground">サイト全体やメールで表示されるサービス名称です。</p>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-sm">運営担当者名</Label>
