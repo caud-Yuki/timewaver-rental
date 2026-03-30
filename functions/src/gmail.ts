@@ -127,7 +127,8 @@ function plainTextToHtml(text: string): string {
 export async function sendMail(
   to: string,
   subject: string,
-  body: string
+  body: string,
+  isAdmin?: boolean
 ) {
   log(`[sendMail] Attempting to send email to: ${to} with subject: ${subject}`);
   try {
@@ -148,8 +149,9 @@ export async function sendMail(
     const isHtml = body.includes('<p>') || body.includes('<br>') || body.includes('<a ') || body.includes('<strong>') || body.includes('<h');
     const processedBody = isHtml ? body : plainTextToHtml(body);
 
-    // Detect if this is a staff/admin email
-    const isStaff = subject.includes('管理者') || subject.includes('スタッフ') || subject.includes('内部');
+    // Use explicit isAdmin flag when provided; fall back to subject heuristic for
+    // legacy templates that predate the isAdmin field.
+    const isStaff = isAdmin ?? (subject.includes('管理者') || subject.includes('スタッフ') || subject.includes('内部'));
 
     // Get email design settings and service name
     const design = await getEmailDesign();

@@ -57,7 +57,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       return;
     }
 
-    let { subject, body } = templateDoc.data() as { subject: string; body: string };
+    let { subject, body, isAdmin } = templateDoc.data() as { subject: string; body: string; isAdmin?: boolean };
 
     // Fetch company info from settings for placeholders
     const settingsDoc = await db.collection('settings').doc('global').get();
@@ -119,7 +119,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
 
     // 1. Email (default: enabled)
     if (channels.email !== false) {
-      await sendMail(recipient.email, subject, body);
+      await sendMail(recipient.email, subject, body, isAdmin);
       log(`[sendTriggeredEmail] Email sent for '${trigger}' to ${recipient.email}`);
     }
 
