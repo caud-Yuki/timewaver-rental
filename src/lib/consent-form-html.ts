@@ -101,10 +101,18 @@ function renderSection(section: ConsentFormSection, serviceName: string): string
       return `
 <div class="signature-block">
   <p style="font-weight:700;margin-bottom:4mm;">署名欄（自筆にてご記入ください）</p>
-  <div class="sig-row"><span class="sig-label">同意日</span><span class="sig-line">　　　　年　　月　　日</span></div>
-  <div class="sig-row"><span class="sig-label">お名前（自署）</span><span class="sig-line"></span></div>
-  <div class="sig-row"><span class="sig-label">ご住所</span><span class="sig-line"></span></div>
-  <div class="sig-row"><span class="sig-label">電話番号</span><span class="sig-line"></span></div>
+  <div style="display:flex;gap:6mm;align-items:flex-start;">
+    <div style="flex:1;">
+      <div class="sig-row"><span class="sig-label">同意日</span><span class="sig-line">　　　　年　　月　　日</span></div>
+      <div class="sig-row"><span class="sig-label">お名前（自署）</span><span class="sig-line"></span></div>
+      <div class="sig-row"><span class="sig-label">ご住所</span><span class="sig-line"></span></div>
+      <div class="sig-row"><span class="sig-label">電話番号</span><span class="sig-line"></span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2mm;flex-shrink:0;">
+      <span style="font-size:8pt;color:#555;">印鑑</span>
+      <div style="width:22mm;height:22mm;border:1px solid #aaa;"></div>
+    </div>
+  </div>
   <p class="sig-note">※ 本同意書に署名後、${serviceName} マイページよりアップロードしてご提出ください。</p>
 </div>`;
 
