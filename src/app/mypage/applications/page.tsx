@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
+import { useState, useEffect, useMemo } from 'react';
+import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, query, where, orderBy, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ import { Separator } from '@/components/ui/separator';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { generateConsentFormHtml } from '@/lib/consent-form-html';
 import { useServiceName } from '@/hooks/use-service-name';
+import { ConsentFormDoc, ConsentFormSection, consentFormConverter } from '@/types';
 
 const CancelApplicationModal = ({ application, onConfirm }: { application: Application; onConfirm: () => void }) => {
   return (
@@ -54,9 +55,15 @@ const CancelApplicationModal = ({ application, onConfirm }: { application: Appli
 };
 
 const ConsentFormModal = ({ application, serviceName, onConfirm }: { application: Application; serviceName: string; onConfirm: (file: File) => Promise<void> }) => {
+  const db = useFirestore();
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
+
+  // Load Firestore consent form sections
+  const consentFormRef = useMemo(() => doc(db, 'consentForm', 'current').withConverter(consentFormConverter), [db]);
+  const { data: consentFormData } = useDoc<ConsentFormDoc>(consentFormRef as any);
+  const sections: ConsentFormSection[] | undefined = consentFormData?.sections;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -75,7 +82,7 @@ const ConsentFormModal = ({ application, serviceName, onConfirm }: { application
   };
 
   const handleOpenConsentForm = () => {
-    const html = generateConsentFormHtml({ application, serviceName });
+    const html = generateConsentFormHtml({ application, serviceName, sections });
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');

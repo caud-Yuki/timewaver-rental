@@ -10,11 +10,13 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare } from 'lucide-react';
+import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { GlobalSettings, UserProfile } from '@/types';
 import { saveSecrets, getSecretsStatus, type SecretPayload } from '@/lib/secret-actions';
 import { AVAILABLE_GEMINI_MODELS, DEFAULT_GEMINI_MODEL } from '@/ai/models';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ConsentFormManager } from '@/components/admin/consent-form-manager';
 
 export default function SettingsPage() {
   const db = useFirestore();
@@ -157,7 +159,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="container mx-auto max-w-3xl px-4 py-12 space-y-8">
+    <div className="container mx-auto max-w-4xl px-4 py-12 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -171,6 +173,24 @@ export default function SettingsPage() {
           ダッシュボードに戻る
         </Button>
       </div>
+
+      <Tabs defaultValue="settings">
+        <TabsList className="grid w-full grid-cols-2 rounded-xl mb-2">
+          <TabsTrigger value="settings" className="rounded-lg">
+            <Settings className="h-3.5 w-3.5 mr-1.5" />
+            一般設定
+          </TabsTrigger>
+          <TabsTrigger value="consent" className="rounded-lg">
+            <FileText className="h-3.5 w-3.5 mr-1.5" />
+            同意書管理
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="consent" className="mt-6">
+          <ConsentFormManager />
+        </TabsContent>
+
+        <TabsContent value="settings" className="space-y-8 mt-6">
 
       {/* Section 1: System Operation Mode */}
       <Card className="border-none shadow-lg rounded-2xl bg-white">
@@ -495,6 +515,8 @@ export default function SettingsPage() {
           設定内容を保存
         </Button>
       </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

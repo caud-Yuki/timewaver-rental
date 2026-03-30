@@ -252,3 +252,24 @@ export interface PaymentLink {
   updatedAt: Timestamp;
 }
 export const paymentLinkConverter = createConverter<PaymentLink>();
+
+// =============================================================================
+// Consent Form
+// =============================================================================
+export type ConsentSectionType = 'paragraph' | 'terms_list' | 'consent_items' | 'signature';
+
+export interface ConsentFormSection {
+  id: string;
+  order: number;
+  title: string;
+  type: ConsentSectionType;
+  content?: string;   // paragraph type
+  items?: string[];   // terms_list / consent_items
+}
+
+export interface ConsentFormDoc {
+  id: string;
+  sections: ConsentFormSection[];
+  updatedAt?: Timestamp;
+}
+export const consentFormConverter = createConverter<ConsentFormDoc>();
