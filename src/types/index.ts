@@ -61,6 +61,7 @@ export interface Device {
   contractStartAt?: Timestamp;
   contractEndAt?: Timestamp;
   imageUrl?: string;
+  imageUrls?: string[];
   // Stripe integration — one Product per plan, two Prices per Product (monthly + full)
   stripeProducts?: {
     "3m": { productId?: string; monthlyPriceId?: string; fullPriceId?: string };
@@ -93,6 +94,7 @@ export const deviceConverter: FirestoreDataConverter<Device> = {
             contractStartAt: data.contractStartAt,
             contractEndAt: data.contractEndAt,
             imageUrl: data.imageUrl,
+            imageUrls: data.imageUrls || [],
             stripeProducts: data.stripeProducts,
             createdAt: data.createdAt,
             updatedAt: data.updatedAt,

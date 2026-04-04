@@ -61,26 +61,44 @@ export default function DeviceManagementPage() {
     setIsDialogOpen(true);
   };
 
-  const handleSaveDevice = async (formData: Partial<Device>, imageFile?: File | null) => {
+  const handleSaveDevice = async (formData: Partial<Device>, newImages?: File[] | null, removedUrls?: string[] | null) => {
     if (!db) return;
     setIsSubmitting(true);
 
     try {
-      // Helper: upload image to Firebase Storage
-      const uploadDeviceImage = async (deviceId: string, file: File): Promise<string> => {
+      // Helper: upload images to Firebase Storage
+      const uploadDeviceImages = async (deviceId: string, files: File[]): Promise<string[]> => {
         const storage = getStorage();
-        const ext = file.name.split('.').pop() || 'jpg';
-        const imageRef = storageRef(storage, `system/devices/${deviceId}/cover.${ext}`);
-        await uploadBytes(imageRef, file);
-        return getDownloadURL(imageRef);
+        const urls: string[] = [];
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const ext = file.name.split('.').pop() || 'jpg';
+          const fileName = `img_${Date.now()}_${i}.${ext}`;
+          const imageRef = storageRef(storage, `system/devices/${deviceId}/${fileName}`);
+          await uploadBytes(imageRef, file);
+          const url = await getDownloadURL(imageRef);
+          urls.push(url);
+        }
+        return urls;
       };
 
       if (formData.id) {
-        // Upload image if selected
-        if (imageFile) {
-          const imageUrl = await uploadDeviceImage(formData.id, imageFile);
-          formData.imageUrl = imageUrl;
+        // Handle image changes
+        let currentUrls = formData.imageUrls || [];
+
+        // Remove deleted images
+        if (removedUrls && removedUrls.length > 0) {
+          currentUrls = currentUrls.filter(url => !removedUrls.includes(url));
         }
+
+        // Upload new images
+        if (newImages && newImages.length > 0) {
+          const newUrls = await uploadDeviceImages(formData.id, newImages);
+          currentUrls = [...currentUrls, ...newUrls];
+        }
+
+        formData.imageUrls = currentUrls;
+        formData.imageUrl = currentUrls[0] || null;
 
         const { id, ...dataToUpdate } = formData;
         await updateDoc(doc(db, 'devices', id), { ...dataToUpdate, updatedAt: serverTimestamp() });
@@ -128,10 +146,10 @@ export default function DeviceManagementPage() {
       } else {
         const newDocRef = await addDoc(collection(db, 'devices'), { ...formData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
 
-        // Upload image if selected for new device
-        if (imageFile) {
-          const imageUrl = await uploadDeviceImage(newDocRef.id, imageFile);
-          await updateDoc(doc(db, 'devices', newDocRef.id), { imageUrl });
+        // Upload images for new device
+        if (newImages && newImages.length > 0) {
+          const newUrls = await uploadDeviceImages(newDocRef.id, newImages);
+          await updateDoc(doc(db, 'devices', newDocRef.id), { imageUrls: newUrls, imageUrl: newUrls[0] || null });
         }
 
         toast({ title: "New device added successfully." });

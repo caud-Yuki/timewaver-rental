@@ -17,7 +17,7 @@ interface DeviceFormProps {
   device?: Partial<Device> | null;
   deviceTypeCodes: DeviceTypeCode[];
   deviceModules: DeviceModule[];
-  onSave: (device: Partial<Device>, imageFile?: File | null) => void;
+  onSave: (device: Partial<Device>, newImages?: File[] | null, removedUrls?: string[] | null) => void;
   onCancel: () => void;
 }
 
@@ -68,23 +68,45 @@ export const DeviceForm = ({
   }, [device]);
 
   const { toast } = useToast();
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(device?.imageUrl || null);
+  const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
+  const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]);
+  const [removedUrls, setRemovedUrls] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Existing images from Firestore (minus removed ones)
+  const existingImages = (formData.imageUrls || []).filter(url => !removedUrls.includes(url));
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ variant: 'destructive', title: 'ファイルサイズエラー', description: '画像は5MB以下にしてください。' });
-      return;
+    const files = Array.from(e.target.files || []);
+    const valid: File[] = [];
+    const previews: string[] = [];
+
+    for (const file of files) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast({ variant: 'destructive', title: 'ファイルサイズエラー', description: `${file.name} は5MB以下にしてください。` });
+        continue;
+      }
+      if (!file.type.startsWith('image/')) {
+        toast({ variant: 'destructive', title: 'ファイル形式エラー', description: `${file.name} は画像ファイルではありません。` });
+        continue;
+      }
+      valid.push(file);
+      previews.push(URL.createObjectURL(file));
     }
-    if (!file.type.startsWith('image/')) {
-      toast({ variant: 'destructive', title: 'ファイル形式エラー', description: '画像ファイルのみアップロードできます。' });
-      return;
-    }
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
+
+    setNewImageFiles(prev => [...prev, ...valid]);
+    setNewImagePreviews(prev => [...prev, ...previews]);
+    // Reset input so same file can be selected again
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeExistingImage = (url: string) => {
+    setRemovedUrls(prev => [...prev, url]);
+  };
+
+  const removeNewImage = (index: number) => {
+    setNewImageFiles(prev => prev.filter((_, i) => i !== index));
+    setNewImagePreviews(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleChange = (field: keyof Device, value: any) => {
@@ -152,49 +174,63 @@ export const DeviceForm = ({
       });
       return;
     }
-    onSave(formData, imageFile);
+    onSave(formData, newImageFiles.length > 0 ? newImageFiles : null, removedUrls.length > 0 ? removedUrls : null);
   };
 
   return (
     <div className="space-y-6 p-1 max-h-[70vh] overflow-y-auto pr-4">
-      {/* Cover Image */}
+      {/* Cover Images */}
       <div className="space-y-3">
         <Label className="text-base font-bold flex items-center gap-2">
-          <ImageIcon className="h-4 w-4" /> カバー画像
+          <ImageIcon className="h-4 w-4" /> 画像
+          <span className="text-[10px] font-normal text-muted-foreground">（複数可・最初の画像がカバーに使用されます）</span>
         </Label>
-        <div className="flex items-start gap-4">
+        <div className="flex flex-wrap gap-3">
+          {/* Existing images */}
+          {existingImages.map((url, i) => (
+            <div key={`existing-${i}`} className="relative w-28 h-20 rounded-lg border overflow-hidden group">
+              <img src={url} alt={`Image ${i + 1}`} className="w-full h-full object-cover" />
+              {i === 0 && <span className="absolute top-1 left-1 text-[8px] bg-primary text-white px-1.5 py-0.5 rounded-full">カバー</span>}
+              <button
+                type="button"
+                className="absolute top-1 right-1 h-5 w-5 bg-black/60 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => removeExistingImage(url)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+          {/* New image previews */}
+          {newImagePreviews.map((preview, i) => (
+            <div key={`new-${i}`} className="relative w-28 h-20 rounded-lg border-2 border-primary/30 overflow-hidden group">
+              <img src={preview} alt={`New ${i + 1}`} className="w-full h-full object-cover" />
+              <span className="absolute bottom-1 left-1 text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full">新規</span>
+              <button
+                type="button"
+                className="absolute top-1 right-1 h-5 w-5 bg-black/60 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => removeNewImage(i)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+          {/* Add button */}
           <div
-            className="relative w-40 h-28 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 overflow-hidden flex items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all"
+            className="w-28 h-20 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 flex items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all"
             onClick={() => fileInputRef.current?.click()}
           >
-            {imagePreview ? (
-              <>
-                <Image src={imagePreview} alt="Preview" fill className="object-cover" />
-                <button
-                  type="button"
-                  className="absolute top-1 right-1 h-5 w-5 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 z-10"
-                  onClick={(e) => { e.stopPropagation(); setImageFile(null); setImagePreview(formData.imageUrl || null); }}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </>
-            ) : (
-              <div className="text-center p-2">
-                <Upload className="h-6 w-6 text-gray-400 mx-auto mb-1" />
-                <p className="text-[9px] text-gray-400">クリックで選択</p>
-              </div>
-            )}
-          </div>
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p>デバイスカタログに表示されるカバー画像</p>
-            <p>推奨: 800×600px以上、5MB以下</p>
-            <p>対応形式: JPG, PNG, WebP</p>
+            <div className="text-center">
+              <Upload className="h-5 w-5 text-gray-400 mx-auto" />
+              <p className="text-[8px] text-gray-400 mt-0.5">追加</p>
+            </div>
           </div>
         </div>
+        <p className="text-[10px] text-muted-foreground">推奨: 800×600px以上、5MB以下 / JPG, PNG, WebP</p>
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
+          multiple
           className="hidden"
           onChange={handleImageSelect}
         />

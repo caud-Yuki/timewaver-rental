@@ -119,7 +119,8 @@ export default function DeviceDetailPage() {
   }
 
   const getDeviceImage = () => {
-    // Use uploaded imageUrl first, fallback to placeholder
+    // Use uploaded images first (imageUrls[0] or legacy imageUrl), fallback to placeholder
+    if (device?.imageUrls?.length > 0) return device.imageUrls[0];
     if (device?.imageUrl) return device.imageUrl;
 
     const code = device?.typeCode;
