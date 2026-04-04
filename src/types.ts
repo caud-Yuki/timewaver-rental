@@ -89,7 +89,7 @@ export interface DeviceTypeCode {
 }
 export const deviceTypeCodeConverter = createConverter<DeviceTypeCode>();
 
-export type DeviceStatus = 'available' | 'in_use' | 'maintenance' | 'processing' | 'terminated_early' | 'terminated' | 'active';
+export type DeviceStatus = 'available' | 'in_use' | 'maintenance' | 'processing' | 'under_review' | 'terminated_early' | 'terminated' | 'active';
 
 export interface Device {
   id: string;

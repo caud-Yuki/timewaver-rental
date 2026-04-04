@@ -278,6 +278,7 @@ export const DeviceForm = ({
               <SelectItem value="active">使用中</SelectItem>
               <SelectItem value="maintenance">メンテナンス中</SelectItem>
               <SelectItem value="processing">契約処理中</SelectItem>
+              <SelectItem value="under_review">審査中</SelectItem>
             </SelectContent>
           </Select>
         </div>

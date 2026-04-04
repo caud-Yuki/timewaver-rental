@@ -418,7 +418,13 @@ function ApplyForm() {
 
     try {
       await addDoc(collection(db, 'applications'), applicationData);
-      
+
+      // Switch device from 'processing' (session lock) to 'under_review' (admin reviewing)
+      await updateDoc(doc(db, 'devices', device.id), {
+        status: 'under_review',
+        updatedAt: serverTimestamp(),
+      });
+
       // When application is submitted, CLEAR the waitlist for this specific device
       const waitlistQuery = query(collection(db, 'waitlist'), where('deviceId', '==', device.id));
       const waitlistSnap = await getDocs(waitlistQuery);

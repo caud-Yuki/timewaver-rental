@@ -8,7 +8,7 @@ export type WithServerTimestamp<T> = {
 // Existing types...
 export type DeviceType = "TimeWaver Mobile" | "TimeWaver Mobile Quantum" | "TimeWaver Tabletop" | "TimeWaver Frequency";
 export type DeviceTypeCode = "tw-m" | "tw-mq" | "tw-tt" | "tw-frq";
-export type DeviceStatus = "available" | "active" | "processing" | "terminated_early" | "terminated";
+export type DeviceStatus = "available" | "active" | "processing" | "under_review" | "terminated_early" | "terminated";
 
 export interface DeviceModule {
   id: string;

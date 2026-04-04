@@ -108,6 +108,7 @@ export default function DeviceListPage() {
             filteredDevices.map((device) => {
               const isAvailable = device.status === 'available';
               const isProcessing = device.status === 'processing';
+              const isUnderReview = device.status === 'under_review';
               const isOnWaitlist = userWaitlistDeviceTypes.includes(device.type);
 
               return (
@@ -123,6 +124,10 @@ export default function DeviceListPage() {
                       {isAvailable ? (
                         <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
                           <CheckCircle2 className="h-3.5 w-3.5" /> 利用可能
+                        </Badge>
+                      ) : isUnderReview ? (
+                        <Badge variant="secondary" className="bg-orange-500 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">
+                          <Clock className="h-3.5 w-3.5" /> 審査中
                         </Badge>
                       ) : isProcessing ? (
                         <Badge variant="secondary" className="bg-blue-500 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">

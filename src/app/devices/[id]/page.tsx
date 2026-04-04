@@ -191,7 +191,9 @@ export default function DeviceDetailPage() {
 
   const isAvailable = device.status === 'available';
   const isProcessing = device.status === 'processing';
+  const isUnderReview = device.status === 'under_review';
   const isMeProcessing = isProcessing && device.currentUserId === user?.uid;
+  const isMeUnderReview = isUnderReview && device.currentUserId === user?.uid;
   const isOnWaitlist = userWaitlistDeviceTypes.includes(device.type);
   const waitlistCount = deviceWaitlistItems?.length || 0;
 
@@ -263,6 +265,8 @@ export default function DeviceDetailPage() {
               <Badge variant="outline" className="text-primary border-primary/20 bg-primary/5 uppercase px-3 py-1">{device.type}</Badge>
               {isAvailable ? (
                 <Badge className="bg-emerald-500 hover:bg-emerald-600 border-none px-3 py-1">利用可能</Badge>
+              ) : isUnderReview ? (
+                <Badge className="bg-orange-500 text-white border-none px-3 py-1">審査中</Badge>
               ) : isProcessing ? (
                 <Badge className="bg-blue-500 text-white border-none px-3 py-1">手続き中</Badge>
               ) : isOnWaitlist ? (
@@ -320,23 +324,39 @@ export default function DeviceDetailPage() {
 
           <div className="space-y-4 pt-4">
             {isAvailable ? (
-              <Button 
+              <Button
                 className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl shadow-primary/20"
                 onClick={handleApply}
                 disabled={isLocking}
               >
                 {isLocking ? <Loader2 className="animate-spin h-6 w-6" /> : 'この機器を申し込む'}
               </Button>
+            ) : isUnderReview ? (
+              isMeUnderReview ? (
+                <Button variant="outline" disabled className="w-full h-16 rounded-2xl text-xl font-bold">
+                  <CheckCircle2 className="mr-2 h-6 w-6 text-emerald-500" /> 申請済み — 審査中です
+                </Button>
+              ) : isOnWaitlist ? (
+                <Button variant="secondary" disabled className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl bg-gray-400 text-white border-none">
+                  <Clock className="mr-2 h-6 w-6" /> キャンセル待ち済
+                </Button>
+              ) : (
+                <Link href={`/apply/waitlist?deviceId=${device.id}`} className="block">
+                  <Button variant="secondary" className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl bg-amber-500 hover:bg-amber-600 text-white border-none">
+                    <Clock className="mr-2 h-6 w-6" /> 空き通知を受け取る（現在審査中）
+                  </Button>
+                </Link>
+              )
             ) : isProcessing ? (
               isMeProcessing ? (
                 <Link href={`/apply/new?deviceId=${device.id}`} className="block">
                   <Button className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl bg-primary">
-                    順番を待ち (手続きを続行) <Timer className="ml-2 h-6 w-6" />
+                    手続きを続行 <Timer className="ml-2 h-6 w-6" />
                   </Button>
                 </Link>
               ) : (
                 <Button variant="outline" disabled className="w-full h-16 rounded-2xl text-xl font-bold opacity-50">
-                  受付順番待ち
+                  手続き中 — しばらくお待ちください
                 </Button>
               )
             ) : isOnWaitlist ? (
