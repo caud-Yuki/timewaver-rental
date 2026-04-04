@@ -70,7 +70,7 @@ export default function DeviceManagementPage() {
       const uploadDeviceImage = async (deviceId: string, file: File): Promise<string> => {
         const storage = getStorage();
         const ext = file.name.split('.').pop() || 'jpg';
-        const imageRef = storageRef(storage, `devices/${deviceId}/cover.${ext}`);
+        const imageRef = storageRef(storage, `system/devices/${deviceId}/cover.${ext}`);
         await uploadBytes(imageRef, file);
         return getDownloadURL(imageRef);
       };
