@@ -13,11 +13,71 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
-import { ChevronLeft, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2, Users, Timer, Percent } from 'lucide-react';
+import { ChevronLeft, ChevronLeftIcon, ChevronRightIcon, CheckCircle2, ShieldCheck, Clock, Package, Zap, Sparkles, Loader2, Users, Timer, Percent } from 'lucide-react';
 import { Device, DeviceTypeCode, Waitlist, GlobalSettings } from '@/types';
 import { calculateTotalMonthly, calculateTotalFull, calculateModuleAddon } from '@/lib/module-pricing';
 import { visualizeField, VisualizeFieldOutput } from '@/ai/flows/visualize-field-flow';
 import { useToast } from '@/hooks/use-toast';
+
+function DeviceImageViewer({ imageUrls, imageUrl, fallback, alt }: { imageUrls?: string[]; imageUrl?: string; fallback: string; alt: string }) {
+  const images = (imageUrls && imageUrls.length > 0) ? imageUrls : (imageUrl ? [imageUrl] : [fallback]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const hasMultiple = images.length > 1;
+
+  const goNext = () => setActiveIndex(prev => (prev + 1) % images.length);
+  const goPrev = () => setActiveIndex(prev => (prev - 1 + images.length) % images.length);
+
+  return (
+    <div className="space-y-3">
+      {/* Main image */}
+      <div className="relative aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white group">
+        <Image
+          src={images[activeIndex]}
+          alt={alt}
+          fill
+          className="object-cover transition-all duration-300"
+        />
+        {/* Navigation arrows */}
+        {hasMultiple && (
+          <>
+            <button
+              onClick={goPrev}
+              className="absolute left-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/40 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60"
+            >
+              <ChevronLeftIcon className="h-6 w-6" />
+            </button>
+            <button
+              onClick={goNext}
+              className="absolute right-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/40 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60"
+            >
+              <ChevronRightIcon className="h-6 w-6" />
+            </button>
+            {/* Counter */}
+            <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2.5 py-1 rounded-full">
+              {activeIndex + 1} / {images.length}
+            </div>
+          </>
+        )}
+      </div>
+      {/* Thumbnails */}
+      {hasMultiple && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {images.map((url, i) => (
+            <button
+              key={i}
+              onClick={() => setActiveIndex(i)}
+              className={`relative w-20 h-14 rounded-xl overflow-hidden flex-shrink-0 border-2 transition-all ${
+                i === activeIndex ? 'border-primary ring-2 ring-primary/30' : 'border-transparent opacity-60 hover:opacity-100'
+              }`}
+            >
+              <img src={url} alt={`${alt} ${i + 1}`} className="w-full h-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function DeviceDetailPage() {
   const params = useParams();
@@ -143,15 +203,12 @@ export default function DeviceDetailPage() {
 
       <div className="grid gap-12 lg:grid-cols-2 items-start">
         <div className="space-y-6">
-          <div className="relative aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white">
-            <Image
-              src={getDeviceImage()}
-              alt={device.type || ''}
-              fill
-              className="object-cover"
-              data-ai-hint="medical device"
-            />
-          </div>
+          <DeviceImageViewer
+            imageUrls={device.imageUrls}
+            imageUrl={device.imageUrl}
+            fallback={getDeviceImage()}
+            alt={device.type || ''}
+          />
           
           {/* AI Visualization Feature */}
           <Card className="border-none shadow-2xl bg-gradient-to-br from-primary/10 via-background to-accent/10 rounded-[2.5rem] overflow-hidden">
