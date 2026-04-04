@@ -26,9 +26,11 @@ interface UserSubscription {
   endAt?: any;
   createdAt?: any;
   updatedAt?: any;
-  recurringId?: string;
-  paymentId?: string;
-  refundHistory?: Array<{ type: string; refundedAt: string }>;
+  stripeSubscriptionId?: string;
+  stripePaymentIntentId?: string;
+  stripeCustomerId?: string;
+  stripeStatus?: { status?: string; currentPeriodEnd?: string; cancelAt?: string; lastSyncedAt?: string };
+  refundHistory?: Array<{ refundId?: string; amount?: number; refundedAt: string }>;
 }
 
 interface ScheduleRow {
@@ -82,63 +84,55 @@ export default function UserPaymentsPage() {
       const data = response.data;
 
       const history = Array.isArray(data.history) ? data.history : [];
-      const recurringDetails = data.recurringDetails;
+      const stripeDetails = data.stripeDetails;
       const subscription = data.subscription;
 
-      // Build schedule (same logic as admin page)
+      // Build schedule from Stripe data + Firestore subscription info
       const rows: ScheduleRow[] = [];
       const isMonthly = subscription?.payType === 'monthly';
 
       if (!isMonthly) {
-        // One-time: show history as-is
+        // One-time: show the charge from history
         history.forEach((entry: any, i: number) => {
           rows.push({
             index: i + 1,
             type: entry.type || 'charge',
-            expectedDate: subscription?.startAt ? new Date(subscription.startAt) : new Date(),
-            amount: entry.amount,
-            status: entry.paymentStatus,
+            expectedDate: entry.created ? new Date(entry.created) : (subscription?.startAt ? new Date(subscription.startAt) : new Date()),
+            amount: entry.amount || subscription?.payAmount || 0,
+            status: entry.status === 'succeeded' ? 'SOLD' : (entry.status || 'UNKNOWN'),
           });
         });
       } else {
-        // Monthly: build full schedule
+        // Monthly: build full schedule from Stripe invoices + projected future
         const rentalMonths = subscription?.rentalMonths || 3;
         const startDate = subscription?.startAt ? new Date(subscription.startAt) : new Date();
-        const dayOfMonth = recurringDetails?.recurringDayOfMonth || startDate.getDate();
-        const monthlyAmount = recurringDetails?.payAmount || subscription?.payAmount || 0;
-        const initialAmount = recurringDetails?.currentlyPayAmount || monthlyAmount;
-        const recurringHistory = history.filter((h: any) => h.type === 'recurring');
+        const monthlyAmount = subscription?.payAmount || 0;
+        const dayOfMonth = startDate.getDate() > 28 ? 28 : startDate.getDate();
 
-        // Row 1: Initial
-        rows.push({
-          index: 1,
-          type: 'initial',
-          expectedDate: startDate,
-          amount: initialAmount,
-          status: 'SOLD',
-        });
+        // Map Stripe invoices to paid months
+        const paidInvoices = history.filter((h: any) => h.type === 'invoice' || h.type === 'charge');
 
-        // Rows 2..N
-        for (let month = 1; month < rentalMonths; month++) {
+        for (let month = 0; month < rentalMonths; month++) {
           const expectedDate = new Date(startDate);
           expectedDate.setMonth(expectedDate.getMonth() + month);
-          expectedDate.setDate(dayOfMonth);
+          if (month > 0) expectedDate.setDate(dayOfMonth);
 
-          const matched = recurringHistory[month - 1];
+          const matchedInvoice = paidInvoices[month];
           const isFuture = expectedDate > new Date();
 
-          if (matched) {
+          if (matchedInvoice) {
+            const isPaid = matchedInvoice.status === 'paid' || matchedInvoice.status === 'succeeded';
             rows.push({
               index: month + 1,
-              type: 'recurring',
-              expectedDate,
-              amount: matched.amount || monthlyAmount,
-              status: matched.paymentStatus,
+              type: month === 0 ? 'initial' : 'recurring',
+              expectedDate: matchedInvoice.created ? new Date(matchedInvoice.created) : expectedDate,
+              amount: matchedInvoice.amount || monthlyAmount,
+              status: isPaid ? 'SOLD' : matchedInvoice.status?.toUpperCase() || 'UNKNOWN',
             });
           } else {
             rows.push({
               index: month + 1,
-              type: 'scheduled',
+              type: month === 0 ? 'initial' : 'scheduled',
               expectedDate,
               amount: monthlyAmount,
               status: isFuture ? 'SCHEDULED' : 'OUTSTANDING',
