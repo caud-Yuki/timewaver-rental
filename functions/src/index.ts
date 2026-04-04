@@ -68,7 +68,8 @@ async function onDeviceReleased(deviceId: string, deviceType: string, reason: 'c
     await db.collection('news').add({
       title: `【空き速報】${deviceType} がレンタル可能になりました`,
       content: `${deviceType} が${reasonLabel}により空きが出ました。ご希望の方はお早めにお申し込みください。`,
-      body: '',
+      body: `<p>${deviceType} が${reasonLabel}により空きが出ました。</p><p>ご希望の方はお早めにお申し込みください。</p><p><a href="/devices/${deviceId}" style="color: #2563eb; text-decoration: underline;">この機器の詳細を見る →</a></p>`,
+      deviceId: deviceId,
       status: 'published',
       isPublic: true,
       publishedAt: Timestamp.now(),
