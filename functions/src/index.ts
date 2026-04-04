@@ -404,13 +404,13 @@ export const createStripePayment = onCall(async (request) => {
  * Called by the frontend after confirmCardPayment succeeds for monthly payType.
  */
 export const createStripeSubscription = onCall(async (request) => {
-  const { stripeCustomerId, monthlyPriceId, paymentIntentId, firestoreSubscriptionId } = request.data;
+  const { stripeCustomerId, monthlyPriceId, paymentIntentId, firestoreSubscriptionId, payAmount, deviceName } = request.data;
 
-  if (!stripeCustomerId || !monthlyPriceId || !paymentIntentId) {
-    throw new HttpsError("invalid-argument", "stripeCustomerId, monthlyPriceId, and paymentIntentId are required.");
+  if (!stripeCustomerId || !paymentIntentId) {
+    throw new HttpsError("invalid-argument", "stripeCustomerId and paymentIntentId are required.");
   }
 
-  log(`[createStripeSubscription] Customer: ${stripeCustomerId}, Price: ${monthlyPriceId}`);
+  log(`[createStripeSubscription] Customer: ${stripeCustomerId}, basePriceId: ${monthlyPriceId}, payAmount: ${payAmount}`);
 
   try {
     const stripe = await getStripeClient();
@@ -429,7 +429,44 @@ export const createStripeSubscription = onCall(async (request) => {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
 
-    // 3. Create the subscription starting from next billing cycle
+    // 3. Determine which priceId to use for the subscription
+    let subscriptionPriceId = monthlyPriceId;
+
+    if (monthlyPriceId && payAmount) {
+      // Check if the base price matches the actual payAmount (which includes modules)
+      try {
+        const basePrice = await stripe.prices.retrieve(monthlyPriceId);
+        if (basePrice.unit_amount !== payAmount) {
+          // Amount differs (modules added) — create a dynamic price with the total
+          const dynamicPrice = await stripe.prices.create({
+            unit_amount: payAmount,
+            currency: 'jpy',
+            recurring: { interval: 'month' },
+            product_data: { name: `${deviceName || 'TimeWaver Rental'} (カスタム)` },
+            metadata: { basePriceId: monthlyPriceId, includesModules: 'true' },
+          });
+          subscriptionPriceId = dynamicPrice.id;
+          log(`[createStripeSubscription] Module pricing: base ¥${basePrice.unit_amount} → total ¥${payAmount}, dynamic price: ${dynamicPrice.id}`);
+        }
+      } catch (e: any) {
+        log(`[createStripeSubscription] Could not check base price, using as-is:`, e.message);
+      }
+    }
+
+    if (!subscriptionPriceId) {
+      // No pre-created price — create a dynamic one from payAmount
+      if (!payAmount) throw new HttpsError("invalid-argument", "Either monthlyPriceId or payAmount is required.");
+      const dynamicPrice = await stripe.prices.create({
+        unit_amount: payAmount,
+        currency: 'jpy',
+        recurring: { interval: 'month' },
+        product_data: { name: `${deviceName || 'TimeWaver Rental'}` },
+      });
+      subscriptionPriceId = dynamicPrice.id;
+      log(`[createStripeSubscription] Created fallback dynamic price: ${subscriptionPriceId} (¥${payAmount})`);
+    }
+
+    // 4. Create the subscription starting from next billing cycle
     // (first month already paid via PaymentIntent)
     const now = new Date();
     const nextMonth = new Date(now);
@@ -438,7 +475,7 @@ export const createStripeSubscription = onCall(async (request) => {
 
     const subscription = await stripe.subscriptions.create({
       customer: stripeCustomerId,
-      items: [{ price: monthlyPriceId }],
+      items: [{ price: subscriptionPriceId }],
       default_payment_method: paymentMethodId,
       billing_cycle_anchor: Math.floor(nextMonth.getTime() / 1000),
       proration_behavior: 'none',

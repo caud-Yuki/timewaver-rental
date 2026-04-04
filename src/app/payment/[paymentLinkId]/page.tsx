@@ -293,17 +293,15 @@ export default function PaymentPage() {
             const termKey = rentalMonths <= 3 ? '3m' : rentalMonths <= 6 ? '6m' : '12m';
             const monthlyPriceId = deviceData?.stripeProducts?.[termKey]?.monthlyPriceId;
 
-            if (monthlyPriceId) {
-              const subResult = await createSub({
-                stripeCustomerId: profile.stripeCustomerId,
-                monthlyPriceId,
-                paymentIntentId,
-                firestoreSubscriptionId: firestoreSubId,
-              });
-              console.log('[PAYMENT_DEBUG] Stripe Subscription created:', (subResult.data as any).stripeSubscriptionId);
-            } else {
-              console.warn('[PAYMENT_DEBUG] No monthlyPriceId found on device — skipping subscription creation.');
-            }
+            const subResult = await createSub({
+              stripeCustomerId: profile.stripeCustomerId,
+              monthlyPriceId: monthlyPriceId || null,
+              paymentIntentId,
+              firestoreSubscriptionId: firestoreSubId,
+              payAmount: paymentLink.payAmount,
+              deviceName: paymentLink.deviceName,
+            });
+            console.log('[PAYMENT_DEBUG] Stripe Subscription created:', (subResult.data as any).stripeSubscriptionId);
           } catch (subErr: any) {
             console.warn('[PAYMENT_DEBUG] Stripe subscription creation failed:', subErr.message);
           }
