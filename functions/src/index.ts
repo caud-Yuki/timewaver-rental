@@ -1431,6 +1431,24 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
     log(`[onApplicationUpdate] Auto-transitioned ${applicationId} from 'returned' to 'closed'.`);
   }
 
+  // 終了 → release device back to available
+  if (after.status === 'closed' && before.status !== 'closed') {
+    if (after.deviceId) {
+      const deviceDoc = await db.collection('devices').doc(after.deviceId).get();
+      const deviceType = deviceDoc.data()?.type || after.deviceType || 'Unknown Device';
+
+      await db.collection('devices').doc(after.deviceId).update({
+        status: 'available',
+        currentUserId: null,
+        updatedAt: Timestamp.now(),
+      });
+      log(`[onApplicationUpdate] Device ${after.deviceId} released to available (application closed).`);
+
+      // Notify waitlist users
+      await onDeviceReleased(after.deviceId, deviceType, 'expired');
+    }
+  }
+
   // 破損・不具合あり → notify user about deposit
   if (after.status === 'damaged') {
     await sendTriggeredEmail('device_damaged', user, applicationData);
