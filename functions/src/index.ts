@@ -1,11 +1,12 @@
 
-import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {onCall, onRequest, HttpsError} from "firebase-functions/v2/https";
 import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import {log} from "firebase-functions/logger";
 import {initializeApp} from "firebase-admin/app";
 import { getStorage } from "firebase-admin/storage";
 import {getFirestore, Timestamp} from "firebase-admin/firestore";
-import axios from "axios";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const StripeSDK = require("stripe") as typeof import("stripe");
 import {sendTriggeredEmail} from "./triggers";
 import {sendMail} from "./gmail";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
@@ -129,95 +130,387 @@ async function onDeviceReleased(deviceId: string, deviceType: string, reason: 'c
   }
 }
 
+// --- Stripe Helper ---
+
+async function getStripeClient(): Promise<any> {
+  const db = getFirestore();
+  const settingsDoc = await db.collection('settings').doc('global').get();
+  const settings = settingsDoc.data() as GlobalSettings;
+  const apiMode = settings?.mode || 'test';
+  const isTest = apiMode === 'test';
+
+  const secretKey = await getSecretValue(
+    isTest ? 'STRIPE_TEST_SECRET_KEY' : 'STRIPE_LIVE_SECRET_KEY'
+  );
+
+  if (!secretKey) {
+    throw new HttpsError("failed-precondition", `Stripe secret key for '${apiMode}' mode is not configured.`);
+  }
+
+  return new (StripeSDK as any)(secretKey);
+}
+
+/**
+ * Creates a Stripe PaymentIntent (for one-time payments) or Subscription (for monthly),
+ * and returns the clientSecret for frontend confirmation via Stripe Elements.
+ */
+
+/**
+ * Syncs a device's pricing plans to Stripe as Products and Prices.
+ * Creates 3 Products (one per plan: 3m, 6m, 12m) with 2 Prices each (monthly + full).
+ * Saves the generated IDs back to the device document.
+ */
+export const syncDeviceToStripe = onCall(async (request) => {
+  const { deviceId } = request.data;
+  if (!deviceId) {
+    throw new HttpsError("invalid-argument", "deviceId is required.");
+  }
+
+  log(`[syncDeviceToStripe] Called for device: ${deviceId}`);
+  const db = getFirestore();
+
+  try {
+    const deviceDoc = await db.collection('devices').doc(deviceId).get();
+    if (!deviceDoc.exists) {
+      throw new HttpsError("not-found", "Device not found.");
+    }
+    const device = deviceDoc.data()!;
+    const stripe = await getStripeClient();
+
+    const terms = ['3m', '6m', '12m'] as const;
+    const stripeProducts: Record<string, any> = {};
+
+    for (const term of terms) {
+      const months = term === '3m' ? 3 : term === '6m' ? 6 : 12;
+      const pricing = device.price?.[term];
+      if (!pricing) continue;
+
+      const existing = device.stripeProducts?.[term];
+      let productId = existing?.productId;
+
+      // Create or reuse Product
+      if (!productId) {
+        const product = await stripe.products.create({
+          name: `${device.type || device.name} - ${months}ヶ月プラン`,
+          metadata: { deviceId, term, deviceType: device.type || '' },
+        });
+        productId = product.id;
+        log(`[syncDeviceToStripe] Created Product: ${productId} for ${term}`);
+      }
+
+      // Monthly recurring Price — create or update if amount changed
+      let monthlyPriceId = existing?.monthlyPriceId;
+      if (pricing.monthly > 0) {
+        let needsNewMonthly = !monthlyPriceId;
+        if (monthlyPriceId) {
+          // Check if amount changed
+          try {
+            const existingPrice = await stripe.prices.retrieve(monthlyPriceId);
+            if (existingPrice.unit_amount !== pricing.monthly) {
+              // Archive old price, create new one
+              await stripe.prices.update(monthlyPriceId, { active: false });
+              log(`[syncDeviceToStripe] Archived old monthly Price: ${monthlyPriceId} (was ¥${existingPrice.unit_amount})`);
+              needsNewMonthly = true;
+            }
+          } catch { needsNewMonthly = true; }
+        }
+        if (needsNewMonthly) {
+          const monthlyPrice = await stripe.prices.create({
+            product: productId,
+            unit_amount: pricing.monthly,
+            currency: 'jpy',
+            recurring: { interval: 'month' },
+            metadata: { deviceId, term, payType: 'monthly' },
+          });
+          monthlyPriceId = monthlyPrice.id;
+          log(`[syncDeviceToStripe] Created monthly Price: ${monthlyPriceId} (¥${pricing.monthly})`);
+        }
+      }
+
+      // Full one-time Price — create or update if amount changed
+      let fullPriceId = existing?.fullPriceId;
+      if (pricing.full > 0) {
+        let needsNewFull = !fullPriceId;
+        if (fullPriceId) {
+          try {
+            const existingPrice = await stripe.prices.retrieve(fullPriceId);
+            if (existingPrice.unit_amount !== pricing.full) {
+              await stripe.prices.update(fullPriceId, { active: false });
+              log(`[syncDeviceToStripe] Archived old full Price: ${fullPriceId} (was ¥${existingPrice.unit_amount})`);
+              needsNewFull = true;
+            }
+          } catch { needsNewFull = true; }
+        }
+        if (needsNewFull) {
+          const fullPrice = await stripe.prices.create({
+            product: productId,
+            unit_amount: pricing.full,
+            currency: 'jpy',
+            metadata: { deviceId, term, payType: 'full' },
+          });
+          fullPriceId = fullPrice.id;
+          log(`[syncDeviceToStripe] Created full Price: ${fullPriceId} (¥${pricing.full})`);
+        }
+      }
+
+      stripeProducts[term] = { productId, monthlyPriceId, fullPriceId };
+    }
+
+    // Save back to Firestore
+    await db.collection('devices').doc(deviceId).update({
+      stripeProducts,
+      updatedAt: Timestamp.now(),
+    });
+
+    log(`[syncDeviceToStripe] Sync complete for ${deviceId}`);
+    return { status: 'success', stripeProducts };
+
+  } catch (error: any) {
+    log("[syncDeviceToStripe] ERROR:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", error.message || "Failed to sync device to Stripe.");
+  }
+});
+
+export const createStripePayment = onCall(async (request) => {
+  const { paymentLinkId, userId } = request.data;
+
+  if (!paymentLinkId || !userId) {
+    throw new HttpsError("invalid-argument", "paymentLinkId and userId are required.");
+  }
+
+  log(`[createStripePayment] Called for paymentLink: ${paymentLinkId}, user: ${userId}`);
+  const db = getFirestore();
+
+  try {
+    // 1. Get payment link data
+    const linkDoc = await db.collection('paymentLinks').doc(paymentLinkId).get();
+    if (!linkDoc.exists) {
+      throw new HttpsError("not-found", "Payment link not found.");
+    }
+    const link = linkDoc.data()!;
+
+    // 2. Get user data
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User not found.");
+    }
+    const userData = userDoc.data()!;
+
+    // 3. Get application data
+    const appDoc = await db.collection('applications').doc(link.applicationId).get();
+    const appData = appDoc.exists ? appDoc.data()! : {};
+
+    // 4. Initialize Stripe
+    const stripe = await getStripeClient();
+
+    // 5. Get or create Stripe customer
+    let stripeCustomerId = userData.stripeCustomerId;
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: userData.email,
+        name: `${userData.familyName || ''} ${userData.givenName || ''}`.trim(),
+        phone: userData.tel,
+        metadata: { firebaseUserId: userId },
+      });
+      stripeCustomerId = customer.id;
+      log(`[createStripePayment] Created Stripe customer: ${stripeCustomerId}`);
+    } else {
+      // Update card info by letting Elements handle it
+      log(`[createStripePayment] Reusing existing Stripe customer: ${stripeCustomerId}`);
+    }
+
+    const amount = link.payAmount || 0;
+    const deviceName = link.deviceName || 'TimeWaver Rental';
+
+    let clientSecret: string;
+    let paymentIntentId: string = '';
+
+    if (link.payType === 'full') {
+      // --- One-time payment via PaymentIntent ---
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount,
+        currency: 'jpy',
+        customer: stripeCustomerId,
+        description: `Rental: ${deviceName}`,
+        metadata: {
+          paymentLinkId,
+          applicationId: link.applicationId,
+          deviceId: link.deviceId || '',
+          payType: 'full',
+        },
+        automatic_payment_methods: { enabled: true },
+      });
+
+      clientSecret = paymentIntent.client_secret!;
+      paymentIntentId = paymentIntent.id;
+      log(`[createStripePayment] Created full PaymentIntent: ${paymentIntent.id}`);
+    } else {
+      // --- Monthly: charge 1st month + save card for future subscription ---
+      // Look up the device's pre-created Stripe priceId to avoid duplicates
+      let monthlyPriceId: string | null = null;
+      if (link.deviceId) {
+        const deviceDoc = await db.collection('devices').doc(link.deviceId).get();
+        if (deviceDoc.exists) {
+          const deviceData = deviceDoc.data()!;
+          // Determine which term (3m, 6m, 12m) from rentalPeriod
+          const rentalPeriod = appData.rentalPeriod || 12;
+          const termKey = rentalPeriod <= 3 ? '3m' : rentalPeriod <= 6 ? '6m' : '12m';
+          monthlyPriceId = deviceData.stripeProducts?.[termKey]?.monthlyPriceId || null;
+          log(`[createStripePayment] Device priceId for ${termKey}: ${monthlyPriceId}`);
+        }
+      }
+
+      const rentalMonths = appData.rentalPeriod || 12;
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount,
+        currency: 'jpy',
+        customer: stripeCustomerId,
+        description: `Monthly Rental (1st month): ${deviceName}`,
+        metadata: {
+          paymentLinkId,
+          applicationId: link.applicationId,
+          deviceId: link.deviceId || '',
+          payType: 'monthly',
+          rentalMonths: String(rentalMonths),
+          monthlyPriceId: monthlyPriceId || '',
+        },
+        automatic_payment_methods: { enabled: true },
+        setup_future_usage: 'off_session',
+      });
+
+      clientSecret = paymentIntent.client_secret!;
+      paymentIntentId = paymentIntent.id;
+      log(`[createStripePayment] Created monthly PaymentIntent: ${paymentIntent.id} (¥${amount}), priceId: ${monthlyPriceId}`);
+    }
+
+    return {
+      clientSecret,
+      stripeCustomerId,
+      paymentIntentId,
+    };
+
+  } catch (error: any) {
+    log("[createStripePayment] ERROR:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", error.message || "Failed to create payment.");
+  }
+});
+
+/**
+ * Creates a Stripe Subscription for monthly plans AFTER the first month's PaymentIntent succeeds.
+ * Uses the saved payment method from the initial charge to enable recurring billing.
+ * Called by the frontend after confirmCardPayment succeeds for monthly payType.
+ */
+export const createStripeSubscription = onCall(async (request) => {
+  const { stripeCustomerId, monthlyPriceId, paymentIntentId, firestoreSubscriptionId } = request.data;
+
+  if (!stripeCustomerId || !monthlyPriceId || !paymentIntentId) {
+    throw new HttpsError("invalid-argument", "stripeCustomerId, monthlyPriceId, and paymentIntentId are required.");
+  }
+
+  log(`[createStripeSubscription] Customer: ${stripeCustomerId}, Price: ${monthlyPriceId}`);
+
+  try {
+    const stripe = await getStripeClient();
+    const db = getFirestore();
+
+    // 1. Get the payment method from the successful PaymentIntent
+    const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const paymentMethodId = typeof pi.payment_method === 'string' ? pi.payment_method : (pi.payment_method as any)?.id;
+
+    if (!paymentMethodId) {
+      throw new HttpsError("failed-precondition", "No payment method found on PaymentIntent.");
+    }
+
+    // 2. Set as default payment method on the customer
+    await stripe.customers.update(stripeCustomerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+
+    // 3. Create the subscription starting from next billing cycle
+    // (first month already paid via PaymentIntent)
+    const now = new Date();
+    const nextMonth = new Date(now);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    nextMonth.setDate(nextMonth.getDate() > 28 ? 28 : nextMonth.getDate());
+
+    const subscription = await stripe.subscriptions.create({
+      customer: stripeCustomerId,
+      items: [{ price: monthlyPriceId }],
+      default_payment_method: paymentMethodId,
+      billing_cycle_anchor: Math.floor(nextMonth.getTime() / 1000),
+      proration_behavior: 'none',
+      metadata: {
+        firestoreSubscriptionId: firestoreSubscriptionId || '',
+        paymentIntentId,
+      },
+    });
+
+    log(`[createStripeSubscription] Created Subscription: ${subscription.id}`);
+
+    // 4. Update Firestore subscription doc with Stripe IDs
+    if (firestoreSubscriptionId) {
+      await db.collection('subscriptions').doc(firestoreSubscriptionId).update({
+        stripeSubscriptionId: subscription.id,
+        stripePaymentIntentId: paymentIntentId,
+        stripeCustomerId,
+        updatedAt: Timestamp.now(),
+      });
+      log(`[createStripeSubscription] Updated Firestore sub: ${firestoreSubscriptionId}`);
+    }
+
+    return {
+      status: 'success',
+      stripeSubscriptionId: subscription.id,
+    };
+
+  } catch (error: any) {
+    log("[createStripeSubscription] ERROR:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", error.message || "Failed to create subscription.");
+  }
+});
+
+/**
+ * Fetches payment data from Stripe API.
+ * Modes: get-payment-by-id (PaymentIntent), get-subscription (Subscription), get-invoices (Invoice list)
+ */
 export const getPaymentData = onCall(async (request) => {
   const {mode, data} = request.data;
-  const {paymentId, recurringId} = data || {};
+  const {paymentIntentId, subscriptionId} = data || {};
 
   log("[getPaymentData] Called with mode:", mode, "and data:", data);
 
   try {
-    // 1. Get mode from Firestore (non-sensitive)
-    const db = getFirestore();
-    const settingsDoc = await db.collection('settings').doc('global').get();
+    const stripe = await getStripeClient();
 
-    if (!settingsDoc.exists) {
-      log("[getPaymentData] FATAL: Global settings document not found.");
-      throw new HttpsError("failed-precondition", "System settings are not configured.");
-    }
-
-    const settings = settingsDoc.data() as GlobalSettings;
-    const apiMode = settings.mode || 'test';
-
-    log(`[getPaymentData] Operating in '${apiMode}' mode.`);
-
-    // 2. Get API credentials from Secret Manager
-    const isTest = apiMode === 'test';
-    const apiKey = await getSecretValue(isTest ? 'FIRSTPAY_TEST_API_KEY' : 'FIRSTPAY_PROD_API_KEY');
-    const bearerToken = await getSecretValue(isTest ? 'FIRSTPAY_TEST_BEARER_TOKEN' : 'FIRSTPAY_PROD_BEARER_TOKEN');
-    const baseURL = isTest ? 'https://dev.api.firstpay.jp' : 'https://www.api.firstpay.jp';
-
-    if (!apiKey || !bearerToken) {
-      log("[getPaymentData] FATAL: API key or bearer token is missing in Secret Manager.");
-      throw new HttpsError("failed-precondition", `API credentials for '${apiMode}' mode are not configured in Secret Manager.`);
-    }
-
-    // 3. Construct the API request
-    let endpoint = '';
+    let result: any;
     switch (mode) {
-      case 'get-all-payments':
-        endpoint = '/charge';
-        break;
       case 'get-payment-by-id':
-        if (!paymentId) throw new HttpsError("invalid-argument", "Payment ID is required.");
-        endpoint = `/charge/${paymentId}`;
+        if (!paymentIntentId) throw new HttpsError("invalid-argument", "paymentIntentId is required.");
+        result = await stripe.paymentIntents.retrieve(paymentIntentId);
         break;
-      case 'get-recurring-history':
-        if (!recurringId) throw new HttpsError("invalid-argument", "Recurring ID is required.");
-        endpoint = `/recurring/${recurringId}/history`;
+      case 'get-subscription':
+        if (!subscriptionId) throw new HttpsError("invalid-argument", "subscriptionId is required.");
+        result = await stripe.subscriptions.retrieve(subscriptionId);
         break;
-      case 'get-payment-by-customer':
-        throw new HttpsError("unimplemented", "'get-payment-by-customer' is not supported by the API documentation.");
+      case 'get-invoices':
+        if (!subscriptionId) throw new HttpsError("invalid-argument", "subscriptionId is required.");
+        result = await stripe.invoices.list({ subscription: subscriptionId, limit: 100 });
+        break;
       default:
         throw new HttpsError("invalid-argument", "Invalid mode specified.");
     }
 
-    const finalURL = baseURL + endpoint;
-    log(`[getPaymentData] Making GET request to: ${finalURL}`);
+    log("[getPaymentData] Success.");
+    return { status: 'success', data: result };
 
-    // 4. Make the API call with Authorization headers
-    const response = await axios.get(finalURL, {
-      headers: {
-        'FIRSTPAY-PAYMENT-API-KEY': apiKey,
-        'Authorization': `Bearer ${bearerToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    // 5. Return the data from FirstPay
-    log("[getPaymentData] Success: Received data from FirstPay API.", response.data);
-    return { status: 'success', data: response.data };
-
-  } catch (error) {
-    // 6. Detailed error logging
-    log("[getPaymentData] ERROR caught:", error);
-
-    if (axios.isAxiosError(error)) {
-      log("[getPaymentData] Axios error details:", {
-        message: error.message,
-        code: error.code,
-        status: error.response?.status,
-        data: error.response?.data
-      });
-      throw new HttpsError(
-        "unknown",
-        `Error from payment gateway: ${error.response?.status || error.code}. Check function logs for details.`,
-        error.response?.data
-      );
-    } else if (error instanceof HttpsError) {
-      throw error;
-    } else {
-      throw new HttpsError("internal", "An unexpected internal server error occurred. Please check function logs.");
-    }
+  } catch (error: any) {
+    log("[getPaymentData] ERROR:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", error.message || "Failed to fetch payment data.");
   }
 });
 
@@ -297,36 +590,17 @@ export const getSubscriptionsList = onCall(async (request) => {
 });
 
 /**
- * Syncs payment data from FirstPay API for all subscriptions in Firestore.
- * For each subscription, fetches the latest status from FirstPay and updates Firestore.
+ * Syncs payment data from Stripe API for all subscriptions in Firestore.
+ * For each subscription, fetches the latest status from Stripe and updates Firestore.
+ * Also handles auto-expiry and renewal reminders.
  */
 export const syncPaymentData = onCall(async (request) => {
   log("[syncPaymentData] Function called.");
   const db = getFirestore();
 
   try {
-    // 1. Get mode and credentials
-    const settingsDoc = await db.collection('settings').doc('global').get();
-    if (!settingsDoc.exists) {
-      throw new HttpsError("failed-precondition", "System settings are not configured.");
-    }
-    const settings = settingsDoc.data() as GlobalSettings;
-    const apiMode = settings.mode || 'test';
-    const isTest = apiMode === 'test';
-
-    const apiKey = await getSecretValue(isTest ? 'FIRSTPAY_TEST_API_KEY' : 'FIRSTPAY_PROD_API_KEY');
-    const bearerToken = await getSecretValue(isTest ? 'FIRSTPAY_TEST_BEARER_TOKEN' : 'FIRSTPAY_PROD_BEARER_TOKEN');
-    const baseURL = isTest ? 'https://dev.api.firstpay.jp' : 'https://www.api.firstpay.jp';
-
-    if (!apiKey || !bearerToken) {
-      throw new HttpsError("failed-precondition", `API credentials for '${apiMode}' mode are not configured.`);
-    }
-
-    const headers = {
-      'FIRSTPAY-PAYMENT-API-KEY': apiKey,
-      'Authorization': `Bearer ${bearerToken}`,
-      'Content-Type': 'application/json'
-    };
+    // 1. Initialize Stripe
+    const stripe = await getStripeClient();
 
     // 2. Get all subscriptions from Firestore
     const subscriptionsSnapshot = await db.collection('subscriptions').get();
@@ -334,7 +608,7 @@ export const syncPaymentData = onCall(async (request) => {
 
     const results: { synced: number; errors: number; details: any[] } = { synced: 0, errors: 0, details: [] };
 
-    // 3. For each subscription, fetch data from FirstPay
+    // 3. For each subscription, fetch data from Stripe
     for (const subDoc of subscriptionsSnapshot.docs) {
       const sub = subDoc.data();
       const subId = subDoc.id;
@@ -342,40 +616,36 @@ export const syncPaymentData = onCall(async (request) => {
       try {
         const updates: Record<string, any> = {};
 
-        // Sync recurring subscription status
-        if (sub.recurringId) {
-          const recurringRes = await axios.get(`${baseURL}/recurring/${sub.recurringId}`, { headers });
-          const recurring = recurringRes.data;
+        // Sync Stripe subscription status
+        if (sub.stripeSubscriptionId) {
+          const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
 
-          updates.firstpayRecurringStatus = {
-            isActive: recurring.isActive,
-            nextRecurringAt: recurring.nextRecurringAt || null,
-            payAmount: recurring.payAmount,
-            cycle: recurring.cycle,
-            remainingExecutionNumber: recurring.remainingExecutionNumber ?? null,
+          updates.stripeStatus = {
+            status: stripeSub.status,
+            currentPeriodEnd: new Date((stripeSub as any).current_period_end * 1000).toISOString(),
+            cancelAt: (stripeSub as any).cancel_at ? new Date((stripeSub as any).cancel_at * 1000).toISOString() : null,
             lastSyncedAt: new Date().toISOString(),
           };
 
-          // Update subscription status based on FirstPay isActive
-          if (recurring.isActive === false && sub.status === 'active') {
+          // Update local status based on Stripe status
+          if (['canceled', 'unpaid', 'incomplete_expired'].includes(stripeSub.status) && sub.status === 'active') {
             updates.status = 'completed';
           }
 
-          results.details.push({ id: subId, type: 'recurring', synced: true, isActive: recurring.isActive });
+          results.details.push({ id: subId, type: 'subscription', synced: true, stripeStatus: stripeSub.status });
         }
 
-        // Sync one-time payment status
-        if (sub.paymentId) {
-          const paymentRes = await axios.get(`${baseURL}/charge/${sub.paymentId}`, { headers });
-          const payment = paymentRes.data;
+        // Sync one-time PaymentIntent status
+        if (sub.stripePaymentIntentId) {
+          const pi = await stripe.paymentIntents.retrieve(sub.stripePaymentIntentId);
 
-          updates.firstpayPaymentStatus = {
-            paymentStatus: payment.paymentStatus,
-            amount: payment.amount,
+          updates.stripeStatus = {
+            status: pi.status,
+            amount: pi.amount,
             lastSyncedAt: new Date().toISOString(),
           };
 
-          results.details.push({ id: subId, type: 'payment', synced: true, status: payment.paymentStatus });
+          results.details.push({ id: subId, type: 'payment_intent', synced: true, status: pi.status });
         }
 
         // Write updates to Firestore
@@ -386,9 +656,8 @@ export const syncPaymentData = onCall(async (request) => {
         }
       } catch (err: any) {
         results.errors++;
-        const errMsg = axios.isAxiosError(err) ? `${err.response?.status}: ${JSON.stringify(err.response?.data)}` : err.message;
-        log(`[syncPaymentData] Error syncing ${subId}:`, errMsg);
-        results.details.push({ id: subId, synced: false, error: errMsg });
+        log(`[syncPaymentData] Error syncing ${subId}:`, err.message);
+        results.details.push({ id: subId, synced: false, error: err.message });
       }
     }
 
@@ -502,8 +771,8 @@ export const syncPaymentData = onCall(async (request) => {
 });
 
 /**
- * Stops a recurring subscription via FirstPay API.
- * DELETE /recurring/{recurringId} — sets isActive to false.
+ * Stops a recurring subscription via Stripe API.
+ * Immediately cancels the subscription.
  * Also updates the subscription status in Firestore.
  */
 export const stopRecurringPayment = onCall(async (request) => {
@@ -522,39 +791,19 @@ export const stopRecurringPayment = onCall(async (request) => {
     }
     const sub = subDoc.data()!;
 
-    if (!sub.recurringId) {
-      throw new HttpsError("failed-precondition", "This subscription does not have a recurringId.");
+    if (!sub.stripeSubscriptionId) {
+      throw new HttpsError("failed-precondition", "This subscription does not have a stripeSubscriptionId.");
     }
 
-    // Get credentials
-    const settingsDoc = await db.collection('settings').doc('global').get();
-    const settings = settingsDoc.data() as GlobalSettings;
-    const apiMode = settings?.mode || 'test';
-    const isTest = apiMode === 'test';
-
-    const apiKey = await getSecretValue(isTest ? 'FIRSTPAY_TEST_API_KEY' : 'FIRSTPAY_PROD_API_KEY');
-    const bearerToken = await getSecretValue(isTest ? 'FIRSTPAY_TEST_BEARER_TOKEN' : 'FIRSTPAY_PROD_BEARER_TOKEN');
-    const baseURL = isTest ? 'https://dev.api.firstpay.jp' : 'https://www.api.firstpay.jp';
-
-    if (!apiKey || !bearerToken) {
-      throw new HttpsError("failed-precondition", "API credentials are not configured.");
-    }
-
-    // Call FirstPay DELETE /recurring/{recurringId}
-    const response = await axios.delete(`${baseURL}/recurring/${sub.recurringId}`, {
-      headers: {
-        'FIRSTPAY-PAYMENT-API-KEY': apiKey,
-        'Authorization': `Bearer ${bearerToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    log(`[stopRecurringPayment] FirstPay response:`, JSON.stringify(response.data));
+    // Cancel via Stripe API (immediate cancellation)
+    const stripe = await getStripeClient();
+    const canceledSub = await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+    log(`[stopRecurringPayment] Stripe response: status=${canceledSub.status}`);
 
     // Update subscription in Firestore
     await db.collection('subscriptions').doc(subscriptionId).update({
       status: 'canceled',
-      'firstpayRecurringStatus.isActive': false,
+      'stripeStatus.status': 'canceled',
       updatedAt: Timestamp.now(),
     });
 
@@ -588,33 +837,23 @@ export const stopRecurringPayment = onCall(async (request) => {
 
   } catch (error: any) {
     log("[stopRecurringPayment] ERROR:", error);
-    if (axios.isAxiosError(error)) {
-      throw new HttpsError("unknown", `FirstPay API error: ${error.response?.status} ${JSON.stringify(error.response?.data)}`);
-    }
     if (error instanceof HttpsError) throw error;
-    throw new HttpsError("internal", "Failed to stop recurring payment.");
+    throw new HttpsError("internal", error.message || "Failed to stop recurring payment.");
   }
 });
 
 /**
- * Refunds a payment via FirstPay API.
- * - For one-time charges: POST /refund/{paymentId}
- * - For recurring history: PUT /recurring/{recurringId}/history/{historyId}/refund
+ * Refunds a payment via Stripe API.
+ * Uses stripe.refunds.create() with the PaymentIntent ID.
  */
 export const refundPayment = onCall(async (request) => {
-  const { subscriptionId, paymentId, historyId, type } = request.data;
+  const { subscriptionId, paymentIntentId } = request.data;
 
-  if (!subscriptionId) {
-    throw new HttpsError("invalid-argument", "subscriptionId is required.");
-  }
-  if (type === 'charge' && !paymentId) {
-    throw new HttpsError("invalid-argument", "paymentId is required for charge refund.");
-  }
-  if (type === 'recurring' && (!historyId)) {
-    throw new HttpsError("invalid-argument", "historyId is required for recurring refund.");
+  if (!subscriptionId || !paymentIntentId) {
+    throw new HttpsError("invalid-argument", "subscriptionId and paymentIntentId are required.");
   }
 
-  log(`[refundPayment] Called: type=${type}, subscriptionId=${subscriptionId}, paymentId=${paymentId}, historyId=${historyId}`);
+  log(`[refundPayment] Called: subscriptionId=${subscriptionId}, paymentIntentId=${paymentIntentId}`);
   const db = getFirestore();
 
   try {
@@ -622,56 +861,23 @@ export const refundPayment = onCall(async (request) => {
     if (!subDoc.exists) {
       throw new HttpsError("not-found", "Subscription not found.");
     }
-    const sub = subDoc.data()!;
 
-    // Get credentials
-    const settingsDoc = await db.collection('settings').doc('global').get();
-    const settings = settingsDoc.data() as GlobalSettings;
-    const apiMode = settings?.mode || 'test';
-    const isTest = apiMode === 'test';
+    const stripe = await getStripeClient();
+    const refund = await stripe.refunds.create({
+      payment_intent: paymentIntentId,
+    });
 
-    const apiKey = await getSecretValue(isTest ? 'FIRSTPAY_TEST_API_KEY' : 'FIRSTPAY_PROD_API_KEY');
-    const bearerToken = await getSecretValue(isTest ? 'FIRSTPAY_TEST_BEARER_TOKEN' : 'FIRSTPAY_PROD_BEARER_TOKEN');
-    const baseURL = isTest ? 'https://dev.api.firstpay.jp' : 'https://www.api.firstpay.jp';
+    log(`[refundPayment] Stripe refund created: ${refund.id}, status: ${refund.status}`);
 
-    if (!apiKey || !bearerToken) {
-      throw new HttpsError("failed-precondition", "API credentials are not configured.");
-    }
-
-    const headers = {
-      'FIRSTPAY-PAYMENT-API-KEY': apiKey,
-      'Authorization': `Bearer ${bearerToken}`,
-      'Content-Type': 'application/json'
-    };
-
-    let response;
-
-    if (type === 'charge') {
-      // POST /refund/{paymentId}
-      response = await axios.post(`${baseURL}/refund/${paymentId}`, {}, { headers });
-      log(`[refundPayment] Charge refund response:`, JSON.stringify(response.data));
-    } else if (type === 'recurring') {
-      // PUT /recurring/{recurringId}/history/{historyId}/refund
-      const recurringId = sub.recurringId;
-      if (!recurringId) {
-        throw new HttpsError("failed-precondition", "Subscription has no recurringId.");
-      }
-      response = await axios.put(`${baseURL}/recurring/${recurringId}/history/${historyId}/refund`, {}, { headers });
-      log(`[refundPayment] Recurring refund response:`, JSON.stringify(response.data));
-    } else {
-      throw new HttpsError("invalid-argument", "Invalid refund type. Must be 'charge' or 'recurring'.");
-    }
-
-    // Update subscription document with refund info
+    // Record refund in Firestore
     const refundRecord = {
-      type,
-      paymentId: paymentId || null,
-      historyId: historyId || null,
+      refundId: refund.id,
+      paymentIntentId,
+      amount: refund.amount,
+      status: refund.status,
       refundedAt: new Date().toISOString(),
-      apiResponse: response.data,
     };
 
-    // Add to refundHistory array in Firestore
     const subRef = db.collection('subscriptions').doc(subscriptionId);
     const currentDoc = await subRef.get();
     const existingRefunds = currentDoc.data()?.refundHistory || [];
@@ -683,23 +889,20 @@ export const refundPayment = onCall(async (request) => {
     return {
       status: 'success',
       message: '返金処理が完了しました。',
-      data: response.data,
+      data: { refundId: refund.id, status: refund.status, amount: refund.amount },
     };
 
   } catch (error: any) {
     log("[refundPayment] ERROR:", error);
-    if (axios.isAxiosError(error)) {
-      throw new HttpsError("unknown", `FirstPay API error: ${error.response?.status} ${JSON.stringify(error.response?.data)}`);
-    }
     if (error instanceof HttpsError) throw error;
-    throw new HttpsError("internal", "Refund failed.");
+    throw new HttpsError("internal", error.message || "Refund failed.");
   }
 });
 
 /**
- * Fetches payment history for a specific subscription from FirstPay API.
- * For recurring: GET /recurring/{recurringId}/history
- * For one-time: GET /charge/{paymentId}
+ * Fetches payment history for a specific subscription from Stripe API.
+ * For subscriptions: retrieves invoices list.
+ * For one-time: retrieves the PaymentIntent.
  * Also returns subscription metadata from Firestore for context.
  */
 export const getPaymentHistory = onCall(async (request) => {
@@ -719,25 +922,8 @@ export const getPaymentHistory = onCall(async (request) => {
     }
     const sub = subDoc.data()!;
 
-    // 2. Get credentials
-    const settingsDoc = await db.collection('settings').doc('global').get();
-    const settings = settingsDoc.data() as GlobalSettings;
-    const apiMode = settings?.mode || 'test';
-    const isTest = apiMode === 'test';
-
-    const apiKey = await getSecretValue(isTest ? 'FIRSTPAY_TEST_API_KEY' : 'FIRSTPAY_PROD_API_KEY');
-    const bearerToken = await getSecretValue(isTest ? 'FIRSTPAY_TEST_BEARER_TOKEN' : 'FIRSTPAY_PROD_BEARER_TOKEN');
-    const baseURL = isTest ? 'https://dev.api.firstpay.jp' : 'https://www.api.firstpay.jp';
-
-    if (!apiKey || !bearerToken) {
-      throw new HttpsError("failed-precondition", `API credentials for '${apiMode}' mode are not configured.`);
-    }
-
-    const headers = {
-      'FIRSTPAY-PAYMENT-API-KEY': apiKey,
-      'Authorization': `Bearer ${bearerToken}`,
-      'Content-Type': 'application/json'
-    };
+    // 2. Initialize Stripe
+    const stripe = await getStripeClient();
 
     // 3. Build subscription info
     const toISO = (ts: any) => {
@@ -749,80 +935,67 @@ export const getPaymentHistory = onCall(async (request) => {
 
     const subscriptionInfo = {
       id: subDoc.id,
-      customerId: sub.customerId || null,
+      stripeCustomerId: sub.stripeCustomerId || null,
       payType: sub.payType || null,
       payAmount: sub.payAmount || 0,
       rentalMonths: sub.rentalMonths || null,
-      recurringId: sub.recurringId || null,
-      paymentId: sub.paymentId || null,
+      stripeSubscriptionId: sub.stripeSubscriptionId || null,
+      stripePaymentIntentId: sub.stripePaymentIntentId || null,
       status: sub.status,
       startAt: toISO(sub.startAt),
       endAt: toISO(sub.endAt),
     };
 
-    // 4. Fetch history from FirstPay
+    // 4. Fetch history from Stripe
     let history: any[] = [];
-    let recurringDetails: any = null;
+    let stripeDetails: any = null;
 
-    // Fetch one-time payment details first (initial charge)
-    if (sub.paymentId) {
+    // For one-time payments — fetch PaymentIntent
+    if (sub.stripePaymentIntentId) {
       try {
-        const paymentRes = await axios.get(`${baseURL}/charge/${sub.paymentId}`, { headers });
-        log(`[getPaymentHistory] Charge API response:`, JSON.stringify(paymentRes.data));
-        const paymentData = paymentRes.data;
+        const pi = await stripe.paymentIntents.retrieve(sub.stripePaymentIntentId);
         history.push({
-          historyId: null,
-          paymentId: paymentData.paymentId || sub.paymentId,
-          paymentStatus: paymentData.paymentStatus || 'UNKNOWN',
-          amount: paymentData.amount || sub.payAmount,
+          id: pi.id,
           type: 'charge',
-          errors: paymentData.errors || [],
+          status: pi.status,
+          amount: pi.amount,
+          created: new Date((pi as any).created * 1000).toISOString(),
         });
       } catch (err: any) {
-        log(`[getPaymentHistory] Failed to fetch charge:`, err.message, err.response?.data);
+        log(`[getPaymentHistory] Failed to fetch PaymentIntent:`, err.message);
       }
     }
 
-    if (sub.recurringId) {
-      // Fetch recurring details
+    // For subscriptions — fetch invoices
+    if (sub.stripeSubscriptionId) {
       try {
-        const recurringRes = await axios.get(`${baseURL}/recurring/${sub.recurringId}`, { headers });
-        log(`[getPaymentHistory] Recurring details response:`, JSON.stringify(recurringRes.data));
-        recurringDetails = recurringRes.data;
+        const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+        stripeDetails = {
+          status: stripeSub.status,
+          currentPeriodEnd: new Date((stripeSub as any).current_period_end * 1000).toISOString(),
+          cancelAt: (stripeSub as any).cancel_at ? new Date((stripeSub as any).cancel_at * 1000).toISOString() : null,
+        };
       } catch (err: any) {
-        log(`[getPaymentHistory] Failed to fetch recurring details:`, err.message, err.response?.data);
+        log(`[getPaymentHistory] Failed to fetch subscription:`, err.message);
       }
 
-      // Add initial payment (currentlyPayAmount) as first history entry
-      if (recurringDetails && recurringDetails.currentlyPayAmount) {
-        history.push({
-          historyId: null,
-          paymentId: null,
-          paymentStatus: 'SOLD',
-          amount: recurringDetails.currentlyPayAmount,
-          type: 'initial',
-          label: '初回決済（契約開始時）',
-          errors: [],
-        });
-      }
-
-      // Fetch recurring execution history
       try {
-        const historyRes = await axios.get(`${baseURL}/recurring/${sub.recurringId}/history`, { headers });
-        log(`[getPaymentHistory] Recurring history response:`, JSON.stringify(historyRes.data));
-        const rawHistory = Array.isArray(historyRes.data) ? historyRes.data : [historyRes.data];
-        for (const entry of rawHistory) {
+        const invoices = await stripe.invoices.list({
+          subscription: sub.stripeSubscriptionId,
+          limit: 100,
+        });
+        for (const inv of invoices.data) {
           history.push({
-            historyId: entry.historyId || null,
-            paymentId: null,
-            paymentStatus: entry.paymentStatus || 'UNKNOWN',
-            amount: entry.amount || 0,
-            type: 'recurring',
-            errors: entry.errors || [],
+            id: inv.id,
+            type: 'invoice',
+            status: inv.status,
+            amount: inv.amount_paid || inv.amount_due,
+            created: new Date((inv as any).created * 1000).toISOString(),
+            paymentIntentId: typeof inv.payment_intent === 'string' ? inv.payment_intent : (inv.payment_intent as any)?.id || null,
           });
         }
       } catch (err: any) {
-        log(`[getPaymentHistory] Failed to fetch recurring history:`, err.message, err.response?.data);
+        log(`[getPaymentHistory] Failed to fetch invoices:`, err.message);
       }
     }
 
@@ -839,7 +1012,7 @@ export const getPaymentHistory = onCall(async (request) => {
     return {
       subscription: subscriptionInfo,
       customerName,
-      recurringDetails,
+      stripeDetails,
       history,
     };
 
@@ -847,6 +1020,186 @@ export const getPaymentHistory = onCall(async (request) => {
     log("[getPaymentHistory] ERROR:", error);
     if (error instanceof HttpsError) throw error;
     throw new HttpsError("internal", "Failed to fetch payment history.");
+  }
+});
+
+/**
+ * Stripe Webhook handler — receives real-time events from Stripe.
+ * Must be an HTTP function (onRequest), not onCall.
+ * Verifies the webhook signature using STRIPE_WEBHOOK_SECRET.
+ */
+export const stripeWebhook = onRequest({ cors: false }, async (req, res) => {
+  if (req.method !== 'POST') {
+    res.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  const db = getFirestore();
+
+  try {
+    // 1. Get webhook secret
+    const webhookSecret = await getSecretValue('STRIPE_WEBHOOK_SECRET');
+    const stripe = await getStripeClient();
+
+    // 2. Verify signature
+    let event: any;
+    if (webhookSecret) {
+      const sig = req.headers['stripe-signature'] as string;
+      try {
+        event = stripe.webhooks.constructEvent(req.rawBody, sig, webhookSecret);
+      } catch (err: any) {
+        log(`[stripeWebhook] Signature verification failed:`, err.message);
+        res.status(400).send(`Webhook Error: ${err.message}`);
+        return;
+      }
+    } else {
+      // No webhook secret configured — accept without verification (test mode only)
+      event = req.body;
+      log('[stripeWebhook] WARNING: No webhook secret configured, accepting without verification.');
+    }
+
+    log(`[stripeWebhook] Event: ${event.type}, ID: ${event.id}`);
+
+    // 3. Handle events
+    switch (event.type) {
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        const subId = invoice.subscription;
+        if (subId) {
+          // Find Firestore subscription by stripeSubscriptionId
+          const subsSnap = await db.collection('subscriptions')
+            .where('stripeSubscriptionId', '==', subId)
+            .limit(1).get();
+          if (!subsSnap.empty) {
+            const subDoc = subsSnap.docs[0];
+            await subDoc.ref.update({
+              'stripeStatus.status': 'active',
+              'stripeStatus.lastSyncedAt': new Date().toISOString(),
+              updatedAt: Timestamp.now(),
+            });
+            log(`[stripeWebhook] invoice.payment_succeeded: Updated sub ${subDoc.id}`);
+          }
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        const subId = invoice.subscription;
+        if (subId) {
+          const subsSnap = await db.collection('subscriptions')
+            .where('stripeSubscriptionId', '==', subId)
+            .limit(1).get();
+          if (!subsSnap.empty) {
+            const subDoc = subsSnap.docs[0];
+            await subDoc.ref.update({
+              'stripeStatus.status': 'past_due',
+              'stripeStatus.lastSyncedAt': new Date().toISOString(),
+              updatedAt: Timestamp.now(),
+            });
+            log(`[stripeWebhook] invoice.payment_failed: Updated sub ${subDoc.id}`);
+
+            // Notify admin
+            const settingsDoc = await db.collection('settings').doc('global').get();
+            const adminEmail = settingsDoc.data()?.managerEmail;
+            if (adminEmail) {
+              const userData = subDoc.data();
+              await sendTriggeredEmail('payment_failed', { name: 'Admin', email: adminEmail }, {
+                subscriptionId: subDoc.id,
+                deviceType: userData.deviceType || '',
+                amount: invoice.amount_due,
+              });
+            }
+          }
+        }
+        break;
+      }
+
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object;
+        const subsSnap = await db.collection('subscriptions')
+          .where('stripeSubscriptionId', '==', subscription.id)
+          .limit(1).get();
+        if (!subsSnap.empty) {
+          const subDoc = subsSnap.docs[0];
+          await subDoc.ref.update({
+            'stripeStatus.status': subscription.status,
+            'stripeStatus.currentPeriodEnd': new Date(subscription.current_period_end * 1000).toISOString(),
+            'stripeStatus.cancelAt': subscription.cancel_at ? new Date(subscription.cancel_at * 1000).toISOString() : null,
+            'stripeStatus.lastSyncedAt': new Date().toISOString(),
+            updatedAt: Timestamp.now(),
+          });
+          log(`[stripeWebhook] customer.subscription.updated: ${subDoc.id} → ${subscription.status}`);
+        }
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object;
+        const subsSnap = await db.collection('subscriptions')
+          .where('stripeSubscriptionId', '==', subscription.id)
+          .limit(1).get();
+        if (!subsSnap.empty) {
+          const subDoc = subsSnap.docs[0];
+          const subData = subDoc.data();
+
+          await subDoc.ref.update({
+            status: 'canceled',
+            'stripeStatus.status': 'canceled',
+            'stripeStatus.lastSyncedAt': new Date().toISOString(),
+            updatedAt: Timestamp.now(),
+          });
+
+          // Release device
+          if (subData.deviceId) {
+            await db.collection('devices').doc(subData.deviceId).update({
+              status: 'available',
+              currentUserId: null,
+              updatedAt: Timestamp.now(),
+            });
+            log(`[stripeWebhook] Device ${subData.deviceId} released.`);
+          }
+
+          log(`[stripeWebhook] customer.subscription.deleted: ${subDoc.id} canceled`);
+        }
+        break;
+      }
+
+      case 'charge.refunded': {
+        const charge = event.data.object;
+        const piId = charge.payment_intent;
+        if (piId) {
+          const subsSnap = await db.collection('subscriptions')
+            .where('stripePaymentIntentId', '==', piId)
+            .limit(1).get();
+          if (!subsSnap.empty) {
+            const subDoc = subsSnap.docs[0];
+            const existing = subDoc.data().refundHistory || [];
+            existing.push({
+              refundId: charge.id,
+              amount: charge.amount_refunded,
+              status: 'refunded',
+              refundedAt: new Date().toISOString(),
+              source: 'webhook',
+            });
+            await subDoc.ref.update({
+              refundHistory: existing,
+              updatedAt: Timestamp.now(),
+            });
+            log(`[stripeWebhook] charge.refunded: Recorded on sub ${subDoc.id}`);
+          }
+        }
+        break;
+      }
+
+      default:
+        log(`[stripeWebhook] Unhandled event type: ${event.type}`);
+    }
+
+    res.status(200).json({ received: true });
+  } catch (error: any) {
+    log(`[stripeWebhook] ERROR:`, error);
+    res.status(500).send('Internal Server Error');
   }
 });
 

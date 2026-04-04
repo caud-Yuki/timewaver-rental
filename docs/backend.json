@@ -149,7 +149,7 @@
     },
     "GlobalSettings": {
       "title": "GlobalSettings",
-      "description": "Global platform settings including FirstPay credentials",
+      "description": "Global platform settings including Stripe credentials",
       "type": "object",
       "properties": {
         "managerName": { "type": "string" },
@@ -162,18 +162,18 @@
         "waitlistEmailInterval": { "type": "number", "description": "Hours between automated waitlist notifications" },
         "waitlistValidityHours": { "type": "number", "description": "Hours to wait after last notification before clearing waitlist" },
         "applicationSessionMinutes": { "type": "number", "description": "Minutes before a rental application session expires due to inactivity" },
-        "firstpayTest": {
+        "stripeTest": {
           "type": "object",
           "properties": {
-            "apiKey": { "type": "string" },
-            "bearerToken": { "type": "string" }
+            "secretKey": { "type": "string" },
+            "webhookSecret": { "type": "string" }
           }
         },
-        "firstpayProd": {
+        "stripeLive": {
           "type": "object",
           "properties": {
-            "apiKey": { "type": "string" },
-            "bearerToken": { "type": "string" }
+            "secretKey": { "type": "string" },
+            "webhookSecret": { "type": "string" }
           }
         },
         "updatedAt": { "type": "string", "format": "date-time" }

@@ -310,7 +310,7 @@ export default function PaymentHistoryPage() {
           <History className="h-6 w-6 text-primary" />
           決済履歴
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">FirstPay APIから取得した決済実行履歴</p>
+        <p className="text-sm text-muted-foreground mt-1">Stripe APIから取得した決済実行履歴</p>
       </div>
 
       {/* Subscription Summary */}
@@ -358,7 +358,7 @@ export default function PaymentHistoryPage() {
               )}
             </div>
 
-            {/* Recurring details from FirstPay */}
+            {/* Recurring details from Stripe */}
             {recurringDetails && (
               <div className="mt-4 pt-4 border-t grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
@@ -376,7 +376,7 @@ export default function PaymentHistoryPage() {
                   <div className="text-sm font-medium">{recurringDetails.recurringDayOfMonth ? `${recurringDetails.recurringDayOfMonth}日` : '-'}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-muted-foreground">FirstPayステータス</div>
+                  <div className="text-[11px] text-muted-foreground">Stripeステータス</div>
                   <div className="text-sm">
                     {recurringDetails.isActive
                       ? <Badge className="bg-green-500 text-white text-xs rounded-full">アクティブ</Badge>
@@ -463,7 +463,7 @@ export default function PaymentHistoryPage() {
                               <AlertDialogHeader>
                                 <AlertDialogTitle>返金処理を実行しますか？</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  ¥{row.amount?.toLocaleString()} の返金をFirstPay APIを通じて実行します。
+                                  ¥{row.amount?.toLocaleString()} の返金をStripe APIを通じて実行します。
                                   {row.historyId && <><br/>履歴ID: {row.historyId}</>}
                                   {row.paymentId && <><br/>決済ID: {row.paymentId}</>}
                                   <br/><br/>

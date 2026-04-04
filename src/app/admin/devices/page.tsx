@@ -11,7 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package, RefreshCw } from 'lucide-react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { Device, DeviceTypeCode, UserProfile, GlobalSettings, Waitlist, DeviceModule, deviceConverter, deviceTypeCodeConverter, userProfileConverter, globalSettingsConverter, waitlistConverter, deviceModuleConverter } from '@/types';
 import Link from 'next/link';
 import { DeviceForm } from './_components/device-form';
@@ -69,6 +70,16 @@ export default function DeviceManagementPage() {
         await updateDoc(doc(db, 'devices', id), { ...dataToUpdate, updatedAt: serverTimestamp() });
         toast({ title: "Device updated successfully." });
 
+        // Sync prices to Stripe (creates new Prices if amounts changed)
+        try {
+          const functions = getFunctions();
+          const syncFn = httpsCallable(functions, 'syncDeviceToStripe');
+          await syncFn({ deviceId: id });
+          toast({ title: "Stripe同期完了", description: "Products & Pricesが同期されました。" });
+        } catch (syncErr: any) {
+          console.warn('[Device] Stripe sync failed:', syncErr.message);
+        }
+
         if (formData.status === 'available' && editingDevice?.status !== 'available' && settings) {
           const waitlistQuery = query(
             collection(db, 'waitlist').withConverter(waitlistConverter),
@@ -99,8 +110,19 @@ export default function DeviceManagementPage() {
           }
         }
       } else {
-        await addDoc(collection(db, 'devices'), { ...formData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        const newDocRef = await addDoc(collection(db, 'devices'), { ...formData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
         toast({ title: "New device added successfully." });
+
+        // Auto-sync new device to Stripe (create Products & Prices)
+        try {
+          const functions = getFunctions();
+          const syncFn = httpsCallable(functions, 'syncDeviceToStripe');
+          await syncFn({ deviceId: newDocRef.id });
+          toast({ title: "Stripe同期完了", description: "Products & Pricesが自動生成されました。" });
+        } catch (syncErr: any) {
+          console.warn('[Device] Stripe sync failed:', syncErr.message);
+          toast({ variant: "destructive", title: "Stripe同期エラー", description: syncErr.message });
+        }
       }
       setIsDialogOpen(false);
     } catch (error) {

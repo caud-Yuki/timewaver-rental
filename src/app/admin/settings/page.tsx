@@ -269,13 +269,13 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Section 3: FirstPay Authentication — Secret Manager */}
+      {/* Section 3: Stripe Authentication — Secret Manager */}
       <Card className="border-none shadow-lg rounded-2xl bg-white">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
               <CreditCard className="h-5 w-5" />
-              FirstPay 認証情報
+              Stripe 認証情報
             </CardTitle>
             <Button variant="outline" size="sm" className="rounded-xl text-xs" onClick={handleConnectionTest} disabled={isTesting}>
               {isTesting ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ShieldCheck className="h-3 w-3 mr-1" />}
@@ -295,8 +295,8 @@ export default function SettingsPage() {
               テスト環境用
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <SecretField label="API KEY (TEST)" field="firstpayTestApiKey" />
-              <SecretField label="BEARER TOKEN (TEST)" field="firstpayTestBearerToken" />
+              <SecretField label="PUBLISHABLE KEY (TEST)" field="stripeTestPublishableKey" placeholder="pk_test_..." />
+              <SecretField label="SECRET KEY (TEST)" field="stripeTestSecretKey" placeholder="sk_test_..." />
             </div>
           </div>
 
@@ -307,9 +307,19 @@ export default function SettingsPage() {
               本番環境用
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <SecretField label="API KEY (PROD)" field="firstpayProdApiKey" placeholder="PROD-API-KEY..." />
-              <SecretField label="BEARER TOKEN (PROD)" field="firstpayProdBearerToken" placeholder="PROD-TOKEN..." />
+              <SecretField label="PUBLISHABLE KEY (LIVE)" field="stripeLivePublishableKey" placeholder="pk_live_..." />
+              <SecretField label="SECRET KEY (LIVE)" field="stripeLiveSecretKey" placeholder="sk_live_..." />
             </div>
+          </div>
+
+          {/* Webhook Secret */}
+          <div className="p-5 rounded-xl border border-amber-200 bg-amber-50/30 space-y-4">
+            <h3 className="text-sm font-bold text-amber-600 flex items-center gap-2">
+              <KeyRound className="h-4 w-4" />
+              Webhook
+            </h3>
+            <SecretField label="WEBHOOK SECRET" field="stripeWebhookSecret" placeholder="whsec_..." />
+            <p className="text-xs text-amber-600">Stripeダッシュボードの Developers → Webhooks から取得できます。決済ステータスのリアルタイム同期に使用されます。</p>
           </div>
         </CardContent>
       </Card>

@@ -15,11 +15,11 @@ import { useToast } from '@/hooks/use-toast';
 interface Subscription {
   id: string;
   customerName: string;
-  customerId: string;
+  stripeCustomerId: string;
   email: string;
   payAmount: number;
-  paymentId: string | null;
-  recurringId: string | null;
+  stripePaymentIntentId: string | null;
+  stripeSubscriptionId: string | null;
   payType: 'full' | 'monthly';
   status: string;
   createdAt: string;
@@ -74,9 +74,9 @@ export default function PaymentViewerPage() {
       const term = searchTerm.toLowerCase();
       data = data.filter(item =>
         item.customerName.toLowerCase().includes(term) ||
-        item.customerId.toLowerCase().includes(term) ||
-        (item.paymentId && item.paymentId.toLowerCase().includes(term)) ||
-        (item.recurringId && item.recurringId.toLowerCase().includes(term)) ||
+        item.stripeCustomerId?.toLowerCase().includes(term) ||
+        (item.stripePaymentIntentId && item.stripePaymentIntentId.toLowerCase().includes(term)) ||
+        (item.stripeSubscriptionId && item.stripeSubscriptionId.toLowerCase().includes(term)) ||
         item.deviceName.toLowerCase().includes(term)
       );
     }
@@ -194,12 +194,12 @@ export default function PaymentViewerPage() {
                     <TableRow key={item.id} className="hover:bg-gray-50/50">
                       <TableCell className="pl-6">
                         <div className="font-medium text-sm">{item.customerName}</div>
-                        <div className="text-[11px] text-muted-foreground font-mono">{item.customerId}</div>
+                        <div className="text-[11px] text-muted-foreground font-mono">{item.stripeCustomerId}</div>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">{item.deviceName}</div>
                         <div className="text-[11px] text-muted-foreground font-mono">
-                          {item.payType === 'full' ? item.paymentId : item.recurringId}
+                          {item.payType === 'full' ? item.stripePaymentIntentId : item.stripeSubscriptionId}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">

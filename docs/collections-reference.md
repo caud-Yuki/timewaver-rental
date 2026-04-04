@@ -19,7 +19,7 @@ User profiles (created on registration)
 | `address2` | string? | Building/room |
 | `companyName` | string? | Company name |
 | `invoiceNumber` | string? | Invoice registration number |
-| `customerId` | string? | FirstPay customer ID |
+| `customerId` | string? | Stripe customer ID |
 | `createdAt` | Timestamp | |
 | `updatedAt` | Timestamp | |
 
@@ -93,12 +93,12 @@ Active/past subscriptions
 | `userId` | string | User ID |
 | `deviceId` | string | Device ID |
 | `deviceType` | string? | Device type name |
-| `customerId` | string | FirstPay customer ID |
+| `customerId` | string | Stripe customer ID |
 | `payType` | string | 'monthly' \| 'full' |
 | `rentalMonths` | number | 3, 6, or 12 |
 | `payAmount` | number | Payment amount |
-| `recurringId` | string? | FirstPay recurring ID |
-| `paymentId` | string? | FirstPay payment ID |
+| `stripeSubscriptionId` | string? | Stripe subscription ID |
+| `stripePaymentIntentId` | string? | Stripe PaymentIntent ID |
 | `status` | string | 'active' \| 'expired' \| 'canceled' |
 | `startAt` | Timestamp | Subscription start |
 | `endAt` | Timestamp | Subscription end |
@@ -106,8 +106,7 @@ Active/past subscriptions
 | `previousSubscriptionId` | string? | For renewals |
 | `isRenewal` | boolean? | |
 | `renewalReminderSent` | boolean? | |
-| `firstpayRecurringStatus` | object? | Synced from FirstPay API |
-| `firstpayPaymentStatus` | object? | Synced from FirstPay API |
+| `stripeStatus` | object? | Synced from Stripe API |
 | `refundHistory` | array? | Refund records |
 | `createdAt` | Timestamp | |
 | `updatedAt` | Timestamp | |
@@ -207,10 +206,10 @@ Discount codes
 ## Secret Manager Keys
 | Key | Purpose |
 |---|---|
-| `FIRSTPAY_TEST_API_KEY` | FirstPay test API key |
-| `FIRSTPAY_TEST_BEARER_TOKEN` | FirstPay test bearer token |
-| `FIRSTPAY_PROD_API_KEY` | FirstPay production API key |
-| `FIRSTPAY_PROD_BEARER_TOKEN` | FirstPay production bearer token |
+| `STRIPE_TEST_SECRET_KEY` | Stripe test secret key |
+| `STRIPE_TEST_WEBHOOK_SECRET` | Stripe test webhook secret |
+| `STRIPE_LIVE_SECRET_KEY` | Stripe live secret key |
+| `STRIPE_LIVE_WEBHOOK_SECRET` | Stripe live webhook secret |
 | `GEMINI_API_KEY` | Google Gemini AI API key |
 | `CHATWORK_API_TOKEN` | Chatwork API token |
 | `CHATWORK_ROOM_ID` | Chatwork room ID |

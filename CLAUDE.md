@@ -314,10 +314,10 @@ Sensitive values (API keys, tokens) are stored in **Google Cloud Secret Manager*
 ```tsx
 // Server-side only (src/lib/secret-manager.ts)
 import { getSecret, setSecret } from '@/lib/secret-manager';
-const apiKey = await getSecret('FIRSTPAY_PROD_API_KEY');
+const apiKey = await getSecret('STRIPE_LIVE_SECRET_KEY');
 ```
 
-Known secrets: `FIRSTPAY_TEST_API_KEY`, `FIRSTPAY_PROD_API_KEY`, `FIRSTPAY_TEST_BEARER_TOKEN`, `FIRSTPAY_PROD_BEARER_TOKEN`, `GEMINI_API_KEY`, `CHATWORK_API_TOKEN`, `CHATWORK_ROOM_ID`, `GOOGLE_CHAT_WEBHOOK_URL`
+Known secrets: `STRIPE_TEST_SECRET_KEY`, `STRIPE_LIVE_SECRET_KEY`, `STRIPE_TEST_WEBHOOK_SECRET`, `STRIPE_LIVE_WEBHOOK_SECRET`, `GEMINI_API_KEY`, `CHATWORK_API_TOKEN`, `CHATWORK_ROOM_ID`, `GOOGLE_CHAT_WEBHOOK_URL`
 
 ### Admin Page Pattern
 

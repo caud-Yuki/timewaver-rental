@@ -248,7 +248,7 @@ export default function AdminDashboardPage() {
 
   const { data: recentApplications, loading: appsLoading } = useCollection<Application>(applicationsQuery);
 
-  // FirstPay configuration check is now done via Secret Manager.
+  // Stripe configuration check is now done via Secret Manager.
   // For the dashboard, we assume it's configured if settings exist.
   const isConfigured = !!settings;
 
@@ -256,7 +256,7 @@ export default function AdminDashboardPage() {
     { title: '機器管理', desc: '在庫とステータス', icon: Package, href: '/admin/devices', color: 'text-blue-500', bg: 'bg-blue-50' },
     { title: 'モジュール管理', desc: 'デバイスモジュールの設定', icon: Puzzle, href: '/admin/modules', color: 'text-teal-500', bg: 'bg-teal-50' },
     { title: '申請管理', desc: 'レンタル申込の審査', icon: Users, href: '/admin/applications', color: 'text-purple-500', bg: 'bg-purple-50' },
-    { title: '支払管理', desc: '決済状況の確認・FirstPay同期', icon: CreditCard, href: '/admin/payments', color: 'text-emerald-500', bg: 'bg-emerald-50' },
+    { title: '支払管理', desc: '決済状況の確認・Stripe同期', icon: CreditCard, href: '/admin/payments', color: 'text-emerald-500', bg: 'bg-emerald-50' },
     { title: 'キャンセル待ち', desc: '順番待ちのユーザー', icon: Clock, href: '/admin/waitlist', color: 'text-amber-500', bg: 'bg-amber-50' },
     { title: 'クーポン', desc: '割引コードの設定', icon: Ticket, href: '/admin/coupons', color: 'text-rose-500', bg: 'bg-rose-50' },
     { title: 'ニュース', desc: 'お知らせの公開', icon: Newspaper, href: '/admin/news', color: 'text-indigo-500', bg: 'bg-indigo-50' },
@@ -308,7 +308,7 @@ export default function AdminDashboardPage() {
               </div>
               <div>
                 <h3 className="font-bold text-amber-900">決済設定が未完了です</h3>
-                <p className="text-sm text-amber-700">FirstPayのAPIキーが設定されていないため、ユーザーが決済を行うことができません。</p>
+                <p className="text-sm text-amber-700">StripeのAPIキーが設定されていないため、ユーザーが決済を行うことができません。</p>
               </div>
             </div>
             <Link href="/admin/settings">

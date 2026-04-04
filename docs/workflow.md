@@ -1,7 +1,7 @@
 # ChronoRent — Complete Workflow Documentation
 
 ## System Overview
-ChronoRent is a TimeWaver device rental platform built with Next.js 14, Firebase, and FirstPay payment gateway.
+ChronoRent is a TimeWaver device rental platform built with Next.js 14, Firebase, and Stripe payment gateway.
 
 ---
 
@@ -46,7 +46,7 @@ ChronoRent is a TimeWaver device rental platform built with Next.js 14, Firebase
 
 ### 5. 決済 (Payment)
 - User completes payment at `/payment/{paymentLinkId}`
-- FirstPay API called (charge or recurring)
+- Stripe API called (charge or recurring)
 - For new subscriptions: `startAt = today + N business days` (buffer for shipping)
 - For renewals: `startAt = previous endAt`
 - Subscription created in `subscriptions` collection
@@ -61,7 +61,7 @@ ChronoRent is a TimeWaver device rental platform built with Next.js 14, Firebase
 
 ### 7. 利用中 (In Use)
 - User can see device in `/mypage/devices`
-- Monthly payments auto-processed by FirstPay
+- Monthly payments auto-processed by Stripe
 - **Email**: `payment_failed` → user (if monthly payment fails)
 
 ### 8. 契約更新 (Renewal)
@@ -103,7 +103,7 @@ ChronoRent is a TimeWaver device rental platform built with Next.js 14, Firebase
 | Review consent form | `/admin/applications` | consent email to user |
 | Create payment link | `/admin/applications` | payment link email |
 | Mark as shipped | `/admin/applications` → status dropdown | shipped email + auto→in_use |
-| Sync with FirstPay | `/admin/payments` → FirstPay同期 | renewal reminders, auto-expiry |
+| Sync with Stripe | `/admin/payments` → Stripe同期 | renewal reminders, auto-expiry |
 | Stop subscription | `/admin/payments` → ⏹ button | cancel email, return guide |
 | Refund payment | `/admin/payments/{id}/history` → 返金 | refund record in Firestore |
 | Inspect returned device | `/admin/applications` → status dropdown | inspection email to staff |
@@ -163,10 +163,10 @@ CW = Chatwork, GC = Google Chat (configurable per trigger in admin UI)
 
 | Key | Purpose |
 |---|---|
-| `FIRSTPAY_TEST_API_KEY` | FirstPay test API key |
-| `FIRSTPAY_TEST_BEARER_TOKEN` | FirstPay test bearer token |
-| `FIRSTPAY_PROD_API_KEY` | FirstPay production API key |
-| `FIRSTPAY_PROD_BEARER_TOKEN` | FirstPay production bearer token |
+| `STRIPE_TEST_SECRET_KEY` | Stripe test secret key |
+| `STRIPE_TEST_WEBHOOK_SECRET` | Stripe test webhook secret |
+| `STRIPE_LIVE_SECRET_KEY` | Stripe live secret key |
+| `STRIPE_LIVE_WEBHOOK_SECRET` | Stripe live webhook secret |
 | `GEMINI_API_KEY` | Google Gemini AI API key |
 | `CHATWORK_API_TOKEN` | Chatwork API token |
 | `CHATWORK_ROOM_ID` | Chatwork room ID |
@@ -178,10 +178,10 @@ CW = Chatwork, GC = Google Chat (configurable per trigger in admin UI)
 
 | Function | Type | Purpose |
 |---|---|---|
-| `getPaymentData` | onCall | Fetch payment data from FirstPay API |
+| `getPaymentData` | onCall | Fetch payment data from Stripe API |
 | `getSubscriptionsList` | onCall | List subscriptions with enriched user data |
-| `syncPaymentData` | onCall | Sync with FirstPay, auto-expire, send renewal reminders |
-| `stopRecurringPayment` | onCall | Stop recurring subscription via FirstPay API |
-| `refundPayment` | onCall | Refund a payment via FirstPay API |
-| `getPaymentHistory` | onCall | Fetch payment execution history from FirstPay |
+| `syncPaymentData` | onCall | Sync with Stripe, auto-expire, send renewal reminders |
+| `stopRecurringPayment` | onCall | Stop recurring subscription via Stripe API |
+| `refundPayment` | onCall | Refund a payment via Stripe API |
+| `getPaymentHistory` | onCall | Fetch payment execution history from Stripe |
 | `onApplicationUpdate` | onDocumentUpdated | Trigger emails/chat on application status changes |

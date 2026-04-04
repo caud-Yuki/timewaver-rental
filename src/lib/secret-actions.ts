@@ -10,19 +10,20 @@ import { getSecret, setSecret, SECRET_NAMES } from '@/lib/secret-manager';
 // --- Types ---
 
 export interface SecretPayload {
-  firstpayTestApiKey?: string;
-  firstpayTestBearerToken?: string;
-  firstpayProdApiKey?: string;
-  firstpayProdBearerToken?: string;
+  stripeTestPublishableKey?: string;
+  stripeTestSecretKey?: string;
+  stripeLivePublishableKey?: string;
+  stripeLiveSecretKey?: string;
+  stripeWebhookSecret?: string;
   geminiApiKey?: string;
   chatworkApiToken?: string;
   chatworkRoomId?: string;
   googleChatWebhookUrl?: string;
 }
 
-export interface FirstPaySecretsResult {
-  apiKey: string;
-  bearerToken: string;
+export interface StripeSecretsResult {
+  publishableKey: string;
+  secretKey: string;
   mode: 'test' | 'production';
 }
 
@@ -35,10 +36,11 @@ export interface FirstPaySecretsResult {
 export async function saveSecrets(payload: SecretPayload): Promise<{ success: boolean; error?: string }> {
   try {
     const entries: [string, string | undefined][] = [
-      [SECRET_NAMES.FIRSTPAY_TEST_API_KEY, payload.firstpayTestApiKey],
-      [SECRET_NAMES.FIRSTPAY_TEST_BEARER_TOKEN, payload.firstpayTestBearerToken],
-      [SECRET_NAMES.FIRSTPAY_PROD_API_KEY, payload.firstpayProdApiKey],
-      [SECRET_NAMES.FIRSTPAY_PROD_BEARER_TOKEN, payload.firstpayProdBearerToken],
+      [SECRET_NAMES.STRIPE_TEST_PUBLISHABLE_KEY, payload.stripeTestPublishableKey],
+      [SECRET_NAMES.STRIPE_TEST_SECRET_KEY, payload.stripeTestSecretKey],
+      [SECRET_NAMES.STRIPE_LIVE_PUBLISHABLE_KEY, payload.stripeLivePublishableKey],
+      [SECRET_NAMES.STRIPE_LIVE_SECRET_KEY, payload.stripeLiveSecretKey],
+      [SECRET_NAMES.STRIPE_WEBHOOK_SECRET, payload.stripeWebhookSecret],
       [SECRET_NAMES.GEMINI_API_KEY, payload.geminiApiKey],
       [SECRET_NAMES.CHATWORK_API_TOKEN, payload.chatworkApiToken],
       [SECRET_NAMES.CHATWORK_ROOM_ID, payload.chatworkRoomId],
@@ -61,24 +63,36 @@ export async function saveSecrets(payload: SecretPayload): Promise<{ success: bo
 // --- Read Secrets ---
 
 /**
- * Get FirstPay API credentials from Secret Manager.
- * Reads the appropriate test/prod credentials based on the mode parameter.
+ * Get Stripe API credentials from Secret Manager.
+ * Reads the appropriate test/live credentials based on the mode parameter.
  */
-export async function getFirstPaySecrets(mode: 'test' | 'production'): Promise<FirstPaySecretsResult | null> {
+export async function getStripeSecrets(mode: 'test' | 'production'): Promise<StripeSecretsResult | null> {
   try {
     const isTest = mode === 'test';
-    const apiKey = await getSecret(
-      isTest ? SECRET_NAMES.FIRSTPAY_TEST_API_KEY : SECRET_NAMES.FIRSTPAY_PROD_API_KEY
+    const publishableKey = await getSecret(
+      isTest ? SECRET_NAMES.STRIPE_TEST_PUBLISHABLE_KEY : SECRET_NAMES.STRIPE_LIVE_PUBLISHABLE_KEY
     );
-    const bearerToken = await getSecret(
-      isTest ? SECRET_NAMES.FIRSTPAY_TEST_BEARER_TOKEN : SECRET_NAMES.FIRSTPAY_PROD_BEARER_TOKEN
+    const secretKey = await getSecret(
+      isTest ? SECRET_NAMES.STRIPE_TEST_SECRET_KEY : SECRET_NAMES.STRIPE_LIVE_SECRET_KEY
     );
 
-    if (!apiKey || !bearerToken) return null;
+    if (!publishableKey || !secretKey) return null;
 
-    return { apiKey, bearerToken, mode };
+    return { publishableKey, secretKey, mode };
   } catch (error: any) {
-    console.error('[getFirstPaySecrets] Error:', error.message);
+    console.error('[getStripeSecrets] Error:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Get the Stripe webhook secret from Secret Manager.
+ */
+export async function getStripeWebhookSecret(): Promise<string | null> {
+  try {
+    return await getSecret(SECRET_NAMES.STRIPE_WEBHOOK_SECRET);
+  } catch (error: any) {
+    console.error('[getStripeWebhookSecret] Error:', error.message);
     return null;
   }
 }
@@ -106,10 +120,11 @@ export async function getGeminiSecret(): Promise<string | null> {
 export async function getSecretsStatus(): Promise<Record<string, boolean>> {
   try {
     const results = await Promise.all([
-      getSecret(SECRET_NAMES.FIRSTPAY_TEST_API_KEY),
-      getSecret(SECRET_NAMES.FIRSTPAY_TEST_BEARER_TOKEN),
-      getSecret(SECRET_NAMES.FIRSTPAY_PROD_API_KEY),
-      getSecret(SECRET_NAMES.FIRSTPAY_PROD_BEARER_TOKEN),
+      getSecret(SECRET_NAMES.STRIPE_TEST_PUBLISHABLE_KEY),
+      getSecret(SECRET_NAMES.STRIPE_TEST_SECRET_KEY),
+      getSecret(SECRET_NAMES.STRIPE_LIVE_PUBLISHABLE_KEY),
+      getSecret(SECRET_NAMES.STRIPE_LIVE_SECRET_KEY),
+      getSecret(SECRET_NAMES.STRIPE_WEBHOOK_SECRET),
       getSecret(SECRET_NAMES.GEMINI_API_KEY),
       getSecret(SECRET_NAMES.CHATWORK_API_TOKEN),
       getSecret(SECRET_NAMES.CHATWORK_ROOM_ID),
@@ -117,21 +132,23 @@ export async function getSecretsStatus(): Promise<Record<string, boolean>> {
     ]);
 
     return {
-      firstpayTestApiKey: !!results[0],
-      firstpayTestBearerToken: !!results[1],
-      firstpayProdApiKey: !!results[2],
-      firstpayProdBearerToken: !!results[3],
-      geminiApiKey: !!results[4],
-      chatworkApiToken: !!results[5],
-      chatworkRoomId: !!results[6],
-      googleChatWebhookUrl: !!results[7],
+      stripeTestPublishableKey: !!results[0],
+      stripeTestSecretKey: !!results[1],
+      stripeLivePublishableKey: !!results[2],
+      stripeLiveSecretKey: !!results[3],
+      stripeWebhookSecret: !!results[4],
+      geminiApiKey: !!results[5],
+      chatworkApiToken: !!results[6],
+      chatworkRoomId: !!results[7],
+      googleChatWebhookUrl: !!results[8],
     };
   } catch (error) {
     return {
-      firstpayTestApiKey: false,
-      firstpayTestBearerToken: false,
-      firstpayProdApiKey: false,
-      firstpayProdBearerToken: false,
+      stripeTestPublishableKey: false,
+      stripeTestSecretKey: false,
+      stripeLivePublishableKey: false,
+      stripeLiveSecretKey: false,
+      stripeWebhookSecret: false,
       geminiApiKey: false,
       chatworkApiToken: false,
       chatworkRoomId: false,

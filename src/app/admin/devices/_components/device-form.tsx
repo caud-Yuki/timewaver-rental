@@ -240,6 +240,33 @@ export const DeviceForm = ({
         </div>
       </div>
 
+      {/* Stripe Integration — read-only display of synced IDs */}
+      {formData.stripeProducts && Object.values(formData.stripeProducts).some(p => p?.productId) && (
+        <div className="space-y-4 pt-2 border-t">
+          <Label className="text-base font-bold flex items-center gap-2">
+            Stripe連携
+            <span className="text-[10px] font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">同期済み</span>
+          </Label>
+          <div className="space-y-3">
+            {(['3m', '6m', '12m'] as const).map((term) => {
+              const months = term === '3m' ? 3 : term === '6m' ? 6 : 12;
+              const sp = formData.stripeProducts?.[term];
+              if (!sp?.productId) return null;
+              return (
+                <div key={term} className="p-3 rounded-xl bg-gray-50 border space-y-1">
+                  <span className="text-xs font-semibold text-primary">{months}ヶ月プラン</span>
+                  <div className="grid grid-cols-3 gap-2 text-[10px] font-mono text-muted-foreground">
+                    <div><span className="text-[9px] text-gray-400">Product:</span> {sp.productId}</div>
+                    <div><span className="text-[9px] text-gray-400">月額Price:</span> {sp.monthlyPriceId || '-'}</div>
+                    <div><span className="text-[9px] text-gray-400">一括Price:</span> {sp.fullPriceId || '-'}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Modules */}
       {deviceModules.length > 0 && (
         <div className="space-y-3 pt-2 border-t">

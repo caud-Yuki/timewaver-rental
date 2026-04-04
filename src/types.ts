@@ -30,7 +30,7 @@ export interface UserProfile {
   address2?: string;
   companyName?: string;
   invoiceNumber?: string;
-  customerId?: string; 
+  stripeCustomerId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -49,7 +49,7 @@ export interface Application {
   deviceType: string;
   rentalPeriod: number;
   rentalType?: 'new' | 'renew';
-  payType: 'monthly' | 'one-time';
+  payType: 'monthly' | 'full';
   payAmount?: number;
   status: ApplicationStatus;
   agreementPdfUrl?: string;
@@ -146,7 +146,7 @@ export interface GlobalSettings {
     footerText?: string;
   };
   updatedAt?: Timestamp;
-  // Sensitive fields (FirstPay, Gemini, Chatwork, Google Chat) are stored in Google Cloud Secret Manager.
+  // Sensitive fields (Stripe, Gemini, Chatwork, Google Chat) are stored in Google Cloud Secret Manager.
   // See src/lib/secret-actions.ts for read/write operations.
 }
 export const globalSettingsConverter = createConverter<GlobalSettings>();
@@ -225,10 +225,18 @@ export interface Subscription {
   id: string;
   userId: string;
   deviceId: string;
-  customerId?: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  stripePaymentIntentId?: string;
+  stripeStatus?: {
+    status?: string;
+    currentPeriodEnd?: string;
+    cancelAt?: string;
+    lastSyncedAt?: string;
+  };
   payAmount?: number;
-  payType?: 'monthly' | 'one-time';
-  status: 'active' | 'completed' | 'canceled';
+  payType?: 'monthly' | 'full';
+  status: 'active' | 'completed' | 'canceled' | 'expired';
   startAt: Timestamp;
   endAt: Timestamp;
   createdAt: Timestamp;
@@ -243,7 +251,7 @@ export interface PaymentLink {
   expiresAt: Timestamp;
   isPaid: boolean;
   status?: 'open' | 'paid' | 'expired';
-  payType?: 'monthly' | 'one-time';
+  payType?: 'monthly' | 'full';
   payAmount?: number;
   deviceName?: string;
   deviceId?: string;

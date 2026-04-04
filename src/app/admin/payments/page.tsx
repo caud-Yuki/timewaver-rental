@@ -31,16 +31,12 @@ interface SubscriptionRecord {
   endAt?: string;
   createdAt?: string;
   updatedAt?: string;
-  firstpayRecurringStatus?: {
-    isActive: boolean;
-    nextRecurringAt?: string;
-    payAmount?: number;
-    remainingExecutionNumber?: number;
-    lastSyncedAt?: string;
-  };
-  firstpayPaymentStatus?: {
-    paymentStatus: string;
-    amount?: number;
+  stripeSubscriptionId?: string;
+  stripePaymentIntentId?: string;
+  stripeStatus?: {
+    status?: string;
+    currentPeriodEnd?: string;
+    cancelAt?: string;
     lastSyncedAt?: string;
   };
 }
@@ -81,7 +77,7 @@ export default function AdminPaymentsPage() {
       const response: any = await syncPaymentData();
       const result = response.data;
       toast({
-        title: 'FirstPay同期完了',
+        title: 'Stripe同期完了',
         description: `同期: ${result.synced}件 / エラー: ${result.errors}件`,
       });
       await fetchSubscriptions();
@@ -173,8 +169,8 @@ export default function AdminPaymentsPage() {
     }
   };
 
-  const getFirstPaySyncBadge = (sub: SubscriptionRecord) => {
-    const syncData = sub.firstpayRecurringStatus || sub.firstpayPaymentStatus;
+  const getStripeSyncBadge = (sub: SubscriptionRecord) => {
+    const syncData = sub.stripeStatus;
     if (!syncData) return null;
     const lastSynced = syncData.lastSyncedAt ? new Date(syncData.lastSyncedAt).toLocaleDateString('ja-JP') : '';
     return (
@@ -198,7 +194,7 @@ export default function AdminPaymentsPage() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="rounded-xl" onClick={handleSync} disabled={syncing}>
             {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5 mr-1.5" />}
-            FirstPay同期
+            Stripe同期
           </Button>
           <Button variant="outline" size="sm" className="rounded-xl" onClick={fetchSubscriptions} disabled={loading}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
@@ -289,20 +285,20 @@ export default function AdminPaymentsPage() {
                           <div className="text-sm">📅 {getContractPeriod(sub)}</div>
                         </TableCell>
                         <TableCell>
-                          {sub.firstpayRecurringStatus?.nextRecurringAt ? (
+                          {sub.stripeStatus?.currentPeriodEnd ? (
                             <div className="text-sm flex items-center gap-1">
                               <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
-                              {new Date(sub.firstpayRecurringStatus.nextRecurringAt).toLocaleDateString('ja-JP')}
+                              {new Date(sub.stripeStatus!.currentPeriodEnd!).toLocaleDateString('ja-JP')}
                             </div>
                           ) : (
                             <span className="text-xs text-muted-foreground">-</span>
                           )}
                         </TableCell>
                         <TableCell>
-                          {sub.firstpayRecurringStatus?.remainingExecutionNumber != null ? (
+                          {sub.stripeStatus?.cancelAt ? (
                             <div className="text-sm flex items-center gap-1">
                               <Repeat className="h-3.5 w-3.5 text-muted-foreground" />
-                              {sub.firstpayRecurringStatus.remainingExecutionNumber}回
+                              {new Date(sub.stripeStatus!.cancelAt!).toLocaleDateString('ja-JP')}回
                             </div>
                           ) : (
                             <span className="text-xs text-muted-foreground">-</span>
@@ -311,7 +307,7 @@ export default function AdminPaymentsPage() {
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             {getStatusBadge(sub.status)}
-                            {getFirstPaySyncBadge(sub)}
+                            {getStripeSyncBadge(sub)}
                           </div>
                         </TableCell>
                         <TableCell className="text-right pr-6">
@@ -353,7 +349,7 @@ export default function AdminPaymentsPage() {
                                     <AlertDialogTitle>継続決済を停止しますか？</AlertDialogTitle>
                                     <AlertDialogDescription>
                                       {sub.customerName}（{sub.recurringId}）の継続決済を停止します。
-                                      この操作はFirstPay APIを通じて実行され、以降の自動決済が停止されます。
+                                      この操作はStripe APIを通じて実行され、以降の自動決済が停止されます。
                                       この操作は取り消せません。
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
