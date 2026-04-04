@@ -66,9 +66,10 @@ export default function NewsDetailPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-10 md:p-16 space-y-8">
-          <div className="prose prose-lg max-w-none text-foreground leading-relaxed whitespace-pre-wrap">
-            {news.body}
-          </div>
+          <div
+            className="prose prose-lg max-w-none text-foreground leading-relaxed [&_a]:text-primary [&_a]:underline"
+            dangerouslySetInnerHTML={{ __html: news.body || '' }}
+          />
 
           <Separator className="my-12" />
 

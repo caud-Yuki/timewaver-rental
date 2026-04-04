@@ -90,17 +90,19 @@ export default function Home() {
           </div>
           <div className="grid md:grid-cols-3 gap-6">
             {newsItems?.map(item => (
-              <Card key={item.id} className="border-none shadow-md rounded-2xl overflow-hidden bg-white hover:shadow-xl transition-shadow cursor-pointer">
-                <CardHeader className="pb-2">
-                  <Badge variant="outline" className="w-fit text-[10px] mb-2">
-                    {item.publishedAt?.seconds ? new Date(item.publishedAt.seconds * 1000).toLocaleDateString() : 'New'}
-                  </Badge>
-                  <CardTitle className="text-lg line-clamp-1">{item.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground line-clamp-2">{item.body}</p>
-                </CardContent>
-              </Card>
+              <Link key={item.id} href={`/news/${item.id}`}>
+                <Card className="border-none shadow-md rounded-2xl overflow-hidden bg-white hover:shadow-xl transition-shadow cursor-pointer h-full">
+                  <CardHeader className="pb-2">
+                    <Badge variant="outline" className="w-fit text-[10px] mb-2">
+                      {item.publishedAt?.seconds ? new Date(item.publishedAt.seconds * 1000).toLocaleDateString() : 'New'}
+                    </Badge>
+                    <CardTitle className="text-lg line-clamp-1">{item.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground line-clamp-2">{(item.body || '').replace(/<[^>]*>/g, '')}</p>
+                  </CardContent>
+                </Card>
+              </Link>
             ))}
             {(!newsItems || newsItems.length === 0) && !newsLoading && (
               <div className="col-span-full text-center py-10 text-muted-foreground">現在お知らせはありません</div>

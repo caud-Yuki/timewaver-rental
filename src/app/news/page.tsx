@@ -69,7 +69,7 @@ export default function NewsListPage() {
                         {item.title}
                       </CardTitle>
                       <CardDescription className="line-clamp-2 text-sm leading-relaxed">
-                        {item.body}
+                        {(item.body || '').replace(/<[^>]*>/g, '')}
                       </CardDescription>
                     </div>
                     <ChevronRight className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
