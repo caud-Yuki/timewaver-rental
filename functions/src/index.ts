@@ -1397,8 +1397,31 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
     log(`[onApplicationUpdate] Auto-transitioned ${applicationId} from 'shipped' to 'in_use'.`);
   }
 
-  // 契約満了 → send 契約終了通知 + 返却案内 → auto-switch to 返却手続中
+  // 契約満了 → update subscription + send 契約終了通知 + 返却案内 → auto-switch to 返却手続中
   if (after.status === 'expired') {
+    // Update linked subscriptions to 'expired'
+    const expiredSubs = await db.collection('subscriptions')
+      .where('applicationId', '==', applicationId)
+      .where('status', '==', 'active')
+      .get();
+    for (const subDoc of expiredSubs.docs) {
+      await subDoc.ref.update({ status: 'expired', updatedAt: Timestamp.now() });
+      log(`[onApplicationUpdate] Subscription ${subDoc.id} → expired.`);
+
+      // Cancel Stripe subscription if still active
+      const stripeSubId = subDoc.data().stripeSubscriptionId;
+      if (stripeSubId) {
+        try {
+          const stripe = await getStripeClient();
+          await stripe.subscriptions.cancel(stripeSubId);
+          await subDoc.ref.update({ 'stripeStatus.status': 'canceled' });
+          log(`[onApplicationUpdate] Stripe subscription ${stripeSubId} canceled (expired).`);
+        } catch (stripeErr: any) {
+          log(`[onApplicationUpdate] Failed to cancel Stripe sub:`, stripeErr.message);
+        }
+      }
+    }
+
     await sendTriggeredEmail('contract_expired', user, applicationData);
     await sendTriggeredEmail('device_return_guide', user, applicationData);
     // Auto-transition to returning
@@ -1431,8 +1454,32 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
     log(`[onApplicationUpdate] Auto-transitioned ${applicationId} from 'returned' to 'closed'.`);
   }
 
-  // 終了 → release device back to available
+  // 終了 → release device + update subscription status
   if (after.status === 'closed' && before.status !== 'closed') {
+    // Update linked subscription to 'completed'
+    const closedSubs = await db.collection('subscriptions')
+      .where('applicationId', '==', applicationId)
+      .where('status', '==', 'active')
+      .get();
+    for (const subDoc of closedSubs.docs) {
+      await subDoc.ref.update({ status: 'completed', updatedAt: Timestamp.now() });
+      log(`[onApplicationUpdate] Subscription ${subDoc.id} → completed (application closed).`);
+
+      // Cancel Stripe subscription if active
+      const stripeSubId = subDoc.data().stripeSubscriptionId;
+      if (stripeSubId) {
+        try {
+          const stripe = await getStripeClient();
+          await stripe.subscriptions.cancel(stripeSubId);
+          await subDoc.ref.update({ 'stripeStatus.status': 'canceled' });
+          log(`[onApplicationUpdate] Stripe subscription ${stripeSubId} canceled.`);
+        } catch (stripeErr: any) {
+          log(`[onApplicationUpdate] Failed to cancel Stripe sub:`, stripeErr.message);
+        }
+      }
+    }
+
+    // Release device
     if (after.deviceId) {
       const deviceDoc = await db.collection('devices').doc(after.deviceId).get();
       const deviceType = deviceDoc.data()?.type || after.deviceType || 'Unknown Device';
@@ -1443,8 +1490,6 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
         updatedAt: Timestamp.now(),
       });
       log(`[onApplicationUpdate] Device ${after.deviceId} released to available (application closed).`);
-
-      // Notify waitlist users
       await onDeviceReleased(after.deviceId, deviceType, 'expired');
     }
   }
@@ -1460,6 +1505,29 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
 
   if (isNowCanceled && wasNotCanceled) {
     log(`[onApplicationUpdate] Cleanup initiated for ${applicationId} due to status: ${after.status}.`);
+
+    // Update linked subscriptions to 'canceled'
+    const canceledSubs = await db.collection('subscriptions')
+      .where('applicationId', '==', applicationId)
+      .where('status', '==', 'active')
+      .get();
+    for (const subDoc of canceledSubs.docs) {
+      await subDoc.ref.update({ status: 'canceled', updatedAt: Timestamp.now() });
+      log(`[onApplicationUpdate] Subscription ${subDoc.id} → canceled (application ${after.status}).`);
+
+      // Cancel Stripe subscription if active
+      const stripeSubId = subDoc.data().stripeSubscriptionId;
+      if (stripeSubId) {
+        try {
+          const stripe = await getStripeClient();
+          await stripe.subscriptions.cancel(stripeSubId);
+          await subDoc.ref.update({ 'stripeStatus.status': 'canceled' });
+          log(`[onApplicationUpdate] Stripe subscription ${stripeSubId} canceled.`);
+        } catch (stripeErr: any) {
+          log(`[onApplicationUpdate] Failed to cancel Stripe sub:`, stripeErr.message);
+        }
+      }
+    }
 
     // Release device back to available
     if (after.deviceId) {
