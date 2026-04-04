@@ -4,6 +4,7 @@
 import { useState, useMemo } from 'react';
 import { useUser, useFirestore, useCollection, useDoc } from '@/firebase';
 import { collection, addDoc, doc, serverTimestamp, deleteDoc, updateDoc, query, where, getDocs, writeBatch, Timestamp } from 'firebase/firestore';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -60,12 +61,27 @@ export default function DeviceManagementPage() {
     setIsDialogOpen(true);
   };
 
-  const handleSaveDevice = async (formData: Partial<Device>) => {
+  const handleSaveDevice = async (formData: Partial<Device>, imageFile?: File | null) => {
     if (!db) return;
     setIsSubmitting(true);
 
     try {
+      // Helper: upload image to Firebase Storage
+      const uploadDeviceImage = async (deviceId: string, file: File): Promise<string> => {
+        const storage = getStorage();
+        const ext = file.name.split('.').pop() || 'jpg';
+        const imageRef = storageRef(storage, `devices/${deviceId}/cover.${ext}`);
+        await uploadBytes(imageRef, file);
+        return getDownloadURL(imageRef);
+      };
+
       if (formData.id) {
+        // Upload image if selected
+        if (imageFile) {
+          const imageUrl = await uploadDeviceImage(formData.id, imageFile);
+          formData.imageUrl = imageUrl;
+        }
+
         const { id, ...dataToUpdate } = formData;
         await updateDoc(doc(db, 'devices', id), { ...dataToUpdate, updatedAt: serverTimestamp() });
         toast({ title: "Device updated successfully." });
@@ -111,6 +127,13 @@ export default function DeviceManagementPage() {
         }
       } else {
         const newDocRef = await addDoc(collection(db, 'devices'), { ...formData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+
+        // Upload image if selected for new device
+        if (imageFile) {
+          const imageUrl = await uploadDeviceImage(newDocRef.id, imageFile);
+          await updateDoc(doc(db, 'devices', newDocRef.id), { imageUrl });
+        }
+
         toast({ title: "New device added successfully." });
 
         // Auto-sync new device to Stripe (create Products & Prices)

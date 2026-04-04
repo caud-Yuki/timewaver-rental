@@ -46,11 +46,14 @@ export default function DeviceListPage() {
     filter === 'all' || (d.typeCode as DeviceTypeCode | 'all') === filter
   );
 
-  const getDeviceImage = (code?: DeviceTypeCode) => {
+  const getDeviceImage = (device?: any) => {
+    // Use uploaded imageUrl first, fallback to placeholder
+    if (device?.imageUrl) return device.imageUrl;
+
+    const code = device?.typeCode;
     if (!code) return 'https://picsum.photos/seed/placeholder/800/600';
-    
+
     const hint = PlaceHolderImages.find(i => i.id === (code as unknown as string).replace('tw-', 'tw'));
-    
     return hint?.imageUrl || 'https://picsum.photos/seed/placeholder/600/400';
   };
 
@@ -110,7 +113,7 @@ export default function DeviceListPage() {
                 <Card key={device.id} className="overflow-hidden group hover:shadow-2xl transition-all duration-300 border-none shadow-lg bg-white rounded-[2rem]">
                   <div className="relative aspect-video overflow-hidden">
                     <Image
-                      src={getDeviceImage(device.typeCode) || 'https://picsum.photos/seed/placeholder/600/400'}
+                      src={getDeviceImage(device) || 'https://picsum.photos/seed/placeholder/600/400'}
                       alt={device.type || ''}
                       fill
                       className="object-cover group-hover:scale-110 transition-transform duration-700"

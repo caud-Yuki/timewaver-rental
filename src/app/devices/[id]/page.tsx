@@ -118,9 +118,13 @@ export default function DeviceDetailPage() {
     );
   }
 
-  const getDeviceImage = (code?: Device) => {
-    if (!code?.id) return 'https://picsum.photos/seed/placeholder/800/600';
-    const hint = PlaceHolderImages.find(i => i.id === code.id.replace('tw-', 'tw'));
+  const getDeviceImage = () => {
+    // Use uploaded imageUrl first, fallback to placeholder
+    if (device?.imageUrl) return device.imageUrl;
+
+    const code = device?.typeCode;
+    if (!code) return 'https://picsum.photos/seed/placeholder/800/600';
+    const hint = PlaceHolderImages.find(i => i.id === (code as unknown as string).replace('tw-', 'tw'));
     return hint?.imageUrl || 'https://picsum.photos/seed/placeholder/800/600';
   };
 
@@ -140,7 +144,7 @@ export default function DeviceDetailPage() {
         <div className="space-y-6">
           <div className="relative aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white">
             <Image
-              src={getDeviceImage(device.typeCode)}
+              src={getDeviceImage()}
               alt={device.type || ''}
               fill
               className="object-cover"

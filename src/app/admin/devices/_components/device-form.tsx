@@ -9,13 +9,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { Device, DeviceModule, DeviceTypeCode } from '@/types';
-import { Percent, Trash2, Plus } from 'lucide-react';
+import { Percent, Trash2, Plus, Upload, ImageIcon, X } from 'lucide-react';
+import Image from 'next/image';
+import { useRef } from 'react';
 
 interface DeviceFormProps {
   device?: Partial<Device> | null;
   deviceTypeCodes: DeviceTypeCode[];
   deviceModules: DeviceModule[];
-  onSave: (device: Partial<Device>) => void;
+  onSave: (device: Partial<Device>, imageFile?: File | null) => void;
   onCancel: () => void;
 }
 
@@ -66,6 +68,24 @@ export const DeviceForm = ({
   }, [device]);
 
   const { toast } = useToast();
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(device?.imageUrl || null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ variant: 'destructive', title: 'ファイルサイズエラー', description: '画像は5MB以下にしてください。' });
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast({ variant: 'destructive', title: 'ファイル形式エラー', description: '画像ファイルのみアップロードできます。' });
+      return;
+    }
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
 
   const handleChange = (field: keyof Device, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -132,11 +152,54 @@ export const DeviceForm = ({
       });
       return;
     }
-    onSave(formData);
+    onSave(formData, imageFile);
   };
 
   return (
     <div className="space-y-6 p-1 max-h-[70vh] overflow-y-auto pr-4">
+      {/* Cover Image */}
+      <div className="space-y-3">
+        <Label className="text-base font-bold flex items-center gap-2">
+          <ImageIcon className="h-4 w-4" /> カバー画像
+        </Label>
+        <div className="flex items-start gap-4">
+          <div
+            className="relative w-40 h-28 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 overflow-hidden flex items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {imagePreview ? (
+              <>
+                <Image src={imagePreview} alt="Preview" fill className="object-cover" />
+                <button
+                  type="button"
+                  className="absolute top-1 right-1 h-5 w-5 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 z-10"
+                  onClick={(e) => { e.stopPropagation(); setImageFile(null); setImagePreview(formData.imageUrl || null); }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </>
+            ) : (
+              <div className="text-center p-2">
+                <Upload className="h-6 w-6 text-gray-400 mx-auto mb-1" />
+                <p className="text-[9px] text-gray-400">クリックで選択</p>
+              </div>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p>デバイスカタログに表示されるカバー画像</p>
+            <p>推奨: 800×600px以上、5MB以下</p>
+            <p>対応形式: JPG, PNG, WebP</p>
+          </div>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleImageSelect}
+        />
+      </div>
+
       {/* Basic Info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1.5">

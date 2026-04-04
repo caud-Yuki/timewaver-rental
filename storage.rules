@@ -10,6 +10,14 @@ service firebase.storage {
             firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "admin";
     }
 
+    // Device images — public read, admin write
+    match /devices/{deviceId}/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin()
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
     // All user-related data lives under this path
     match /users/{userId}/{allPaths=**} {
       
