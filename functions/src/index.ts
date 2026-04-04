@@ -1460,6 +1460,26 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
 
   if (isNowCanceled && wasNotCanceled) {
     log(`[onApplicationUpdate] Cleanup initiated for ${applicationId} due to status: ${after.status}.`);
+
+    // Release device back to available
+    if (after.deviceId) {
+      const deviceDoc = await db.collection('devices').doc(after.deviceId).get();
+      if (deviceDoc.exists) {
+        const currentStatus = deviceDoc.data()?.status;
+        // Only release if device is in a locked state (processing/active), not already available
+        if (currentStatus && currentStatus !== 'available') {
+          const deviceType = deviceDoc.data()?.type || after.deviceType || 'Unknown Device';
+          await db.collection('devices').doc(after.deviceId).update({
+            status: 'available',
+            currentUserId: null,
+            updatedAt: Timestamp.now(),
+          });
+          log(`[onApplicationUpdate] Device ${after.deviceId} released to available (application ${after.status}).`);
+          await onDeviceReleased(after.deviceId, deviceType, 'canceled');
+        }
+      }
+    }
+
     const bucket = getStorage().bucket();
     const filesToDelete = [after.identificationImageUrl, after.agreementPdfUrl].filter(Boolean);
 
