@@ -41,7 +41,6 @@ async function getAiInstance() {
   const geminiModel = settingsSnap.exists() ? settingsSnap.data()?.geminiModel : undefined;
 
   const apiKey = await getGeminiSecret();
-  console.log('[AI Chatbot] API key found:', !!apiKey, '| Model from settings:', geminiModel || '(default)');
 
   if (!apiKey) {
     console.warn('[AI Chatbot] No Gemini API key found in Secret Manager or env. Using default AI instance.');
