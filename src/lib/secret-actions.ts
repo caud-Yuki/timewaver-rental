@@ -109,8 +109,8 @@ export async function getGeminiSecret(): Promise<string | null> {
     console.warn('[getGeminiSecret] Secret Manager read failed, falling back to env var:', error.message);
   }
 
-  // Fallback to environment variable for local development
-  return process.env.GOOGLE_GENAI_API_KEY || null;
+  // Fallback to environment variables for local development
+  return process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY || null;
 }
 
 /**
