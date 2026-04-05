@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Bot, User, Send, Loader2, Sparkles } from 'lucide-react';
 import { askChatbot } from '@/ai/flows/ai-support-chatbot';
 import { useServiceName } from '@/hooks/use-service-name';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   role: 'user' | 'bot';
@@ -90,11 +91,28 @@ export default function AISupportPage() {
                     </AvatarFallback>
                   </Avatar>
                   <div className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                    msg.role === 'bot' 
-                      ? 'bg-secondary/30 rounded-tl-none' 
+                    msg.role === 'bot'
+                      ? 'bg-secondary/30 rounded-tl-none'
                       : 'bg-primary text-white rounded-tr-none'
                   }`}>
-                    {msg.content}
+                    {msg.role === 'bot' ? (
+                      <ReactMarkdown
+                        components={{
+                          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                          ul: ({ children }) => <ul className="list-disc pl-4 mb-2 last:mb-0 space-y-1">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 last:mb-0 space-y-1">{children}</ol>,
+                          li: ({ children }) => <li>{children}</li>,
+                          strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                          a: ({ href, children }) => <a href={href} className="text-primary underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+                          h3: ({ children }) => <h3 className="font-bold text-base mt-2 mb-1">{children}</h3>,
+                          h4: ({ children }) => <h4 className="font-bold mt-2 mb-1">{children}</h4>,
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    ) : (
+                      msg.content
+                    )}
                   </div>
                 </div>
               ))}

@@ -359,3 +359,23 @@ export default function AdminSomethingPage() {
 4. **Firestore converters**: Always use `.withConverter()` on queries — without it, types won't match
 5. **SSR + Firebase**: Firebase hooks only work client-side. Pages using them must have `'use client'` directive
 6. **Email HTML**: `sendMail()` wraps body in HTML template. If body already contains HTML tags, it's inserted as-is; plain text gets `\n` → `<br>` conversion
+7. **Server actions have NO auth context**: `'use server'` functions use the client Firebase SDK without a user token. Firestore rules that require `request.auth != null` will block these reads. See `docs/server-actions-and-firebase.md`
+8. **Firestore rules deploy manually**: Rules in `firestore.rules` do NOT auto-deploy with App Hosting. Run `firebase deploy --only firestore:rules` separately
+9. **Gemini model names**: Must match what `@genkit-ai/google-genai` supports. Check `node_modules/@genkit-ai/google-genai/lib/googleai/gemini.mjs` for valid names. Invalid names cause silent API failures
+10. **Firestore field name mismatches**: Some Firestore documents use different field names than TypeScript types (e.g., `rentalType` in Firestore vs `rentalPeriod` in TS). Always verify against Firestore console
+11. **`'use client'` on config files**: Do NOT put `'use client'` on shared config/utility files — it prevents server-side usage. Only React components/hooks need it
+
+---
+
+## Architecture Documentation
+
+Detailed architecture docs are in `docs/`:
+
+| Document | Contents |
+|---|---|
+| `docs/server-actions-and-firebase.md` | Server action constraints, client vs admin SDK, auth context |
+| `docs/ai-chatbot-architecture.md` | AI chatbot flow, Genkit config, API key resolution, troubleshooting |
+| `docs/firestore-rules.md` | Security rules reference, collection access levels, server action compatibility |
+| `docs/collections-reference.md` | Firestore collection field definitions |
+| `docs/workflow.md` | End-to-end user and admin workflow |
+| `docs/blueprint.md` | Full app specification and style guide |

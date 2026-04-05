@@ -150,7 +150,12 @@ Guidelines:
 - If they ask for help with the rental process, guide them through the "Guide" page steps.
 - If the question is outside your knowledge, suggest they contact human support.
 - Always be polite and use a welcoming tone.
-- Respond in the same language the user uses (default: Japanese).`;
+- Respond in the same language the user uses (default: Japanese).
+
+Formatting:
+- Use markdown for structured responses. Use **bold** for emphasis, numbered lists for steps, and bullet lists for options.
+- Keep responses concise but well-formatted for readability.
+- Use line breaks between sections to improve readability.`;
 
     const { output } = await currentAi.generate({
       system: systemPrompt,
