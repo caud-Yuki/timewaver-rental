@@ -178,7 +178,7 @@ function ApplicationDetailModal({ application }: { application: Application }) {
               </div>
               <div className="space-y-1">
                 <p className="text-[10px] text-muted-foreground">プラン</p>
-                <p className="text-sm font-bold">{application.rentalPeriod}ヶ月 / {application.payType === 'monthly' ? '月次' : '一括'}</p>
+                <p className="text-sm font-bold">{application.rentalType ?? application.rentalPeriod ?? ''}ヶ月 / {application.payType === 'monthly' ? '月次' : '一括'}</p>
                 <p className="text-xs text-primary font-bold">¥{(application.payAmount ?? 0).toLocaleString()}</p>
               </div>
             </div>

@@ -373,7 +373,7 @@ export default function AdminDashboardPage() {
                     <div className="text-[10px] text-muted-foreground">{app.userEmail}</div>
                   </TableCell>
                   <TableCell className="text-sm font-medium">{app.deviceType}</TableCell>
-                  <TableCell className="text-xs">{`${app.rentalPeriod}ヶ月 / ${app.payType === 'monthly' ? '月次' : '一括'}`}</TableCell>
+                  <TableCell className="text-xs">{`${app.rentalType ?? app.rentalPeriod ?? ''}ヶ月 / ${app.payType === 'monthly' ? '月次' : '一括'}`}</TableCell>
                   <TableCell>
                     <Badge variant={app.status === 'pending' ? 'secondary' : app.status === 'approved' ? 'default' : 'outline'} className="text-[10px]">
                       {app.status}

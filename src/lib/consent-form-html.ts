@@ -235,7 +235,7 @@ export function generateConsentFormHtml({
     : DEFAULT_CONSENT_SECTIONS);
 
   const today = formatDate(new Date());
-  const rentalPeriod = application.rentalPeriod ? `${application.rentalPeriod}ヶ月` : '—';
+  const rentalPeriod = (application.rentalType ?? application.rentalPeriod) ? `${application.rentalType ?? application.rentalPeriod}ヶ月` : '—';
   const payType = formatPayType(application.payType || '');
   const customerName = application.userName || '　　　　　　　　';
   const appId = application.id;

@@ -217,8 +217,7 @@ export default function PaymentPage() {
         startDate = addBusinessDays(new Date(), bufferDays);
       }
 
-      // rentalPeriod is numeric (3, 6, 12), rentalType is string ('new'|'renew')
-      const rentalMonths = (application as any).rentalPeriod || 12;
+      const rentalMonths = (application as any).rentalType || (application as any).rentalPeriod || 12;
 
       const subStartAt = Timestamp.fromDate(startDate);
       const endBaseDate = new Date(startDate);

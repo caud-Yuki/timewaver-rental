@@ -144,12 +144,13 @@ export type PayType = 'monthly' | 'full';
 export interface Application {
   id: string;
   userId: string;
-  userName?: string; 
-  userEmail?: string; 
+  userName?: string;
+  userEmail?: string;
   deviceType: DeviceType;
-  rentalPeriod: RentalType; 
-  payType: PayType; 
-  status: ApplicationStatus; 
+  rentalPeriod?: RentalType;
+  rentalType?: number;
+  payType: PayType;
+  status: ApplicationStatus;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
