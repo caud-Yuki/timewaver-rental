@@ -105,9 +105,9 @@ service cloud.firestore {
       allow update: if isAdmin() || (request.auth != null && resource.data.status == 'pending' && request.resource.data.status == 'used');
     }
 
-    // Global Settings: Admins can write. Authenticated users can read (needed for payment config).
+    // Global Settings: Admins can write. Public read (contains non-sensitive config like service name, model settings).
     match /settings/global {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow write: if isAdmin();
     }
 

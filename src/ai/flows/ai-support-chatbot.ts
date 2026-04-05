@@ -108,23 +108,28 @@ export async function askChatbot(input: ChatbotInput): Promise<ChatbotOutput> {
         })),
       },
       async ({ userId }) => {
-        const { firestore } = initializeFirebase();
-        const q = query(
-          collection(firestore, 'applications'),
-          where('userId', '==', userId),
-          orderBy('createdAt', 'desc'),
-          limit(3)
-        );
-        const snapshot = await getDocs(q);
+        try {
+          const { firestore } = initializeFirebase();
+          const q = query(
+            collection(firestore, 'applications'),
+            where('userId', '==', userId),
+            orderBy('createdAt', 'desc'),
+            limit(3)
+          );
+          const snapshot = await getDocs(q);
 
-        return snapshot.docs.map(docSnap => {
-          const data = docSnap.data();
-          return {
-            deviceType: data.deviceType,
-            status: data.status,
-            createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : '不明'
-          };
-        });
+          return snapshot.docs.map(docSnap => {
+            const data = docSnap.data();
+            return {
+              deviceType: data.deviceType,
+              status: data.status,
+              createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : '不明'
+            };
+          });
+        } catch (error: any) {
+          console.warn('[AI Chatbot] Could not check application status:', error.message);
+          return [];
+        }
       }
     );
 
