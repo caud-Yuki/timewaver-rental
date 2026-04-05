@@ -1,8 +1,10 @@
 
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { useUser } from '@/firebase';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { useUser, useFirestore } from '@/firebase';
+import { useCollection } from '@/firebase';
+import { collection, query, where, orderBy, limit } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -21,12 +23,25 @@ interface Message {
 export default function AISupportPage() {
   const { user } = useUser();
   const serviceName = useServiceName();
+  const db = useFirestore();
   const [messages, setMessages] = useState<Message[]>([
     { role: 'bot', content: `こんにちは！${serviceName} AIコンシェルジュです。TimeWaverの操作方法やレンタル手続きについて何でもお尋ねください。` }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Fetch user's applications client-side (where auth context exists)
+  const applicationsQuery = useMemo(() => {
+    if (!user?.uid) return null;
+    return query(
+      collection(db, 'applications'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(5)
+    );
+  }, [db, user?.uid]);
+  const { data: userApps } = useCollection<any>(applicationsQuery);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -43,10 +58,18 @@ export default function AISupportPage() {
     setIsLoading(true);
 
     try {
+      // Pass user's applications from client (server action has no auth context)
+      const userApplications = userApps?.map(app => ({
+        deviceType: app.deviceType || '',
+        status: app.status || '',
+        createdAt: app.createdAt?.toDate ? app.createdAt.toDate().toLocaleDateString() : '不明',
+      }));
+
       const response = await askChatbot({
         query: userMessage,
         userId: user?.uid,
-        serviceName
+        serviceName,
+        userApplications,
       });
       setMessages(prev => [...prev, { role: 'bot', content: response.answer }]);
     } catch (error) {

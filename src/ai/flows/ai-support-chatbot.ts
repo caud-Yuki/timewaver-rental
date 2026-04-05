@@ -5,18 +5,27 @@
  *
  * - askChatbot - A function that handles user queries for the AI chatbot.
  * - Fetches the Gemini API key from Google Cloud Secret Manager.
+ *
+ * Architecture note: Server actions use the client Firebase SDK without auth
+ * context, so collections requiring authentication (applications, users) cannot
+ * be queried here. User-specific data must be passed from the client.
  */
 
 import {ai, createAi} from '@/ai/genkit';
 import {z} from 'genkit';
 import { initializeFirebase } from '@/firebase';
-import { collection, getDocs, doc, getDoc, query, where, limit, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, limit } from 'firebase/firestore';
 import { getGeminiSecret } from '@/lib/secret-actions';
 
 const ChatbotInputSchema = z.object({
-  query: z.string().describe('The user\'s question about the TimeWaver rental platform, rental procedures, payment, or TimeWaver devices.'),
+  query: z.string().describe('The user\'s question about the TimeWaver rental platform.'),
   userId: z.string().optional().describe('The ID of the currently logged-in user.'),
-  serviceName: z.string().optional().describe('The service/platform name to use in responses.')
+  serviceName: z.string().optional().describe('The service/platform name to use in responses.'),
+  userApplications: z.array(z.object({
+    deviceType: z.string(),
+    status: z.string(),
+    createdAt: z.string(),
+  })).optional().describe('The user\'s recent applications, fetched client-side.'),
 });
 export type ChatbotInput = z.infer<typeof ChatbotInputSchema>;
 
@@ -25,15 +34,15 @@ const ChatbotOutputSchema = z.object({
 });
 export type ChatbotOutput = z.infer<typeof ChatbotOutputSchema>;
 
-// Cache the AI instance to avoid re-creating genkit on every call
+// Cache the AI instance and tools to avoid re-creation and re-registration
 let cachedAi: ReturnType<typeof createAi> | null = null;
 let cachedApiKey: string | null = null;
 let cachedModel: string | undefined = undefined;
+let cachedTools: any[] | null = null;
 
 /**
  * Returns the appropriate AI instance — using the Secret Manager key and
  * the admin-selected model from Firestore settings.
- * Caches the instance to avoid re-registration warnings.
  */
 async function getAiInstance() {
   const { firestore } = initializeFirebase();
@@ -52,101 +61,85 @@ async function getAiInstance() {
     return cachedAi;
   }
 
+  // Key or model changed — create new instance and reset tool cache
   cachedAi = createAi(apiKey, geminiModel);
   cachedApiKey = apiKey;
   cachedModel = geminiModel;
+  cachedTools = null;
   return cachedAi;
+}
+
+/**
+ * Define tools once per AI instance and cache them.
+ */
+function getTools(currentAi: ReturnType<typeof createAi>) {
+  if (cachedTools) return cachedTools;
+
+  const getAvailableDevices = currentAi.defineTool(
+    {
+      name: 'getAvailableDevices',
+      description: 'Returns a list of currently available TimeWaver devices in the rental catalog.',
+      inputSchema: z.object({}),
+      outputSchema: z.array(z.object({
+        id: z.string(),
+        type: z.string(),
+        typeCode: z.string(),
+        monthlyPrice: z.number(),
+        description: z.string().optional()
+      })),
+    },
+    async () => {
+      const { firestore } = initializeFirebase();
+      const q = query(collection(firestore, 'devices'), where('status', '==', 'available'), limit(10));
+      const snapshot = await getDocs(q);
+
+      return snapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          type: data.type,
+          typeCode: data.typeCode,
+          monthlyPrice: data.price?.['12m']?.monthly || 0,
+          description: data.description
+        };
+      });
+    }
+  );
+
+  cachedTools = [getAvailableDevices];
+  return cachedTools;
 }
 
 export async function askChatbot(input: ChatbotInput): Promise<ChatbotOutput> {
   try {
     const currentAi = await getAiInstance();
+    const tools = getTools(currentAi);
 
-    // Define tools with the current AI instance
-    const getAvailableDevices = currentAi.defineTool(
-      {
-        name: 'getAvailableDevices',
-        description: 'Returns a list of currently available TimeWaver devices in the rental catalog.',
-        inputSchema: z.object({}),
-        outputSchema: z.array(z.object({
-          id: z.string(),
-          type: z.string(),
-          typeCode: z.string(),
-          monthlyPrice: z.number(),
-          description: z.string().optional()
-        })),
-      },
-      async () => {
-        const { firestore } = initializeFirebase();
-        const q = query(collection(firestore, 'devices'), where('status', '==', 'available'), limit(10));
-        const snapshot = await getDocs(q);
+    // Build application context from client-provided data
+    let applicationContext = '';
+    if (input.userApplications && input.userApplications.length > 0) {
+      const appList = input.userApplications.map(app =>
+        `- ${app.deviceType}: ステータス「${app.status}」(申請日: ${app.createdAt})`
+      ).join('\n');
+      applicationContext = `\n\nUser's current applications:\n${appList}`;
+    } else if (input.userId) {
+      applicationContext = '\n\nThe user is logged in but has no recent applications.';
+    }
 
-        return snapshot.docs.map(docSnap => {
-          const data = docSnap.data();
-          return {
-            id: docSnap.id,
-            type: data.type,
-            typeCode: data.typeCode,
-            monthlyPrice: data.price?.['12m']?.monthly || 0,
-            description: data.description
-          };
-        });
-      }
-    );
-
-    const checkMyApplicationStatus = currentAi.defineTool(
-      {
-        name: 'checkMyApplicationStatus',
-        description: 'Checks the status of the user\'s recent rental applications.',
-        inputSchema: z.object({
-          userId: z.string().describe('The ID of the user whose applications to check.')
-        }),
-        outputSchema: z.array(z.object({
-          deviceType: z.string(),
-          status: z.string(),
-          createdAt: z.string()
-        })),
-      },
-      async ({ userId }) => {
-        try {
-          const { firestore } = initializeFirebase();
-          const q = query(
-            collection(firestore, 'applications'),
-            where('userId', '==', userId),
-            orderBy('createdAt', 'desc'),
-            limit(3)
-          );
-          const snapshot = await getDocs(q);
-
-          return snapshot.docs.map(docSnap => {
-            const data = docSnap.data();
-            return {
-              deviceType: data.deviceType,
-              status: data.status,
-              createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : '不明'
-            };
-          });
-        } catch (error: any) {
-          console.warn('[AI Chatbot] Could not check application status:', error.message);
-          return [];
-        }
-      }
-    );
-
-    // Use generate() directly instead of definePrompt to avoid re-registration
     const systemPrompt = `You are an AI support assistant for the TimeWaver rental platform "${input.serviceName || 'TimeWaverHub'}".
 Your role is to provide helpful, accurate, and professional information to users.
 
 If a user asks about what devices are available or for recommendations, use the 'getAvailableDevices' tool.
-If a user asks about their own application status and you have their userId (${input.userId || 'not logged in'}), use the 'checkMyApplicationStatus' tool.
 
 Knowledge Base:
 - Rental procedures: Users must register, choose a device, upload identity docs, and wait for admin approval (1-3 days).
 - Devices: TimeWaver Mobile (portable), MQ (Quantum/Advanced), Tabletop (Professional/Static), Frequency (E-medicine).
 - Support: You can assist with navigation, troubleshooting basic operation, and explaining contract terms.
+- Application statuses: pending=審査待ち, approved=承認済み, awaiting_consent_form=同意書待ち, consent_form_review=同意書審査中, payment_sent=決済リンク送付済み, completed=決済完了, shipped=発送済み, in_use=利用中, rejected=却下, canceled=キャンセル${applicationContext}
 
 Guidelines:
-- If a user asks about their specific application status and you don't have their userId, ask them to log in.
+- If a user asks about their application status and they have applications listed above, respond with the details.
+- If a user asks about their application status but is not logged in, ask them to log in.
 - If they ask for help with the rental process, guide them through the "Guide" page steps.
 - If the question is outside your knowledge, suggest they contact human support.
 - Always be polite and use a welcoming tone.
@@ -160,7 +153,7 @@ Formatting:
     const { output } = await currentAi.generate({
       system: systemPrompt,
       prompt: input.query,
-      tools: [getAvailableDevices, checkMyApplicationStatus],
+      tools,
       output: { schema: ChatbotOutputSchema },
     });
 
@@ -173,7 +166,6 @@ Formatting:
     console.error('[AI Chatbot] Error in askChatbot:', error?.message || error);
     console.error('[AI Chatbot] Stack:', error?.stack);
 
-    // Return a user-friendly error instead of throwing a 500
     return {
       answer: '申し訳ありません。AIサービスに接続できませんでした。しばらくしてから再度お試しいただくか、サポート窓口までご連絡ください。'
     };
