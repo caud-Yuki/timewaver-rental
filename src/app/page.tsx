@@ -41,7 +41,7 @@ export default function Home() {
                   NEW: TimeWaver Mobile Quantum 入荷
                 </Badge>
                 <h1 className="font-headline text-4xl font-bold tracking-tighter sm:text-5xl md:text-6xl lg:text-7xl">
-                  次世代のエネルギー医学を、<br />
+                  次世代の意識フィールド分析を、<br />
                   <span className="text-primary">手軽にレンタル。</span>
                 </h1>
                 <p className="max-w-[600px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">

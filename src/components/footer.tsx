@@ -14,7 +14,7 @@ export function Footer() {
             <span className="font-headline text-xl font-bold text-primary tracking-tight">{serviceName}</span>
           </div>
           <p className="text-sm text-muted-foreground">
-            次世代のエネルギー医学を、すべての人へ。
+            次世代の意識フィールドテクノロジーを、すべての人へ。
           </p>
         </div>
         <div>
