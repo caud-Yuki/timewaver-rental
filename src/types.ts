@@ -53,6 +53,7 @@ export interface Application {
   payAmount?: number;
   status: ApplicationStatus;
   agreementPdfUrl?: string;
+  agreementImageUrls?: string[];
   identificationImageUrl?: string;
   deviceSerialNumber?: string;
   deviceId?: string;

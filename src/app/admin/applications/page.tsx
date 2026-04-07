@@ -64,8 +64,15 @@ function ApplicationDetailModal({ application }: { application: Application }) {
   const { data: profile, loading } = useDoc<UserProfile>(userProfileRef);
 
   const [showDetailEmail, setShowDetailEmail] = useState(false);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
 
-  const currentDocUrl = activeDoc === 'agreement' ? application.agreementPdfUrl : application.identificationImageUrl;
+  // Support multiple agreement images
+  const agreementUrls = (application as any).agreementImageUrls?.length > 0
+    ? (application as any).agreementImageUrls as string[]
+    : (application.agreementPdfUrl ? [application.agreementPdfUrl] : []);
+  const idUrls = application.identificationImageUrl ? [application.identificationImageUrl] : [];
+  const currentDocUrls = activeDoc === 'agreement' ? agreementUrls : idUrls;
+  const currentDocUrl = currentDocUrls[activeImageIndex] || currentDocUrls[0] || null;
 
   return (
     <DialogContent className="max-w-6xl h-[90vh] flex flex-col p-0 overflow-hidden rounded-[2.5rem]">
@@ -91,7 +98,7 @@ function ApplicationDetailModal({ application }: { application: Application }) {
             <h3 className="font-bold text-sm flex items-center gap-2">
               <FileText className="h-4 w-4 text-primary" /> 提出書類プレビュー
             </h3>
-            <Tabs value={activeDoc} onValueChange={(v: any) => setActiveDoc(v)} className="w-fit">
+            <Tabs value={activeDoc} onValueChange={(v: any) => { setActiveDoc(v); setActiveImageIndex(0); }} className="w-fit">
               <TabsList className="bg-white/50 rounded-lg h-9 border">
                 <TabsTrigger value="id" className="text-[10px] px-3 h-7 rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm">
                   <UserCheck className="h-3 w-3 mr-1" /> 本人確認書類
@@ -103,29 +110,55 @@ function ApplicationDetailModal({ application }: { application: Application }) {
             </Tabs>
           </div>
 
-          {currentDocUrl && !isDeleted ? (
-            <div className="flex-1 min-h-[400px] bg-white rounded-2xl shadow-inner border overflow-hidden relative">
-              <iframe 
-                src={currentDocUrl} 
-                className="w-full h-full border-none"
-                title="Document Preview"
-              />
+          {currentDocUrls.length > 0 && !isDeleted ? (
+            <div className="flex-1 min-h-[400px] bg-white rounded-2xl shadow-inner border overflow-hidden relative flex items-center justify-center">
+              {currentDocUrl?.match(/\.(jpg|jpeg|png|gif|webp)/i) || currentDocUrl?.includes('firebasestorage') ? (
+                <img
+                  src={currentDocUrl}
+                  alt="Document Preview"
+                  className="max-w-full max-h-full object-contain"
+                />
+              ) : (
+                <iframe
+                  src={currentDocUrl || ''}
+                  className="w-full h-full border-none"
+                  title="Document Preview"
+                />
+              )}
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed">
               <AlertTriangle className={`h-12 w-12 mb-2 ${isDeleted ? 'text-amber-400' : 'text-slate-300'}`} />
               <p className="text-xs text-slate-500 text-center px-8">
-                {isDeleted 
-                  ? "この申請は取り消し済みのため、個人情報保護の観点から書類は自動削除されました。" 
+                {isDeleted
+                  ? "この申請は取り消し済みのため、個人情報保護の観点から書類は自動削除されました。"
                   : (activeDoc === 'id' ? "本人確認書類がアップロードされていません" : "同意書がまだアップロードされていません")
                 }
               </p>
             </div>
           )}
-          
+
+          {/* Thumbnails for multiple images */}
+          {currentDocUrls.length > 1 && (
+            <div className="flex gap-2 overflow-x-auto">
+              {currentDocUrls.map((url, i) => (
+                <button
+                  key={i}
+                  onClick={() => setActiveImageIndex(i)}
+                  className={`relative w-16 h-12 rounded-lg overflow-hidden flex-shrink-0 border-2 transition-all ${
+                    i === activeImageIndex ? 'border-primary ring-1 ring-primary/30' : 'border-transparent opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  <img src={url} alt={`Page ${i + 1}`} className="w-full h-full object-cover" />
+                  <span className="absolute bottom-0 left-0 right-0 bg-black/50 text-[7px] text-white text-center">{i + 1}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <Button variant="secondary" className="flex-1 rounded-xl text-xs h-9" disabled={!currentDocUrl} asChild>
-              <a href={currentDocUrl} target="_blank" rel="noopener noreferrer">全画面で開く</a>
+              <a href={currentDocUrl || '#'} target="_blank" rel="noopener noreferrer">全画面で開く</a>
             </Button>
           </div>
         </div>

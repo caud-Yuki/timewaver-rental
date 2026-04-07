@@ -18,8 +18,8 @@ import {
   DialogClose 
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, FileText, ShoppingCart, RefreshCw, AlertTriangle, ExternalLink, Upload, ArrowLeft } from 'lucide-react';
-import { Application, applicationConverter } from '@/types';
+import { Loader2, FileText, ShoppingCart, RefreshCw, AlertTriangle, ExternalLink, Upload, ArrowLeft, Download, Pen, Camera, Mail, X } from 'lucide-react';
+import { Application, applicationConverter, GlobalSettings } from '@/types';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -54,30 +54,56 @@ const CancelApplicationModal = ({ application, onConfirm }: { application: Appli
   );
 };
 
-const ConsentFormModal = ({ application, serviceName, onConfirm }: { application: Application; serviceName: string; onConfirm: (file: File) => Promise<void> }) => {
+const ConsentFormModal = ({ application, serviceName, onConfirm }: { application: Application; serviceName: string; onConfirm: (files: File[]) => Promise<void> }) => {
   const db = useFirestore();
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
+  const fileInputRef = useMemo(() => ({ current: null as HTMLInputElement | null }), []);
+
+  // Load settings for company address
+  const settingsRef = useMemo(() => doc(db, 'settings', 'global'), [db]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
 
   // Load Firestore consent form sections
   const consentFormRef = useMemo(() => doc(db, 'consentForm', 'current').withConverter(consentFormConverter), [db]);
   const { data: consentFormData } = useDoc<ConsentFormDoc>(consentFormRef as any);
   const sections: ConsentFormSection[] | undefined = consentFormData?.sections;
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setFile(e.target.files[0]);
-    }
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const newFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/') || f.type === 'application/pdf');
+    addFiles(newFiles);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newFiles = Array.from(e.target.files || []);
+    addFiles(newFiles);
+    if (e.target) e.target.value = '';
+  };
+
+  const addFiles = (newFiles: File[]) => {
+    const valid = newFiles.filter(f => {
+      if (f.size > 10 * 1024 * 1024) { toast({ variant: 'destructive', title: `${f.name} は10MB以下にしてください` }); return false; }
+      return true;
+    });
+    setFiles(prev => [...prev, ...valid]);
+    setPreviews(prev => [...prev, ...valid.map(f => f.type.startsWith('image/') ? URL.createObjectURL(f) : '')]);
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviews(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleConfirm = async () => {
-    if (!file) {
+    if (files.length === 0) {
       toast({ variant: "destructive", title: "ファイルを選択してください" });
       return;
     }
     setIsUploading(true);
-    await onConfirm(file);
+    await onConfirm(files);
     setIsUploading(false);
   };
 
@@ -88,36 +114,113 @@ const ConsentFormModal = ({ application, serviceName, onConfirm }: { application
     window.open(url, '_blank');
   };
 
+  const companyAddress = [settings?.companyPostalCode ? `〒${settings.companyPostalCode}` : '', settings?.companyPrefecture, settings?.companyCity, settings?.companyAddress, settings?.companyBuilding].filter(Boolean).join(' ');
+
   return (
-    <DialogContent>
+    <DialogContent className="max-w-lg">
       <DialogHeader>
-        <DialogTitle>同意書の提出</DialogTitle>
-        <DialogDescription>同意書を開いて内容をご確認いただき、署名後にアップロードしてください。</DialogDescription>
+        <DialogTitle className="text-xl">同意書の提出</DialogTitle>
+        <DialogDescription>下記の手順に従って、署名済みの同意書をご提出ください。</DialogDescription>
       </DialogHeader>
-      <div className="py-4 space-y-4">
-        <button
-          type="button"
-          onClick={handleOpenConsentForm}
-          className="text-sm text-primary hover:underline flex items-center gap-1"
-        >
-          <FileText className="h-4 w-4"/>
-          同意書を開く（印刷 / PDF保存）
-        </button>
-        <p className="text-xs text-muted-foreground">
-          同意書を開いたら、印刷またはPDFとして保存し、署名後にアップロードしてください。
-        </p>
-        <input type="file" onChange={handleFileChange} accept="application/pdf,image/*" />
-        <p className="text-xs text-muted-foreground">
-          PDFまたは画像ファイルをアップロードできます。
-        </p>
+      <div className="space-y-6 py-2">
+        {/* Step 1: Download */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <span className="h-6 w-6 rounded-full bg-primary text-white flex items-center justify-center text-xs">1</span>
+            同意書をダウンロード
+          </div>
+          <Button variant="outline" onClick={handleOpenConsentForm} className="w-full rounded-xl h-11 justify-start gap-2 border-primary/30 text-primary hover:bg-primary/5">
+            <Download className="h-4 w-4" />
+            同意書を開く（印刷 / PDF保存）
+          </Button>
+        </div>
+
+        {/* Step 2: Sign */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <span className="h-6 w-6 rounded-full bg-primary text-white flex items-center justify-center text-xs">2</span>
+            同意書に記入・捺印
+          </div>
+          <p className="text-xs text-muted-foreground pl-8">
+            日付、署名、住所、電話番号を記入し、実印（ない場合は認印）を押してください。
+          </p>
+        </div>
+
+        {/* Step 3: Upload */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <span className="h-6 w-6 rounded-full bg-primary text-white flex items-center justify-center text-xs">3</span>
+            スキャン / 写真を提出
+          </div>
+          <div
+            className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleFileDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {files.length === 0 ? (
+              <div className="py-4">
+                <Camera className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">ここにファイルをドロップ</p>
+                <p className="text-[10px] text-gray-400 mt-1">またはクリックして選択（複数可）</p>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2 justify-center">
+                {files.map((f, i) => (
+                  <div key={i} className="relative w-20 h-20 rounded-lg border overflow-hidden group">
+                    {previews[i] ? (
+                      <img src={previews[i]} alt={f.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                        <FileText className="h-6 w-6 text-gray-400" />
+                      </div>
+                    )}
+                    <button type="button" onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                      className="absolute top-0.5 right-0.5 h-4 w-4 bg-black/60 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                    <span className="absolute bottom-0 left-0 right-0 bg-black/50 text-[7px] text-white text-center truncate px-1">{f.name}</span>
+                  </div>
+                ))}
+                <div className="w-20 h-20 rounded-lg border-2 border-dashed flex items-center justify-center text-gray-400">
+                  <Upload className="h-5 w-5" />
+                </div>
+              </div>
+            )}
+          </div>
+          <input ref={(el) => { fileInputRef.current = el; }} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={handleFileSelect} />
+          <p className="text-[10px] text-muted-foreground">
+            ＊捺印済みの同意書画像が確認できた時点で決済リンクをお送りします。
+          </p>
+        </div>
+
+        {/* Step 4: Mail */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <span className="h-6 w-6 rounded-full bg-primary text-white flex items-center justify-center text-xs">4</span>
+            一部を郵送、もう一部はお客様保管
+          </div>
+          {companyAddress ? (
+            <div className="bg-gray-50 rounded-xl p-3 pl-8 text-xs text-muted-foreground space-y-0.5">
+              <p>{settings?.companyPostalCode ? `〒${settings.companyPostalCode}` : ''}</p>
+              <p>{[settings?.companyPrefecture, settings?.companyCity, settings?.companyAddress].filter(Boolean).join('')}</p>
+              {settings?.companyBuilding && <p>{settings.companyBuilding}</p>}
+              <p className="font-semibold text-foreground">{settings?.companyName}</p>
+              {settings?.companyPhone && <p>TEL: {settings.companyPhone}</p>}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground pl-8">郵送先は管理者にお問い合わせください。</p>
+          )}
+        </div>
       </div>
+
       <DialogFooter>
         <DialogClose asChild>
           <Button variant="outline" className="rounded-lg">閉じる</Button>
         </DialogClose>
-        <Button onClick={handleConfirm} className="rounded-lg" disabled={isUploading || !file}>
+        <Button onClick={handleConfirm} className="rounded-lg" disabled={isUploading || files.length === 0}>
           {isUploading ? <Loader2 className="animate-spin h-4 w-4"/> : <Upload className="h-4 w-4 mr-2"/>}
-          提出する
+          提出する（{files.length}件）
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -169,29 +272,30 @@ export default function MyApplicationsPage() {
     }
   };
 
-  //NEWLY EDITED BASED ON YOUR ADVICE
-  const handleConsentFormUpload = async (application: Application, file: File) => {
-    if (!user || !db) return; // Ensure db is available
-    
+  const handleConsentFormUpload = async (application: Application, files: File[]) => {
+    if (!user || !db || files.length === 0) return;
+
     try {
-      const storage = getStorage(); 
-      const filePath = `users/${user.uid}/applications/${application.id}/consentForm/${file.name}`;
-      const storageRef = ref(storage, filePath);
-      
-      // 1. Upload
-      const snapshot = await uploadBytes(storageRef, file);
-      
-      // 2. Get URL
-      const fileUrl = await getDownloadURL(snapshot.ref);
-  
-      // 3. Update Firestore using the 'db' instance you already have from useFirestore()
+      const storage = getStorage();
+      const urls: string[] = [];
+
+      for (const file of files) {
+        const fileName = `${Date.now()}_${file.name}`;
+        const filePath = `users/${user.uid}/applications/${application.id}/consentForm/${fileName}`;
+        const storageRef = ref(storage, filePath);
+        const snapshot = await uploadBytes(storageRef, file);
+        const fileUrl = await getDownloadURL(snapshot.ref);
+        urls.push(fileUrl);
+      }
+
       await updateDoc(doc(db, 'applications', application.id), {
-        agreementPdfUrl: fileUrl,
+        agreementPdfUrl: urls[0],
+        agreementImageUrls: urls,
         status: 'consent_form_review',
         updatedAt: serverTimestamp(),
       });
-      
-      toast({ title: "同意書をアップロードしました。" });
+
+      toast({ title: `同意書をアップロードしました（${urls.length}件）` });
     } catch (error) {
       console.error("Upload error:", error);
       toast({ variant: "destructive", title: "アップロードに失敗しました。" });
@@ -271,7 +375,7 @@ export default function MyApplicationsPage() {
                             <DialogTrigger asChild>
                               <Button size="sm" className="rounded-lg h-9 bg-primary hover:bg-primary/90">同意書を提出</Button>
                             </DialogTrigger>
-                            <ConsentFormModal application={app} serviceName={serviceName} onConfirm={(file) => handleConsentFormUpload(app, file)} />
+                            <ConsentFormModal application={app} serviceName={serviceName} onConfirm={(files) => handleConsentFormUpload(app, files)} />
                           </Dialog>
                         )}
                         {app.status === 'payment_sent' && app.paymentLinkId && (
