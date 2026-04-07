@@ -229,7 +229,7 @@ export default function MyApplicationsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="container mx-auto px-4 py-12 space-y-8">
       <Button variant="outline" size="sm" className="rounded-xl" onClick={() => window.location.href = '/mypage'}>
         <ArrowLeft className="h-4 w-4 mr-1" />
         マイページに戻る
