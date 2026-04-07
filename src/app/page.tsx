@@ -9,7 +9,7 @@ import { ChevronRight, ShieldCheck, Activity, Zap, Headphones, Newspaper } from 
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, orderBy, limit } from 'firebase/firestore';
-import { News } from '@/types';
+import { News, Device } from '@/types';
 import { useServiceName } from '@/hooks/use-service-name';
 
 export default function Home() {
@@ -29,6 +29,19 @@ export default function Home() {
 
   const { data: newsItems, loading: newsLoading } = useCollection<News>(newsQuery as any);
 
+  // Query devices with isNew flag for hero badge
+  const newDevicesQuery = useMemoFirebase(() => {
+    if (!db) return null;
+    return query(
+      collection(db, 'devices'),
+      where('isNew', '==', true),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    );
+  }, [db]);
+  const { data: newDevices } = useCollection<Device>(newDevicesQuery as any);
+  const newestDevice = newDevices?.[0];
+
   return (
     <div className="flex flex-col">
       {/* Hero Section */}
@@ -37,15 +50,19 @@ export default function Home() {
           <div className="grid gap-6 lg:grid-cols-2 lg:gap-12 items-center">
             <div className="flex flex-col justify-center space-y-4">
               <div className="space-y-2">
-                <Badge variant="secondary" className="w-fit mb-2 bg-accent/20 text-accent hover:bg-accent/30 border-none px-4 py-1">
-                  NEW: TimeWaver Mobile Quantum 入荷
-                </Badge>
+                {newestDevice && (
+                  <Link href={`/devices/${newestDevice.id}`}>
+                    <Badge variant="secondary" className="w-fit mb-2 bg-accent/20 text-accent hover:bg-accent/30 border-none px-4 py-1 cursor-pointer">
+                      NEW: {newestDevice.type || newestDevice.name} 入荷
+                    </Badge>
+                  </Link>
+                )}
                 <h1 className="font-headline text-4xl font-bold tracking-tighter sm:text-5xl md:text-6xl lg:text-7xl">
                   次世代の意識フィールド分析を、<br />
                   <span className="text-primary">手軽にレンタル。</span>
                 </h1>
                 <p className="max-w-[600px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
-                  TimeWaverデバイスを月額から手軽に導入。専門的な知識がなくても、あなたのビジネスやライフスタイルに最高峰のテクノロジーを。
+                  TimeWaverデバイスを月額から手軽に導入。あなたのビジネスに多次元なソリューションを。
                 </p>
               </div>
               <div className="flex flex-col gap-2 min-[400px]:flex-row">
