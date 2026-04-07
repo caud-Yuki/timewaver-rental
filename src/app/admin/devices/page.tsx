@@ -154,6 +154,24 @@ export default function DeviceManagementPage() {
 
         toast({ title: "New device added successfully." });
 
+        // Auto-create news article for new device
+        try {
+          const deviceName = formData.type || formData.name || 'New Device';
+          await addDoc(collection(db, 'news'), {
+            title: `【新着】${deviceName} がラインナップに追加されました`,
+            content: `${deviceName} がレンタル機器に新しく追加されました。詳細はこちらをご確認ください。`,
+            body: `<p>${deviceName} がレンタル機器に新しく追加されました。</p><p><a href="/devices/${newDocRef.id}" style="color: #2563eb; text-decoration: underline;">この機器の詳細を見る →</a></p>`,
+            deviceId: newDocRef.id,
+            status: 'published',
+            isPublic: true,
+            publishedAt: serverTimestamp(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        } catch (newsErr: any) {
+          console.warn('[Device] News creation failed:', newsErr.message);
+        }
+
         // Auto-sync new device to Stripe (create Products & Prices)
         try {
           const functions = getFunctions();
