@@ -86,12 +86,6 @@ export function Navbar() {
                         <span className="font-bold">管理者ダッシュボード</span>
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/admin/modules">
-                        <Box className="mr-2 h-4 w-4" />
-                        <span>Modules</span>
-                      </Link>
-                    </DropdownMenuItem>
                   </>
                 )}
                 <DropdownMenuItem asChild>
