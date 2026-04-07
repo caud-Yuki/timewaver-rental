@@ -211,52 +211,6 @@ export default function DeviceDetailPage() {
             fallback={getDeviceImage()}
             alt={device.type || ''}
           />
-          
-          {/* AI Visualization Feature */}
-          <Card className="border-none shadow-2xl bg-gradient-to-br from-primary/10 via-background to-accent/10 rounded-[2.5rem] overflow-hidden">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 font-headline">
-                <Sparkles className="h-5 w-5 text-primary" />
-                フィールドの可視化体験
-              </CardTitle>
-              <CardDescription>TimeWaverが分析する「情報場」のイメージをAIで生成します。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {visualization ? (
-                <div className="space-y-4 animate-in zoom-in duration-500">
-                  <div className="relative aspect-square rounded-2xl overflow-hidden shadow-inner border border-white/50">
-                    <Image src={visualization.imageUrl} alt="Visualization" fill className="object-cover" />
-                  </div>
-                  <p className="text-sm italic text-center text-muted-foreground px-4">
-                    "{visualization.interpretation}"
-                  </p>
-                  <Button variant="outline" className="w-full rounded-xl" onClick={() => setVisualization(null)}>
-                    別の意図で試す
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground ml-1">現在のフォーカス・意図を入力</label>
-                    <Input 
-                      placeholder="例: 心身の調和、ビジネスの成功" 
-                      className="rounded-xl border-white/40 bg-white/40 backdrop-blur-sm"
-                      value={intent}
-                      onChange={(e) => setIntent(e.target.value)}
-                    />
-                  </div>
-                  <Button 
-                    className="w-full rounded-xl font-bold bg-primary hover:bg-primary/90 shadow-lg" 
-                    onClick={handleVisualize}
-                    disabled={isVisualizing || !intent.trim()}
-                  >
-                    {isVisualizing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                    フィールドを生成
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
 
         <div className="space-y-8">
