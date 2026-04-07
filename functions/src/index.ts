@@ -1398,6 +1398,38 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
     log(`[onApplicationUpdate] Auto-transitioned ${applicationId} from 'shipped' to 'in_use'.`);
   }
 
+  // 利用中 → ensure device is set to 'active'
+  if (after.status === 'in_use' && before.status !== 'in_use') {
+    if (after.deviceId) {
+      const deviceDoc = await db.collection('devices').doc(after.deviceId).get();
+      const currentStatus = deviceDoc.data()?.status;
+      if (currentStatus !== 'active') {
+        await db.collection('devices').doc(after.deviceId).update({
+          status: 'active',
+          currentUserId: after.userId || null,
+          updatedAt: Timestamp.now(),
+        });
+        log(`[onApplicationUpdate] Device ${after.deviceId} → active (application in_use).`);
+      }
+    }
+  }
+
+  // completed → ensure device is set to 'active' (payment completed, may skip shipped flow)
+  if (after.status === 'completed' && before.status !== 'completed') {
+    if (after.deviceId) {
+      const deviceDoc = await db.collection('devices').doc(after.deviceId).get();
+      const currentStatus = deviceDoc.data()?.status;
+      if (currentStatus && currentStatus !== 'active') {
+        await db.collection('devices').doc(after.deviceId).update({
+          status: 'active',
+          currentUserId: after.userId || null,
+          updatedAt: Timestamp.now(),
+        });
+        log(`[onApplicationUpdate] Device ${after.deviceId} → active (application completed).`);
+      }
+    }
+  }
+
   // 契約満了 → update subscription + send 契約終了通知 + 返却案内 → auto-switch to 返却手続中
   if (after.status === 'expired') {
     // Update linked subscriptions to 'expired'
