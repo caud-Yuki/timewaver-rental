@@ -115,40 +115,64 @@ export async function askChatbot(input: ChatbotInput): Promise<ChatbotOutput> {
     const currentAi = await getAiInstance();
     const tools = getTools(currentAi);
 
+    // Fetch admin-configured AI context from settings
+    const { firestore: fsInstance } = initializeFirebase();
+    const settingsSnap = await getDoc(doc(fsInstance, 'settings', 'global'));
+    const settingsData = settingsSnap.exists() ? settingsSnap.data() : {};
+    const aiContext = settingsData?.aiContext || '';
+    const svcName = input.serviceName || settingsData?.serviceName || 'TimeWaverHub';
+
+    // Fetch current device lineup for context
+    let deviceContext = '';
+    try {
+      const devicesSnap = await getDocs(query(collection(fsInstance, 'devices'), limit(20)));
+      if (!devicesSnap.empty) {
+        const deviceLines = devicesSnap.docs.map(d => {
+          const data = d.data();
+          const price12m = data.price?.['12m']?.monthly;
+          const statusJa = data.status === 'available' ? '利用可能' : data.status === 'active' ? '使用中' : data.status === 'under_review' ? '審査中' : data.status;
+          return `- ${data.type} (${data.serialNumber}): ${statusJa}, 月額¥${price12m?.toLocaleString() || '?'}/月(12ヶ月)`;
+        }).join('\n');
+        deviceContext = `\n\n# 現在のデバイスラインナップ\n${deviceLines}`;
+      }
+    } catch { /* non-critical */ }
+
     // Build application context from client-provided data
     let applicationContext = '';
     if (input.userApplications && input.userApplications.length > 0) {
       const appList = input.userApplications.map(app =>
         `- ${app.deviceType}: ステータス「${app.status}」(申請日: ${app.createdAt})`
       ).join('\n');
-      applicationContext = `\n\nUser's current applications:\n${appList}`;
+      applicationContext = `\n\n# ユーザーの申請状況\n${appList}`;
     } else if (input.userId) {
-      applicationContext = '\n\nThe user is logged in but has no recent applications.';
+      applicationContext = '\n\n# ユーザーの申請状況\nログイン済みですが、現在の申請はありません。';
     }
 
-    const systemPrompt = `You are an AI support assistant for the TimeWaver rental platform "${input.serviceName || 'TimeWaverHub'}".
+    // Build system prompt with admin-configured context
+    const adminContext = aiContext
+      ? `\n\n--- 管理者が設定したサービスコンテキスト ---\n${aiContext}\n--- ここまで ---`
+      : '';
+
+    const systemPrompt = `You are an AI support assistant for the TimeWaver rental platform "${svcName}".
 Your role is to provide helpful, accurate, and professional information to users.
 
 If a user asks about what devices are available or for recommendations, use the 'getAvailableDevices' tool.
+${adminContext}${deviceContext}
 
-Knowledge Base:
-- Rental procedures: Users must register, choose a device, upload identity docs, and wait for admin approval (1-3 days).
-- Devices: TimeWaver Mobile (portable), MQ (Quantum/Advanced), Tabletop (Professional/Static), Frequency (E-medicine).
-- Support: You can assist with navigation, troubleshooting basic operation, and explaining contract terms.
-- Application statuses: pending=審査待ち, approved=承認済み, awaiting_consent_form=同意書待ち, consent_form_review=同意書審査中, payment_sent=決済リンク送付済み, completed=決済完了, shipped=発送済み, in_use=利用中, rejected=却下, canceled=キャンセル${applicationContext}
+# ステータス一覧
+pending=審査待ち, awaiting_consent_form=同意書待ち, consent_form_review=同意書審査中, consent_form_approved=同意書承認, payment_sent=決済リンク送付済み, completed=決済完了, shipped=発送済み, in_use=利用中, expired=契約満了, returning=返却手続中, inspection=点検中, returned=返却完了, closed=終了, rejected=却下, canceled=キャンセル${applicationContext}
 
-Guidelines:
-- If a user asks about their application status and they have applications listed above, respond with the details.
-- If a user asks about their application status but is not logged in, ask them to log in.
-- If they ask for help with the rental process, guide them through the "Guide" page steps.
-- If the question is outside your knowledge, suggest they contact human support.
-- Always be polite and use a welcoming tone.
-- Respond in the same language the user uses (default: Japanese).
+# ガイドライン
+- ユーザーの申請状況が上記に記載されている場合は、その情報を元に回答してください。
+- ログインしていないユーザーが申請状況を聞いた場合は、ログインを案内してください。
+- レンタルの流れについて聞かれた場合は、ガイドページの手順を案内してください。
+- 回答できない質問には、サポート窓口への問い合わせを案内してください。
+- 常に丁寧で親しみやすいトーンで応対してください。
+- ユーザーが使用する言語で回答してください（デフォルト: 日本語）。
 
-Formatting:
-- Use markdown for structured responses. Use **bold** for emphasis, numbered lists for steps, and bullet lists for options.
-- Keep responses concise but well-formatted for readability.
-- Use line breaks between sections to improve readability.`;
+# フォーマット
+- Markdown形式で回答。**太字**で強調、番号付きリストで手順、箇条書きで選択肢。
+- 簡潔かつ読みやすく。セクション間は改行を入れる。`;
 
     const { output } = await currentAi.generate({
       system: systemPrompt,

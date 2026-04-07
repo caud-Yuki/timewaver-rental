@@ -136,6 +136,7 @@ export interface GlobalSettings {
   companyBuilding?: string;
   serviceName?: string;
   geminiModel?: string;
+  aiContext?: string;
   shippingBufferDays?: number;
   moduleBasePrice?: number;
   staff?: Array<{ name: string; email: string; role: 'operations' | 'support' | 'admin' }>;
