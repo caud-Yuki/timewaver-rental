@@ -284,6 +284,18 @@ export const DeviceForm = ({
         </div>
       </div>
 
+      <div className="flex items-center gap-3">
+        <Checkbox
+          id="isNew"
+          checked={formData.isNew ?? false}
+          onCheckedChange={(checked) => handleChange('isNew', !!checked)}
+        />
+        <Label htmlFor="isNew" className="text-sm cursor-pointer">
+          「NEW」バッジを表示する
+          <span className="text-[10px] text-muted-foreground ml-1">（作成時に自動ON、6ヶ月後に自動OFF）</span>
+        </Label>
+      </div>
+
       <div className="space-y-1.5">
         <Label htmlFor="description">説明</Label>
         <Textarea id="description" placeholder="機器の説明..." value={formData.description || ''} onChange={(e) => handleChange('description', e.target.value)} className="min-h-[80px]" />

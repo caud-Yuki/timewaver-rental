@@ -111,6 +111,12 @@ export default function DeviceListPage() {
               const isUnderReview = device.status === 'under_review';
               const isOnWaitlist = userWaitlistDeviceTypes.includes(device.type);
 
+              // NEW badge: isNew flag + auto-expire after 6 months from createdAt
+              const sixMonthsAgo = new Date();
+              sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+              const createdDate = device.createdAt?.seconds ? new Date(device.createdAt.seconds * 1000) : null;
+              const isNewDevice = device.isNew === true && (!createdDate || createdDate > sixMonthsAgo);
+
               return (
                 <Card key={device.id} className="overflow-hidden group hover:shadow-2xl transition-all duration-300 border-none shadow-lg bg-white rounded-[2rem]">
                   <div className="relative aspect-video overflow-hidden">
@@ -120,6 +126,13 @@ export default function DeviceListPage() {
                       fill
                       className="object-cover group-hover:scale-110 transition-transform duration-700"
                     />
+                    {isNewDevice && (
+                      <div className="absolute top-4 right-4 z-10">
+                        <Badge className="bg-rose-500 hover:bg-rose-600 text-white border-none py-1 px-3 text-xs font-bold shadow-lg animate-pulse">
+                          NEW
+                        </Badge>
+                      </div>
+                    )}
                     <div className="absolute top-4 left-4">
                       {isAvailable ? (
                         <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white border-none flex items-center gap-1 py-1.5 px-4 shadow-lg">

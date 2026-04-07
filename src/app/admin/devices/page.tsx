@@ -144,7 +144,7 @@ export default function DeviceManagementPage() {
           }
         }
       } else {
-        const newDocRef = await addDoc(collection(db, 'devices'), { ...formData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        const newDocRef = await addDoc(collection(db, 'devices'), { ...formData, isNew: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
 
         // Upload images for new device
         if (newImages && newImages.length > 0) {

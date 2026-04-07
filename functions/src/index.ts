@@ -798,8 +798,23 @@ export const syncPaymentData = onCall(async (request) => {
       }
     }
 
-    log(`[syncPaymentData] Sync complete. Synced: ${results.synced}, Errors: ${results.errors}, Expired: ${expired}, Reminders: ${reminders}`);
-    return { status: 'success', ...results, expired, reminders };
+    // --- Auto-expire isNew flag on devices older than 6 months ---
+    let newExpired = 0;
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const newDevicesSnap = await db.collection('devices').where('isNew', '==', true).get();
+    for (const devDoc of newDevicesSnap.docs) {
+      const devData = devDoc.data();
+      const createdAt = devData.createdAt?.toDate ? devData.createdAt.toDate() : null;
+      if (createdAt && createdAt < sixMonthsAgo) {
+        await devDoc.ref.update({ isNew: false, updatedAt: Timestamp.now() });
+        newExpired++;
+        log(`[syncPaymentData] Device ${devDoc.id} isNew → false (older than 6 months).`);
+      }
+    }
+
+    log(`[syncPaymentData] Sync complete. Synced: ${results.synced}, Errors: ${results.errors}, Expired: ${expired}, Reminders: ${reminders}, NewExpired: ${newExpired}`);
+    return { status: 'success', ...results, expired, reminders, newExpired };
 
   } catch (error) {
     log("[syncPaymentData] ERROR:", error);

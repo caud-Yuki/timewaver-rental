@@ -62,6 +62,7 @@ export interface Device {
   contractEndAt?: Timestamp;
   imageUrl?: string;
   imageUrls?: string[];
+  isNew?: boolean;
   // Stripe integration — one Product per plan, two Prices per Product (monthly + full)
   stripeProducts?: {
     "3m": { productId?: string; monthlyPriceId?: string; fullPriceId?: string };
