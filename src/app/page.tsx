@@ -81,12 +81,12 @@ export default function Home() {
             </div>
             <div className="relative aspect-video lg:aspect-square rounded-3xl overflow-hidden shadow-2xl border-8 border-white">
               <Image
-                src={heroImage?.imageUrl || "https://images.unsplash.com/photo-1576091160550-2173dad99901?q=80&w=2070&auto=format&fit=crop"}
+                src={heroImage?.imageUrl || "/images/hero/hero-main.webp"}
                 alt={`${serviceName} Hero`}
                 fill
+                sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-cover"
                 priority
-                data-ai-hint="medical technology"
               />
             </div>
           </div>

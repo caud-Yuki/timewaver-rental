@@ -7,10 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ChevronRight, Zap, Shield, Globe, Award } from 'lucide-react';
+import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { useServiceName } from '@/hooks/use-service-name';
 
 export default function IntroductionPage() {
   const serviceName = useServiceName();
+  const introImage = PlaceHolderImages?.find(img => img.id === 'hero-introduction');
   return (
     <div className="container mx-auto px-4 py-16 space-y-24">
       {/* Hero Section */}
@@ -31,12 +33,12 @@ export default function IntroductionPage() {
       {/* Philosophy Section */}
       <section className="grid md:grid-cols-2 gap-12 items-center">
         <div className="relative aspect-square rounded-[3rem] overflow-hidden shadow-2xl">
-          <Image 
-            src="https://images.unsplash.com/photo-1507413245164-6160d8298b31?q=80&w=2070&auto=format&fit=crop"
+          <Image
+            src={introImage?.imageUrl || "/images/hero/hero-introduction.webp"}
             alt="Science and consciousness"
             fill
+            sizes="(max-width: 768px) 100vw, 50vw"
             className="object-cover"
-            data-ai-hint="scientific laboratory"
           />
         </div>
         <div className="space-y-6">
