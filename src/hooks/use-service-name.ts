@@ -5,7 +5,7 @@ import { doc } from 'firebase/firestore';
 import { useFirestore, useDoc } from '@/firebase';
 import { GlobalSettings } from '@/types';
 
-const DEFAULT_SERVICE_NAME = 'ChronoRent';
+const DEFAULT_SERVICE_NAME = 'TimeWaverHub';
 
 export function useServiceName(): string {
   const db = useFirestore();

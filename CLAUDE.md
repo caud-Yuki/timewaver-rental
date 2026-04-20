@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-- **Name**: TWRENTAL-PLATFORM (ChronoRent / TimeWaver Rental)
+- **Name**: TWRENTAL-PLATFORM (TimeWaverHub / TimeWaver Rental)
 - **Stack**: Next.js 15 (App Router) + TypeScript + Firebase (Firestore, Functions, Storage, App Hosting)
 - **UI**: shadcn/ui + Tailwind CSS + Lucide icons
 - **Repo**: `https://github.com/caud-Yuki/timewaver-rental.git` (branch: `main`)

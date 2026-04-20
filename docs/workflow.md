@@ -1,7 +1,7 @@
-# ChronoRent — Complete Workflow Documentation
+# TimeWaverHub — Complete Workflow Documentation
 
 ## System Overview
-ChronoRent is a TimeWaver device rental platform built with Next.js 14, Firebase, and Stripe payment gateway.
+TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Firebase, and Stripe payment gateway.
 
 ---
 

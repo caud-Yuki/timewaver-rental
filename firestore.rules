@@ -116,5 +116,31 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAdmin();
     }
+
+    // Testimonials: Public read. Admins manage.
+    match /testimonials/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // FAQs: Public read. Admins manage.
+    match /faqs/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Case Studies: Public read. Admins manage.
+    match /caseStudies/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Early Bookings (先行予約): Anyone can create; only admins can read/update/delete.
+    match /earlyBookings/{docId} {
+      allow create: if request.resource.data.keys().hasAll(['name', 'email', 'createdAt'])
+        && request.resource.data.email is string
+        && request.resource.data.name is string;
+      allow read, update, delete: if isAdmin();
+    }
   }
 }

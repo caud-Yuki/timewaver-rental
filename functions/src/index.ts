@@ -1,14 +1,14 @@
 
-import {onCall, onRequest, HttpsError} from "firebase-functions/v2/https";
-import { onDocumentUpdated } from "firebase-functions/v2/firestore";
-import {log} from "firebase-functions/logger";
-import {initializeApp} from "firebase-admin/app";
+import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
+import { onDocumentUpdated, onDocumentCreated } from "firebase-functions/v2/firestore";
+import { log } from "firebase-functions/logger";
+import { initializeApp } from "firebase-admin/app";
 import { getStorage } from "firebase-admin/storage";
-import {getFirestore, Timestamp} from "firebase-admin/firestore";
+import { getFirestore, Timestamp } from "firebase-admin/firestore";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const StripeSDK = require("stripe") as typeof import("stripe");
-import {sendTriggeredEmail} from "./triggers";
-import {sendMail} from "./gmail";
+import { sendTriggeredEmail } from "./triggers";
+import { sendMail } from "./gmail";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
 
 log("Top-level: functions/index.ts loaded. v2 with sendAdHocEmail.");
@@ -516,8 +516,8 @@ export const createStripeSubscription = onCall(async (request) => {
  * Modes: get-payment-by-id (PaymentIntent), get-subscription (Subscription), get-invoices (Invoice list)
  */
 export const getPaymentData = onCall(async (request) => {
-  const {mode, data} = request.data;
-  const {paymentIntentId, subscriptionId} = data || {};
+  const { mode, data } = request.data;
+  const { paymentIntentId, subscriptionId } = data || {};
 
   log("[getPaymentData] Called with mode:", mode, "and data:", data);
 
@@ -1274,7 +1274,7 @@ export const sendAdHocEmail = onCall(async (request) => {
     const db = getFirestore();
     const settingsDoc = await db.collection('settings').doc('global').get();
     const settings = settingsDoc.exists ? settingsDoc.data() || {} : {};
-    const svcName = settings.serviceName || 'ChronoRent';
+    const svcName = settings.serviceName || 'TimeWaverHub';
     const d = settings.emailDesign || {
       primaryColor: '#2563eb',
       fontFamily: "'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif",
@@ -1613,4 +1613,109 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
       }
     }
   }
+});
+
+/**
+ * Send follow-up emails when a new early booking (先行予約) is created.
+ * Both emails are driven by the email-template system — admins can edit
+ * subject/body via /admin/email-templates and swap the bound template via
+ * /admin/email-triggers. Default content comes from SYSTEM_TEMPLATES when no
+ * custom template is bound.
+ */
+export const onEarlyBookingCreated = onDocumentCreated("earlyBookings/{bookingId}", async (event) => {
+  const snap = event.data;
+  if (!snap) {
+    log("[onEarlyBookingCreated] No snapshot; exiting.");
+    return;
+  }
+  const booking = snap.data();
+  const bookingId = event.params.bookingId;
+
+  const db = getFirestore();
+  const settingsDoc = await db.collection('settings').doc('global').get();
+  const settings = settingsDoc.exists ? settingsDoc.data() || {} : {};
+  const managerEmail: string = settings.managerEmail || settings.adminEmail || '';
+
+  log(`[onEarlyBookingCreated] New booking ${bookingId} from ${booking.email}`);
+
+  const submittedAt = booking.createdAt?.toDate
+    ? booking.createdAt.toDate().toLocaleString('ja-JP')
+    : new Date().toLocaleString('ja-JP');
+
+  const sharedData = {
+    companyName: booking.companyName || '（未入力）',
+    phone: booking.phone || '（未入力）',
+    desiredDevice: booking.desiredDevice || '（未選択）',
+    message: booking.message || '（なし）',
+    submittedAt,
+    bookingId,
+  };
+
+  // --- 1. Confirmation email to user ---
+  try {
+    await sendTriggeredEmail(
+      'early_booking_confirmation',
+      { name: booking.name, email: booking.email },
+      sharedData,
+    );
+    await snap.ref.update({ followUpSentAt: Timestamp.now() });
+    log(`[onEarlyBookingCreated] Confirmation trigger dispatched for ${booking.email}`);
+  } catch (err: any) {
+    log(`[onEarlyBookingCreated] Failed confirmation trigger:`, err.message || err);
+  }
+
+  // --- 2. Admin notification ---
+  if (managerEmail) {
+    try {
+      await sendTriggeredEmail(
+        'early_booking_admin_notification',
+        { name: settings.managerName || 'Admin', email: managerEmail },
+        {
+          ...sharedData,
+          // For admin template: use booking's user info explicitly so {{userName}} / {{userEmail}}
+          // reflect the applicant, not the admin recipient.
+          userName: booking.name,
+          userEmail: booking.email,
+        },
+      );
+      await snap.ref.update({ adminNotifiedAt: Timestamp.now() });
+      log(`[onEarlyBookingCreated] Admin trigger dispatched for ${managerEmail}`);
+    } catch (err: any) {
+      log(`[onEarlyBookingCreated] Failed admin trigger:`, err.message || err);
+    }
+  }
+});
+
+/**
+ * Manual resend of early-booking follow-up (called from /admin/early-bookings).
+ * Uses the same templated pipeline as the onCreate trigger.
+ */
+export const resendEarlyBookingFollowUp = onCall(async (request) => {
+  const { bookingId } = request.data;
+  if (!bookingId) throw new HttpsError("invalid-argument", "bookingId is required.");
+
+  const db = getFirestore();
+  const ref = db.collection('earlyBookings').doc(bookingId);
+  const docSnap = await ref.get();
+  if (!docSnap.exists) throw new HttpsError("not-found", "Booking not found.");
+
+  const booking = docSnap.data()!;
+  const submittedAt = booking.createdAt?.toDate
+    ? booking.createdAt.toDate().toLocaleString('ja-JP')
+    : new Date().toLocaleString('ja-JP');
+
+  await sendTriggeredEmail(
+    'early_booking_confirmation',
+    { name: booking.name, email: booking.email },
+    {
+      companyName: booking.companyName || '（未入力）',
+      phone: booking.phone || '（未入力）',
+      desiredDevice: booking.desiredDevice || '（未選択）',
+      message: booking.message || '（なし）',
+      submittedAt,
+      bookingId,
+    },
+  );
+  await ref.update({ followUpSentAt: Timestamp.now() });
+  return { success: true };
 });

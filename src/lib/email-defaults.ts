@@ -159,5 +159,19 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     subject: '【{{serviceName}}】返却機器の点検結果について',
     type: 'transaction',
     body: `{{userName}} 様\n\nご返却いただいたデバイスを点検した結果、破損・不具合が確認されました。\n\n対象機器: {{deviceType}}\n\n契約時にお預かりしたデポジットより、修理・交換費用を充当させていただきます。\n費用の詳細につきましては、別途ご連絡いたします。\n\nご不明な点がございましたら、お気軽にお問い合わせください。\n\n{{serviceName}} 運営事務局`
+  },
+  {
+    id: 'sys_early_booking_confirmation',
+    name: '[標準] 先行予約受付完了',
+    subject: '【{{serviceName}}】先行予約を受け付けました',
+    type: 'general',
+    body: `{{userName}} 様\n\nこの度は {{serviceName}} の先行予約にご登録いただき、誠にありがとうございます。\n\n下記の内容で予約を受け付けましたのでご確認ください。\n\n━━━━━━━━━━━━━━━━━━━━\nお名前: {{userName}}\n会社名・屋号: {{companyName}}\nメールアドレス: {{userEmail}}\n電話番号: {{phone}}\nご興味のある機器: {{desiredDevice}}\nご質問・ご要望:\n{{message}}\n━━━━━━━━━━━━━━━━━━━━\n\n正式ローンチ時には、優先的にご案内差し上げます。\nご質問等ございましたら、このメールへ直接ご返信ください。\n\n改めまして、ご登録ありがとうございました。\n今後ともどうぞよろしくお願いいたします。\n\n—\n{{operatorCompanyName}}`
+  },
+  {
+    id: 'sys_early_booking_admin_notification',
+    name: '[標準] 先行予約通知（管理者宛）',
+    subject: '【{{serviceName}}管理者】新規先行予約がありました — {{userName}} 様',
+    type: 'general',
+    body: `管理者様\n\n新しい先行予約が登録されました。\n\n━━━━━━━━━━━━━━━━━━━━\nお名前: {{userName}}\n会社名・屋号: {{companyName}}\nメールアドレス: {{userEmail}}\n電話番号: {{phone}}\nご興味のある機器: {{desiredDevice}}\nご質問・ご要望:\n{{message}}\n登録日時: {{submittedAt}}\n━━━━━━━━━━━━━━━━━━━━\n\n管理画面で詳細を確認してください:\n{{linkAdminEarlyBookings}}`
   }
 ];

@@ -1,4 +1,4 @@
-# **App Name**: ChronoRent
+# **App Name**: TimeWaverHub
 
 ## Core Features:
 

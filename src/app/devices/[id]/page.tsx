@@ -90,6 +90,7 @@ export default function DeviceDetailPage() {
   const settingsRef = useMemo(() => db ? doc(db, 'settings', 'global') : null, [db]);
   const { data: globalSettings } = useDoc<GlobalSettings>(settingsRef as any);
   const moduleBasePrice = globalSettings?.moduleBasePrice || 0;
+  const preBookingMode = globalSettings?.preBookingMode === true;
 
   const [intent, setIntent] = useState('');
   const [visualization, setVisualization] = useState<VisualizeFieldOutput | null>(null);
@@ -277,7 +278,13 @@ export default function DeviceDetailPage() {
           </Tabs>
 
           <div className="space-y-4 pt-4">
-            {isAvailable ? (
+            {preBookingMode ? (
+              <Link href="/early-booking" className="block">
+                <Button className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl shadow-primary/20">
+                  先行予約に登録する
+                </Button>
+              </Link>
+            ) : isAvailable ? (
               <Button
                 className="w-full h-16 rounded-2xl text-xl font-bold shadow-xl shadow-primary/20"
                 onClick={handleApply}

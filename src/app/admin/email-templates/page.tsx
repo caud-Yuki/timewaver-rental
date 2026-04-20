@@ -139,7 +139,7 @@ export default function EmailTemplatesPage() {
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 <!-- Header -->
 <tr><td style="background-color:${isStaff ? '#374151' : d.primaryColor};padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
-<h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">${settings?.serviceName || 'ChronoRent'}</h1>
+<h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">${settings?.serviceName || 'TimeWaverHub'}</h1>
 ${isStaff ? '<p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">管理者通知</p>' : ''}
 </td></tr>
 <!-- Body -->
@@ -241,61 +241,77 @@ ${isStaff ? '<p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">管理者�
                     <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wide">代入キー一覧</h4>
                     <p className="text-[10px] text-muted-foreground">クリックで本文に挿入されます</p>
                     {[
-                      { group: 'ユーザー情報', keys: [
-                        { key: 'userName', label: 'ユーザー名' },
-                        { key: 'userEmail', label: 'メールアドレス' },
-                      ]},
-                      { group: '機器情報', keys: [
-                        { key: 'deviceType', label: '機器名' },
-                        { key: 'deviceId', label: '機器ID' },
-                        { key: 'deviceSerialNumber', label: 'シリアル番号' },
-                      ]},
-                      { group: '申請情報', keys: [
-                        { key: 'applicationId', label: '申請ID' },
-                        { key: 'payAmount', label: '支払金額' },
-                        { key: 'payType', label: '支払方法' },
-                        { key: 'rentalType', label: 'レンタル期間' },
-                      ]},
-                      { group: '配送先', keys: [
-                        { key: 'shippingZipcode', label: '郵便番号' },
-                        { key: 'shippingPrefecture', label: '都道府県' },
-                        { key: 'shippingAddress1', label: '住所1' },
-                        { key: 'shippingAddress2', label: '住所2' },
-                        { key: 'shippingTel', label: '電話番号' },
-                        { key: 'shippingCompanyName', label: '会社名' },
-                      ]},
-                      { group: '決済・契約', keys: [
-                        { key: 'paymentLinkUrl', label: '決済リンクURL' },
-                        { key: 'deliveryDate', label: '配送予定日' },
-                        { key: 'deadline', label: '期限日' },
-                        { key: 'endDate', label: '契約終了日' },
-                        { key: 'startAt', label: '契約開始日' },
-                      ]},
-                      { group: 'クーポン', keys: [
-                        { key: 'couponCode', label: 'クーポンコード' },
-                        { key: 'couponDiscount', label: '割引額' },
-                        { key: 'originalAmount', label: '割引前金額' },
-                      ]},
-                      { group: '運営会社情報', keys: [
-                        { key: 'companyName', label: '会社名' },
-                        { key: 'managerName', label: '担当者名' },
-                        { key: 'managerEmail', label: '担当者メール' },
-                        { key: 'companyPhone', label: '電話番号' },
-                        { key: 'companyPostalCode', label: '郵便番号' },
-                        { key: 'companyPrefecture', label: '都道府県' },
-                        { key: 'companyCity', label: '市区町村' },
-                        { key: 'companyAddress', label: '住所' },
-                        { key: 'companyBuilding', label: '建物名' },
-                        { key: 'companyFullAddress', label: '住所（全結合）' },
-                      ]},
-                      { group: 'リンク', keys: [
-                        { key: 'linkMypage', label: 'マイページURL' },
-                        { key: 'linkApplications', label: '申請履歴URL' },
-                        { key: 'linkDevices', label: 'マイデバイスURL' },
-                        { key: 'linkPaymentHistory', label: '支払履歴URL' },
-                        { key: 'linkProfile', label: '会員情報URL' },
-                        { key: 'linkDeviceList', label: '機器一覧URL' },
-                      ]},
+                      {
+                        group: 'ユーザー情報', keys: [
+                          { key: 'userName', label: 'ユーザー名' },
+                          { key: 'userEmail', label: 'メールアドレス' },
+                        ]
+                      },
+                      {
+                        group: '機器情報', keys: [
+                          { key: 'deviceType', label: '機器名' },
+                          { key: 'deviceId', label: '機器ID' },
+                          { key: 'deviceSerialNumber', label: 'シリアル番号' },
+                        ]
+                      },
+                      {
+                        group: '申請情報', keys: [
+                          { key: 'applicationId', label: '申請ID' },
+                          { key: 'payAmount', label: '支払金額' },
+                          { key: 'payType', label: '支払方法' },
+                          { key: 'rentalType', label: 'レンタル期間' },
+                        ]
+                      },
+                      {
+                        group: '配送先', keys: [
+                          { key: 'shippingZipcode', label: '郵便番号' },
+                          { key: 'shippingPrefecture', label: '都道府県' },
+                          { key: 'shippingAddress1', label: '住所1' },
+                          { key: 'shippingAddress2', label: '住所2' },
+                          { key: 'shippingTel', label: '電話番号' },
+                          { key: 'shippingCompanyName', label: '会社名' },
+                        ]
+                      },
+                      {
+                        group: '決済・契約', keys: [
+                          { key: 'paymentLinkUrl', label: '決済リンクURL' },
+                          { key: 'deliveryDate', label: '配送予定日' },
+                          { key: 'deadline', label: '期限日' },
+                          { key: 'endDate', label: '契約終了日' },
+                          { key: 'startAt', label: '契約開始日' },
+                        ]
+                      },
+                      {
+                        group: 'クーポン', keys: [
+                          { key: 'couponCode', label: 'クーポンコード' },
+                          { key: 'couponDiscount', label: '割引額' },
+                          { key: 'originalAmount', label: '割引前金額' },
+                        ]
+                      },
+                      {
+                        group: '運営会社情報', keys: [
+                          { key: 'companyName', label: '会社名' },
+                          { key: 'managerName', label: '担当者名' },
+                          { key: 'managerEmail', label: '担当者メール' },
+                          { key: 'companyPhone', label: '電話番号' },
+                          { key: 'companyPostalCode', label: '郵便番号' },
+                          { key: 'companyPrefecture', label: '都道府県' },
+                          { key: 'companyCity', label: '市区町村' },
+                          { key: 'companyAddress', label: '住所' },
+                          { key: 'companyBuilding', label: '建物名' },
+                          { key: 'companyFullAddress', label: '住所（全結合）' },
+                        ]
+                      },
+                      {
+                        group: 'リンク', keys: [
+                          { key: 'linkMypage', label: 'マイページURL' },
+                          { key: 'linkApplications', label: '申請履歴URL' },
+                          { key: 'linkDevices', label: 'マイデバイスURL' },
+                          { key: 'linkPaymentHistory', label: '支払履歴URL' },
+                          { key: 'linkProfile', label: '会員情報URL' },
+                          { key: 'linkDeviceList', label: '機器一覧URL' },
+                        ]
+                      },
                     ].map((section) => (
                       <div key={section.group}>
                         <p className="text-[10px] font-semibold text-primary mb-1 mt-2">{section.group}</p>
@@ -419,12 +435,12 @@ ${isStaff ? '<p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">管理者�
 
               <div className="pt-4 border-t space-y-1.5">
                 <Label className="text-base font-bold">フッター情報</Label>
-                <Textarea value={design.footerText} onChange={(e) => setDesign({ ...design, footerText: e.target.value })} className="min-h-[80px]" placeholder={`© ${new Date().getFullYear()} ${settings?.serviceName || 'ChronoRent'}...`} />
+                <Textarea value={design.footerText} onChange={(e) => setDesign({ ...design, footerText: e.target.value })} className="min-h-[80px]" placeholder={`© ${new Date().getFullYear()} ${settings?.serviceName || 'TimeWaverHub'}...`} />
               </div>
 
               <div className="flex justify-between items-center pt-4 border-t">
                 <Button variant="outline" onClick={() => {
-                  const preview = buildEmailHtml(`【${settings?.serviceName || 'ChronoRent'}】デザインプレビュー`, '<p>{{userName}} 様</p><p>これはデザインプレビューです。</p><p>対象機器: {{deviceType}}</p><p><a href="https://example.com" style="display:inline-block;padding:12px 24px;background-color:' + design.buttonColor + ';color:#fff;text-decoration:none;border-radius:' + design.buttonRadius + ';font-weight:bold;">ボタンサンプル</a></p>');
+                  const preview = buildEmailHtml(`【${settings?.serviceName || 'TimeWaverHub'}】デザインプレビュー`, '<p>{{userName}} 様</p><p>これはデザインプレビューです。</p><p>対象機器: {{deviceType}}</p><p><a href="https://example.com" style="display:inline-block;padding:12px 24px;background-color:' + design.buttonColor + ';color:#fff;text-decoration:none;border-radius:' + design.buttonRadius + ';font-weight:bold;">ボタンサンプル</a></p>');
                   setPreviewHtml(preview);
                   setShowPreview(true);
                 }}>

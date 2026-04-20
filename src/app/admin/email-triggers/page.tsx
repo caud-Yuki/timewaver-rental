@@ -42,6 +42,9 @@ const TRIGGER_POINTS = [
   { id: 'news_published', name: 'ニュース公開時', desc: '新しいお知らせを公開した時', sysId: 'sys_news_published' },
   { id: 'waitlist_device_available', name: '在庫確保時', desc: 'キャンセル待ち対象に空きが出た時', sysId: 'sys_waitlist_available' },
   { id: 'welcome_registration', name: '会員登録時', desc: '新規ユーザーが登録した時', sysId: 'sys_welcome_registration' },
+  // 先行予約
+  { id: 'early_booking_confirmation', name: '先行予約受付時（ユーザー宛）', desc: '先行予約フォーム送信時に申込者へ受付確認メールを送信', sysId: 'sys_early_booking_confirmation' },
+  { id: 'early_booking_admin_notification', name: '先行予約受付時（管理者宛）', desc: '先行予約フォーム送信時に管理者へ通知メールを送信', sysId: 'sys_early_booking_admin_notification' },
 ];
 
 export default function EmailTriggersPage() {

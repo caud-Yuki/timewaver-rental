@@ -1,9 +1,9 @@
 
-import {google} from "googleapis";
+import { google } from "googleapis";
 import * as path from "path";
 import * as fs from "fs";
-import {log} from "firebase-functions/logger";
-import {getFirestore} from "firebase-admin/firestore";
+import { log } from "firebase-functions/logger";
+import { getFirestore } from "firebase-admin/firestore";
 
 const KEY_PATH = path.join(__dirname, "../serviceAccountKey.json");
 const SCOPES = ["https://www.googleapis.com/auth/gmail.send"];
@@ -50,7 +50,7 @@ async function getEmailDesign(): Promise<EmailDesign> {
 
 async function getServiceName(): Promise<string> {
   await getEmailDesign(); // ensures cache is populated
-  return cachedServiceName || 'ChronoRent';
+  return cachedServiceName || 'TimeWaverHub';
 }
 
 /**
@@ -143,7 +143,7 @@ export async function sendMail(
       subject: ADMIN_EMAIL,
     });
 
-    const gmail = google.gmail({version: "v1", auth});
+    const gmail = google.gmail({ version: "v1", auth });
 
     // Detect if body is already HTML (from rich text editor) or plain text
     const isHtml = body.includes('<p>') || body.includes('<br>') || body.includes('<a ') || body.includes('<strong>') || body.includes('<h');

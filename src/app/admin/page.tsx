@@ -40,7 +40,11 @@ import {
   AlertTriangle,
   RefreshCcw,
   Hourglass,
-  Puzzle
+  Puzzle,
+  MessageCircle,
+  HelpCircle,
+  Briefcase,
+  Rocket
 } from 'lucide-react';
 import { 
   Application, 
@@ -262,6 +266,10 @@ export default function AdminDashboardPage() {
     { title: 'ニュース', desc: 'お知らせの公開', icon: Newspaper, href: '/admin/news', color: 'text-indigo-500', bg: 'bg-indigo-50' },
     { title: 'メール', desc: 'テンプレート編集', icon: Mail, href: '/admin/email-templates', color: 'text-slate-500', bg: 'bg-slate-50' },
     { title: 'トリガー設定', desc: '自動送信の紐付け', icon: Zap, href: '/admin/email-triggers', color: 'text-orange-500', bg: 'bg-orange-50' },
+    { title: '利用者の声', desc: '導入説明ページ', icon: MessageCircle, href: '/admin/testimonials', color: 'text-pink-500', bg: 'bg-pink-50' },
+    { title: 'FAQ', desc: 'よくある質問', icon: HelpCircle, href: '/admin/faqs', color: 'text-cyan-500', bg: 'bg-cyan-50' },
+    { title: '導入事例', desc: 'ケーススタディ', icon: Briefcase, href: '/admin/case-studies', color: 'text-lime-600', bg: 'bg-lime-50' },
+    { title: '先行予約', desc: '予約申込の管理', icon: Rocket, href: '/admin/early-bookings', color: 'text-rose-500', bg: 'bg-rose-50' },
     { title: '基本設定', desc: 'システム・会社情報', icon: Settings, href: '/admin/settings', color: 'text-gray-500', bg: 'bg-gray-50' },
   ];
 

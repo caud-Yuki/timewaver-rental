@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText } from 'lucide-react';
+import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Phone } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { GlobalSettings, UserProfile } from '@/types';
@@ -213,6 +213,54 @@ export default function SettingsPage() {
                   )}
                 </div>
                 <Switch checked={isTestMode} onCheckedChange={handleModeToggle} />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Section 1.5: Pre-Booking Mode & Consultation URL */}
+          <Card className="border-none shadow-lg rounded-2xl bg-white">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+                <Rocket className="h-5 w-5" />
+                先行予約モード
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50/80">
+                <div className="space-y-1 flex-1 pr-4">
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold text-sm">先行予約モード</span>
+                    {settings.preBookingMode ? (
+                      <Badge className="bg-rose-500 hover:bg-rose-600 text-white text-xs">ON</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs">OFF</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    ON: /devices のお申し込みボタンを非表示。/about-twrental の最終CTAは先行予約フォームへ遷移します。<br />
+                    OFF: 通常の申込導線（/devices への誘導）が有効になります。
+                  </p>
+                </div>
+                <Switch
+                  checked={!!settings.preBookingMode}
+                  onCheckedChange={(checked) => handleInputChange('preBookingMode', checked)}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold flex items-center gap-2">
+                  <Phone className="h-4 w-4 text-primary" />
+                  無料相談予約URL
+                </Label>
+                <Input
+                  type="url"
+                  placeholder="https://timerex.net/s/... or https://calendar.google.com/..."
+                  value={settings.consultationBookingUrl || ''}
+                  onChange={(e) => handleInputChange('consultationBookingUrl', e.target.value)}
+                />
+                <p className="text-xs text-blue-500">
+                  /about-twrental の「無料相談予約」CTAから遷移するURLです。空の場合はCTAセクションが非表示になります。
+                </p>
               </div>
             </CardContent>
           </Card>

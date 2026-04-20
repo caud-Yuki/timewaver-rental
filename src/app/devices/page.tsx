@@ -24,6 +24,7 @@ export default function DeviceListPage() {
   const settingsRef = useMemo(() => db ? doc(db, 'settings', 'global') : null, [db]);
   const { data: globalSettings } = useDoc<GlobalSettings>(settingsRef as any);
   const moduleBasePrice = globalSettings?.moduleBasePrice || 0;
+  const preBookingMode = globalSettings?.preBookingMode === true;
 
   const devicesQuery = useMemoFirebase(() => {
     if (!db) return null;
@@ -175,12 +176,14 @@ export default function DeviceListPage() {
                   </CardContent>
                   <CardFooter className="bg-secondary/10 p-4">
                     <Link href={`/devices/${device.id}`} className="w-full">
-                      <Button 
-                        className="w-full font-bold h-12 rounded-xl shadow-md group-hover:shadow-primary/20 transition-all" 
-                        variant={isAvailable ? 'default' : 'outline'}
-                        disabled={isOnWaitlist} // Disable button if on waitlist
+                      <Button
+                        className="w-full font-bold h-12 rounded-xl shadow-md group-hover:shadow-primary/20 transition-all"
+                        variant={!preBookingMode && isAvailable ? 'default' : 'outline'}
+                        disabled={!preBookingMode && isOnWaitlist}
                       >
-                        {isAvailable ? '詳細・お申し込み' : (isOnWaitlist ? 'キャンセル待ち済' : '詳細')}
+                        {preBookingMode
+                          ? '詳細'
+                          : (isAvailable ? '詳細・お申し込み' : (isOnWaitlist ? 'キャンセル待ち済' : '詳細'))}
                       </Button>
                     </Link>
                   </CardFooter>

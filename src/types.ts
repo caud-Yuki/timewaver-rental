@@ -140,6 +140,10 @@ export interface GlobalSettings {
   shippingBufferDays?: number;
   moduleBasePrice?: number;
   staff?: Array<{ name: string; email: string; role: 'operations' | 'support' | 'admin' }>;
+  // Pre-booking mode — when true, /devices disables apply buttons and /about-twrental final CTA routes to the pre-booking form.
+  preBookingMode?: boolean;
+  // External booking URL (e.g. Google Calendar / TimeRex) used for the "無料相談予約" CTA.
+  consultationBookingUrl?: string;
   emailDesign?: {
     primaryColor?: string;
     buttonColor?: string;
@@ -283,3 +287,66 @@ export interface ConsentFormDoc {
   updatedAt?: Timestamp;
 }
 export const consentFormConverter = createConverter<ConsentFormDoc>();
+
+// =============================================================================
+// About TWRental — Testimonials, FAQ, Case Studies, Early Booking
+// =============================================================================
+export interface Testimonial {
+  id: string;
+  name: string;
+  title?: string;        // 肩書き (セラピスト等)
+  industry?: string;     // 業種 (medical / therapist / healer / corporate / other)
+  comment: string;
+  imageUrl?: string;
+  rating?: number;       // 1-5
+  videoUrl?: string;     // YouTube embed URL
+  order?: number;
+  isPublic: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+export const testimonialConverter = createConverter<Testimonial>();
+
+export interface Faq {
+  id: string;
+  question: string;
+  answer: string;
+  order?: number;
+  isPublic: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+export const faqConverter = createConverter<Faq>();
+
+export interface CaseStudy {
+  id: string;
+  title: string;
+  industry?: string;
+  client?: string;
+  summary: string;
+  body?: string;
+  imageUrl?: string;
+  order?: number;
+  isPublic: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+export const caseStudyConverter = createConverter<CaseStudy>();
+
+export type EarlyBookingStatus = 'new' | 'contacted' | 'converted' | 'closed';
+
+export interface EarlyBooking {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  companyName?: string;
+  desiredDevice?: string;
+  message?: string;
+  status: EarlyBookingStatus;
+  followUpSentAt?: Timestamp;
+  adminNotifiedAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+export const earlyBookingConverter = createConverter<EarlyBooking>();

@@ -51,8 +51,9 @@ export function Navbar() {
         
         <nav className="hidden md:flex items-center space-x-8 text-sm font-medium">
           <Link href="/devices" className={`transition-colors hover:text-primary ${pathname === '/devices' ? 'text-primary' : ''}`}>機器一覧</Link>
+          <Link href="/about-twrental" className={`transition-colors hover:text-primary ${pathname === '/about-twrental' ? 'text-primary' : ''}`}>導入説明</Link>
           <Link href="/guide" className={`transition-colors hover:text-primary ${pathname === '/guide' ? 'text-primary' : ''}`}>ご利用の流れ</Link>
-          <Link href="/introduction" className={`transition-colors hover:text-primary ${pathname === '/introduction' ? 'text-primary' : ''}`}>導入説明</Link>
+          <Link href="/introduction" className={`transition-colors hover:text-primary ${pathname === '/introduction' ? 'text-primary' : ''}`}>TimeWaverとは</Link>
           <Link href="/news" className={`transition-colors hover:text-primary ${pathname === '/news' ? 'text-primary' : ''}`}>お知らせ</Link>
         </nav>
 
