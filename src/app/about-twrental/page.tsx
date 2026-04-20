@@ -232,9 +232,9 @@ export default function AboutTWRentalPage() {
               { label: '初期費用', buy: '数百万円〜', rent: '0円', rentWin: true },
               { label: '月額費用', buy: 'なし', rent: '固定月額', rentWin: false },
               { label: '税務処理', buy: '減価償却', rent: '全額経費', rentWin: true },
-              { label: 'セットアップ', buy: '自前', rent: '全てお任せ', rentWin: true },
+              { label: 'サポート', buy: '保証期間中まで', rent: 'ずっとサポート', rentWin: true },
               { label: '最新モジュール', buy: '都度購入', rent: '順次提供', rentWin: true },
-              { label: '故障時対応', buy: '修理費負担', rent: '代替機貸出', rentWin: true },
+              { label: '故障時対応', buy: '自己対応', rent: '弊社フル対応', rentWin: true },
               { label: '使用期間の柔軟性', buy: '長期固定', rent: '3/6/12ヶ月', rentWin: true },
             ].map((r, i) => (
               <div key={i} className="contents">
