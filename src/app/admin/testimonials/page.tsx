@@ -102,7 +102,7 @@ export default function AdminTestimonialsPage() {
           <p className="text-muted-foreground text-sm">導入説明ページ（/about-twrental）に表示される口コミを管理します。</p>
         </div>
         <div className="flex gap-2">
-          <Link href="/admin"><Button variant="outline" className="rounded-xl">ダッシュボードへ</Button></Link>
+          <Link href="/admin/landing"><Button variant="outline" className="rounded-xl">ランディングへ戻る</Button></Link>
           <Button onClick={openNew} className="rounded-xl"><PlusCircle className="h-4 w-4 mr-2" />新規追加</Button>
         </div>
       </div>
