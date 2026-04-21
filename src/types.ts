@@ -224,6 +224,9 @@ export interface News {
   status: 'draft' | 'published';
   publishedAt?: Timestamp;
   isPublic: boolean;
+  // Optional outbound link — when set, /news shows a button jumping to this URL.
+  linkUrl?: string;
+  linkLabel?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

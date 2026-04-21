@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, ChevronLeft, Calendar, Share2 } from 'lucide-react';
+import { Loader2, ChevronLeft, Calendar, Share2, ExternalLink } from 'lucide-react';
 import { News } from '@/types';
 
 export default function NewsDetailPage() {
@@ -68,8 +68,32 @@ export default function NewsDetailPage() {
         <CardContent className="p-10 md:p-16 space-y-8">
           <div
             className="prose prose-lg max-w-none text-foreground leading-relaxed [&_a]:text-primary [&_a]:underline"
-            dangerouslySetInnerHTML={{ __html: news.body || '' }}
+            dangerouslySetInnerHTML={{
+              __html:
+                news.body ||
+                // Fallback for records saved before body was populated: convert plain-text
+                // content into paragraphs on the fly so the detail page isn't blank.
+                ((news.content || '')
+                  .split(/\n{2,}/)
+                  .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+                  .join('')),
+            }}
           />
+
+          {news.linkUrl && (
+            <div className="bg-primary/5 rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border border-primary/10">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-1">関連リンク</p>
+                <p className="text-sm text-muted-foreground truncate">{news.linkUrl}</p>
+              </div>
+              <a href={news.linkUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
+                <Button size="lg" className="rounded-xl gap-2 font-bold">
+                  <ExternalLink className="h-4 w-4" />
+                  {news.linkLabel || '詳細を見る'}
+                </Button>
+              </a>
+            </div>
+          )}
 
           <Separator className="my-12" />
 
