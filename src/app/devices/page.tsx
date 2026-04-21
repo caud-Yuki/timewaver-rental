@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, orderBy } from 'firebase/firestore';
-import { Activity, Cpu, CheckCircle2, Clock, Loader2, AlertCircle, Timer } from 'lucide-react';
+import { Activity, Cpu, CheckCircle2, Clock, Loader2, AlertCircle, Timer, Sparkles, Rocket, Phone, ArrowRight, Bell } from 'lucide-react';
 import { Device, DeviceTypeCode, Waitlist, GlobalSettings } from '@/types';
 import { doc } from 'firebase/firestore';
 import { useDoc } from '@/firebase';
@@ -25,6 +25,7 @@ export default function DeviceListPage() {
   const { data: globalSettings } = useDoc<GlobalSettings>(settingsRef as any);
   const moduleBasePrice = globalSettings?.moduleBasePrice || 0;
   const preBookingMode = globalSettings?.preBookingMode === true;
+  const consultationUrl = globalSettings?.consultationBookingUrl || '';
 
   const devicesQuery = useMemoFirebase(() => {
     if (!db) return null;
@@ -43,9 +44,21 @@ export default function DeviceListPage() {
     userWaitlist.map(entry => entry.deviceType)
   , [userWaitlist]);
 
-  const filteredDevices = devices.filter(d => 
+  // Public catalog: hide admin-disabled devices (isPublic === false).
+  // Devices without an isPublic field default to visible.
+  const publicDevices = useMemo(
+    () => devices.filter(d => d.isPublic !== false),
+    [devices]
+  );
+
+  const filteredDevices = publicDevices.filter(d =>
     filter === 'all' || (d.typeCode as DeviceTypeCode | 'all') === filter
   );
+
+  // Empty state triggers only when the catalog itself has no visible devices
+  // (not simply when the current tab filter yields zero). Use publicDevices
+  // rather than filteredDevices so Coming Soon doesn't flash on tab switches.
+  const showComingSoon = !loading && publicDevices.length === 0;
 
   const getDeviceImage = (device?: any) => {
     // Use uploaded images first (imageUrls[0] or legacy imageUrl), fallback to placeholder
@@ -83,22 +96,26 @@ export default function DeviceListPage() {
         </p>
       </div>
 
-      <div className="flex justify-center mb-12">
-        <Tabs defaultValue="all" className="w-full max-w-2xl" onValueChange={(value) => setFilter(value as DeviceTypeCode | 'all')}>
-          <TabsList className="grid w-full grid-cols-5 h-12 rounded-2xl bg-secondary/50 p-1">
-            <TabsTrigger value="all" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">すべて</TabsTrigger>
-            <TabsTrigger value="tw-m" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">Mobile</TabsTrigger>
-            <TabsTrigger value="tw-mq" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">MQ</TabsTrigger>
-            <TabsTrigger value="tw-tt" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">Tabletop</TabsTrigger>
-            <TabsTrigger value="tw-frq" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">Freq</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      {!showComingSoon && (
+        <div className="flex justify-center mb-12">
+          <Tabs defaultValue="all" className="w-full max-w-2xl" onValueChange={(value) => setFilter(value as DeviceTypeCode | 'all')}>
+            <TabsList className="grid w-full grid-cols-5 h-12 rounded-2xl bg-secondary/50 p-1">
+              <TabsTrigger value="all" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">すべて</TabsTrigger>
+              <TabsTrigger value="tw-m" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">Mobile</TabsTrigger>
+              <TabsTrigger value="tw-mq" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">MQ</TabsTrigger>
+              <TabsTrigger value="tw-tt" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">Tabletop</TabsTrigger>
+              <TabsTrigger value="tw-frq" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-white">Freq</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
 
       {loading ? (
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map(i => <div key={i} className="h-[450px] bg-muted rounded-[2rem] animate-pulse" />)}
         </div>
+      ) : showComingSoon ? (
+        <ComingSoonState preBookingMode={preBookingMode} consultationUrl={consultationUrl} />
       ) : (
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
           {filteredDevices.length === 0 ? (
@@ -193,6 +210,93 @@ export default function DeviceListPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Coming Soon empty state — shown on /devices when the public catalog has zero
+ * visible devices (either no devices registered, or all toggled to isPublic=false).
+ * The primary CTA adapts to site state: early-booking form when preBookingMode is
+ * on, otherwise a consultation link when configured.
+ */
+function ComingSoonState({
+  preBookingMode,
+  consultationUrl,
+}: {
+  preBookingMode: boolean;
+  consultationUrl: string;
+}) {
+  return (
+    <div className="max-w-3xl mx-auto py-12">
+      <div className="relative bg-gradient-to-br from-primary/10 via-white to-primary/5 rounded-[3rem] p-12 md:p-16 overflow-hidden shadow-xl border border-primary/10">
+        {/* Decorative orbs */}
+        <div className="absolute top-0 right-0 h-64 w-64 bg-primary/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
+        <div className="absolute bottom-0 left-0 h-80 w-80 bg-primary/5 rounded-full translate-y-1/2 -translate-x-1/2 blur-3xl" />
+
+        <div className="relative z-10 text-center space-y-8">
+          {/* Animated icon cluster */}
+          <div className="relative inline-flex">
+            <div className="h-24 w-24 rounded-3xl bg-primary/15 flex items-center justify-center">
+              <Sparkles className="h-12 w-12 text-primary animate-pulse" />
+            </div>
+            <div className="absolute -top-2 -right-2 h-8 w-8 rounded-full bg-rose-400 flex items-center justify-center animate-bounce">
+              <Bell className="h-4 w-4 text-white" />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <Badge variant="outline" className="px-4 py-1 text-primary border-primary/30 bg-primary/5">
+              COMING SOON
+            </Badge>
+            <h2 className="font-headline text-3xl md:text-5xl font-bold tracking-tight">
+              まもなくラインナップを公開
+            </h2>
+            <p className="text-muted-foreground text-lg leading-relaxed max-w-xl mx-auto">
+              現在、TimeWaverデバイスのラインナップを準備中です。<br />
+              正式公開の際には、下記フォームからご登録いただいた方に優先的にご案内差し上げます。
+            </p>
+          </div>
+
+          {/* Primary CTA */}
+          <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
+            {preBookingMode ? (
+              <Link href="/early-booking">
+                <Button size="lg" className="rounded-2xl h-14 px-10 font-bold shadow-xl shadow-primary/20">
+                  <Rocket className="mr-2 h-5 w-5" />
+                  先行予約に登録する
+                </Button>
+              </Link>
+            ) : consultationUrl ? (
+              <a href={consultationUrl} target="_blank" rel="noopener noreferrer">
+                <Button size="lg" className="rounded-2xl h-14 px-10 font-bold shadow-xl shadow-primary/20">
+                  <Phone className="mr-2 h-5 w-5" />
+                  無料相談を予約する
+                </Button>
+              </a>
+            ) : (
+              <Link href="/about-twrental">
+                <Button size="lg" className="rounded-2xl h-14 px-10 font-bold shadow-xl shadow-primary/20">
+                  サービス詳細を見る
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              </Link>
+            )}
+            <Link href="/about-twrental">
+              <Button variant="outline" size="lg" className="rounded-2xl h-14 px-8">
+                TimeWaverについて知る
+              </Button>
+            </Link>
+          </div>
+
+          {/* Secondary info */}
+          <div className="pt-6 border-t border-primary/10">
+            <p className="text-xs text-muted-foreground">
+              お急ぎの方は <Link href="/about-twrental" className="text-primary underline font-medium">導入説明ページ</Link> もご覧ください。
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

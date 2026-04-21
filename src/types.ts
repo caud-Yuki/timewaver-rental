@@ -110,6 +110,9 @@ export interface Device {
   currentUserId?: string | null;
   contractStartAt?: Timestamp | null;
   contractEndAt?: Timestamp | null;
+  // Visibility on the public /devices catalog. `undefined` = visible by default
+  // (legacy docs without this field keep their current behavior).
+  isPublic?: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

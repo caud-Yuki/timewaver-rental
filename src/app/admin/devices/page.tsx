@@ -12,7 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package, RefreshCw } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Loader2, Plus, Trash2, Edit, ShieldAlert, LayoutGrid, List, Package, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { Device, DeviceTypeCode, UserProfile, GlobalSettings, Waitlist, DeviceModule, deviceConverter, deviceTypeCodeConverter, userProfileConverter, globalSettingsConverter, waitlistConverter, deviceModuleConverter } from '@/types';
 import Link from 'next/link';
@@ -200,6 +201,22 @@ export default function DeviceManagementPage() {
       toast({ variant: "destructive", title: "Failed to delete device." });
     }
   };
+
+  const handleTogglePublic = async (device: Device, next: boolean) => {
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, 'devices', device.id), {
+        isPublic: next,
+        updatedAt: serverTimestamp(),
+      });
+      toast({
+        title: next ? '公開しました' : '非公開にしました',
+        description: `${device.type}${next ? ' は /devices に表示されます。' : ' は /devices から非表示になります。'}`,
+      });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: '更新失敗', description: err.message });
+    }
+  };
   
   const loading = authLoading || profileLoading || devicesLoading || typeCodesLoading || modulesLoading;
 
@@ -235,22 +252,39 @@ export default function DeviceManagementPage() {
         <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
           <CardContent className="p-0">
             <Table>
-              <TableHeader><TableRow className="bg-secondary/10"><TableHead className="pl-8">モデル名</TableHead><TableHead>シリアルNo.</TableHead><TableHead>ステータス</TableHead><TableHead>月額 (12ヶ月)</TableHead><TableHead className="text-right pr-8">操作</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="bg-secondary/10"><TableHead className="pl-8">モデル名</TableHead><TableHead>シリアルNo.</TableHead><TableHead>ステータス</TableHead><TableHead>月額 (12ヶ月)</TableHead><TableHead className="text-center">公開</TableHead><TableHead className="text-right pr-8">操作</TableHead></TableRow></TableHeader>
               <TableBody>
-                {devices?.map(d => (
-                  <TableRow key={d.id} className="hover:bg-muted/5 transition-colors">
-                    <TableCell className="pl-8 font-medium">{d.type}</TableCell>
-                    <TableCell className="font-mono text-xs">{d.serialNumber}</TableCell>
-                    <TableCell><Badge variant={d.status === 'available' ? 'default' : 'secondary'} className={d.status === 'available' ? 'bg-emerald-500' : ''}>{d.status}</Badge></TableCell>
-                    <TableCell>¥{(d.price?.["12m"]?.monthly ?? 0).toLocaleString()}</TableCell>
-                    <TableCell className="text-right pr-8 space-x-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-primary" onClick={() => handleOpenEditModal(d)}><Edit className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-destructive" onClick={() => handleDeleteDevice(d.id)}><Trash2 className="h-4 w-4" /></Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {devices?.map(d => {
+                  const isPublic = d.isPublic ?? true;
+                  return (
+                    <TableRow key={d.id} className={`hover:bg-muted/5 transition-colors ${!isPublic ? 'opacity-60' : ''}`}>
+                      <TableCell className="pl-8 font-medium">{d.type}</TableCell>
+                      <TableCell className="font-mono text-xs">{d.serialNumber}</TableCell>
+                      <TableCell><Badge variant={d.status === 'available' ? 'default' : 'secondary'} className={d.status === 'available' ? 'bg-emerald-500' : ''}>{d.status}</Badge></TableCell>
+                      <TableCell>¥{(d.price?.["12m"]?.monthly ?? 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-center">
+                        <div className="inline-flex items-center gap-2">
+                          <Switch
+                            checked={isPublic}
+                            onCheckedChange={(v) => handleTogglePublic(d, v)}
+                            aria-label={isPublic ? '非表示にする' : '公開する'}
+                          />
+                          {isPublic ? (
+                            <Eye className="h-3.5 w-3.5 text-emerald-500" />
+                          ) : (
+                            <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right pr-8 space-x-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-primary" onClick={() => handleOpenEditModal(d)}><Edit className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-destructive" onClick={() => handleDeleteDevice(d.id)}><Trash2 className="h-4 w-4" /></Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
                 {(!devices || devices.length === 0) && (
-                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground">登録されている機器はありません。</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center py-20 text-muted-foreground">登録されている機器はありません。</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -258,26 +292,39 @@ export default function DeviceManagementPage() {
         </Card>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {devices?.map(d => (
-            <Card key={d.id} className="border-none shadow-lg rounded-3xl overflow-hidden bg-white group hover:shadow-xl transition-all">
-              <CardHeader className="bg-secondary/10 pb-4">
-                <div className="flex justify-between items-start mb-2">
-                  <Badge variant="outline" className="uppercase text-[10px]">{deviceTypeMap[d.typeCode]}</Badge>
-                  <Badge variant={d.status === 'available' ? 'default' : 'secondary'}>{d.status}</Badge>
-                </div>
-                <CardTitle className="text-xl font-headline group-hover:text-primary transition-colors">{d.type}</CardTitle>
-                <CardDescription className="font-mono text-[10px]">{d.serialNumber}</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-4">
-                <div className="flex justify-between text-sm"><span className="text-muted-foreground">12ヶ月プラン月額</span><span className="font-bold">¥{(d.price?.["12m"]?.monthly ?? 0).toLocaleString()}</span></div>
-                <p className="text-xs text-muted-foreground line-clamp-2">{d.description || '説明はありません。'}</p>
-              </CardContent>
-              <CardFooter className="bg-secondary/5 p-4 flex justify-end gap-2 border-t">
-                <Button variant="ghost" size="sm" className="rounded-xl h-9" onClick={() => handleOpenEditModal(d)}><Edit className="h-4 w-4 mr-2" /> 編集</Button>
-                <Button variant="ghost" size="sm" className="rounded-xl h-9 text-destructive" onClick={() => handleDeleteDevice(d.id)}><Trash2 className="h-4 w-4 mr-2" /> 削除</Button>
-              </CardFooter>
-            </Card>
-          ))}
+          {devices?.map(d => {
+            const isPublic = d.isPublic ?? true;
+            return (
+              <Card key={d.id} className={`border-none shadow-lg rounded-3xl overflow-hidden bg-white group hover:shadow-xl transition-all ${!isPublic ? 'opacity-70' : ''}`}>
+                <CardHeader className="bg-secondary/10 pb-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <Badge variant="outline" className="uppercase text-[10px]">{deviceTypeMap[d.typeCode]}</Badge>
+                    <div className="flex items-center gap-1.5">
+                      {!isPublic && <Badge variant="outline" className="text-[10px] gap-1"><EyeOff className="h-3 w-3" />非公開</Badge>}
+                      <Badge variant={d.status === 'available' ? 'default' : 'secondary'}>{d.status}</Badge>
+                    </div>
+                  </div>
+                  <CardTitle className="text-xl font-headline group-hover:text-primary transition-colors">{d.type}</CardTitle>
+                  <CardDescription className="font-mono text-[10px]">{d.serialNumber}</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-4">
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">12ヶ月プラン月額</span><span className="font-bold">¥{(d.price?.["12m"]?.monthly ?? 0).toLocaleString()}</span></div>
+                  <p className="text-xs text-muted-foreground line-clamp-2">{d.description || '説明はありません。'}</p>
+                  <div className="flex items-center justify-between pt-3 border-t">
+                    <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                      {isPublic ? <Eye className="h-3.5 w-3.5 text-emerald-500" /> : <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />}
+                      /devices に表示
+                    </span>
+                    <Switch checked={isPublic} onCheckedChange={(v) => handleTogglePublic(d, v)} />
+                  </div>
+                </CardContent>
+                <CardFooter className="bg-secondary/5 p-4 flex justify-end gap-2 border-t">
+                  <Button variant="ghost" size="sm" className="rounded-xl h-9" onClick={() => handleOpenEditModal(d)}><Edit className="h-4 w-4 mr-2" /> 編集</Button>
+                  <Button variant="ghost" size="sm" className="rounded-xl h-9 text-destructive" onClick={() => handleDeleteDevice(d.id)}><Trash2 className="h-4 w-4 mr-2" /> 削除</Button>
+                </CardFooter>
+              </Card>
+            );
+          })}
         </div>
       )}
 
