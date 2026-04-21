@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Phone } from 'lucide-react';
+import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Phone, Layers, Package } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { GlobalSettings, UserProfile } from '@/types';
@@ -261,6 +261,42 @@ export default function SettingsPage() {
                 <p className="text-xs text-blue-500">
                   /about-twrental の「無料相談予約」CTAから遷移するURLです。空の場合はCTAセクションが非表示になります。
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Section 1.6: Landing Page Section Visibility */}
+          <Card className="border-none shadow-lg rounded-2xl bg-white">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+                <Layers className="h-5 w-5" />
+                ランディングページ表示設定
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                /about-twrental（導入説明）ページ内の各セクションの表示/非表示を切り替えます。
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50/80">
+                <div className="space-y-1 flex-1 pr-4">
+                  <div className="flex items-center gap-2">
+                    <Package className="h-4 w-4 text-primary" />
+                    <span className="font-semibold text-sm">対応機種ダイジェスト</span>
+                    {(settings.showDeviceDigest ?? true) ? (
+                      <Badge className="bg-green-500 hover:bg-green-600 text-white text-xs">表示</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs">非表示</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    /about-twrental に表示される「対応機種ダイジェスト」セクションの表示を制御します。
+                    非表示にすると機器カード一覧が描画されません。
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.showDeviceDigest ?? true}
+                  onCheckedChange={(checked) => handleInputChange('showDeviceDigest', checked)}
+                />
               </div>
             </CardContent>
           </Card>

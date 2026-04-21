@@ -63,6 +63,8 @@ export default function AboutTWRentalPage() {
 
   const preBookingMode = settings?.preBookingMode === true;
   const consultationUrl = settings?.consultationBookingUrl || '';
+  // Default to true when unset — the section is visible unless the admin explicitly hides it.
+  const showDeviceDigest = settings?.showDeviceDigest ?? true;
 
   return (
     <div className="container mx-auto px-4 py-16 space-y-28">
@@ -249,8 +251,8 @@ export default function AboutTWRentalPage() {
         </div>
       </section>
 
-      {/* 05b DEVICE DIGEST */}
-      {deviceDigest && deviceDigest.length > 0 && (
+      {/* 05b DEVICE DIGEST — hidden when admin toggles showDeviceDigest off */}
+      {showDeviceDigest && deviceDigest && deviceDigest.length > 0 && (
         <section className="space-y-10">
           <div className="flex items-end justify-between flex-wrap gap-4">
             <div className="space-y-2">

@@ -144,6 +144,8 @@ export interface GlobalSettings {
   preBookingMode?: boolean;
   // External booking URL (e.g. Google Calendar / TimeRex) used for the "無料相談予約" CTA.
   consultationBookingUrl?: string;
+  // /about-twrental section visibility toggles (undefined = visible by default).
+  showDeviceDigest?: boolean;
   emailDesign?: {
     primaryColor?: string;
     buttonColor?: string;
