@@ -19,8 +19,6 @@ const DEVICE_OPTIONS = [
   'TimeWaver Mobile',
   'TimeWaver Mobile Quantum',
   'TimeWaver Tabletop',
-  'TimeWaver Frequency',
-  'まだ決めていない / 相談したい',
 ];
 
 export default function EarlyBookingPage() {
