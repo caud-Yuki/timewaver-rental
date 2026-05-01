@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { useMailAccounts } from '@/hooks/use-mail-accounts';
-import { Loader2, Mail, Server, ArrowLeft } from 'lucide-react';
+import { Loader2, Mail, Server, ArrowLeft, Sparkles, AlertTriangle } from 'lucide-react';
 
 type Step = 'choose' | 'gmail' | 'smtp';
 
@@ -23,9 +23,17 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  oauthConfigured?: boolean;
+  onOpenOAuthWizard?: () => void;
 }
 
-export function AddMailAccountDialog({ open, onOpenChange, onSuccess }: Props) {
+export function AddMailAccountDialog({
+  open,
+  onOpenChange,
+  onSuccess,
+  oauthConfigured = false,
+  onOpenOAuthWizard,
+}: Props) {
   const { toast } = useToast();
   const { startGmailOAuth, createSmtp } = useMailAccounts();
 
@@ -153,58 +161,106 @@ export function AddMailAccountDialog({ open, onOpenChange, onSuccess }: Props) {
         </DialogHeader>
 
         {step === 'choose' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-4">
-            <button
-              type="button"
-              onClick={() => setStep('gmail')}
-              className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition"
-            >
-              <Mail className="h-8 w-8 text-primary" />
-              <div className="font-semibold text-sm">Gmail（推奨）</div>
-              <div className="text-xs text-muted-foreground text-center">
-                Google アカウントで OAuth 認証
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setStep('gmail')}
+                className="relative flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition"
+              >
+                {!oauthConfigured && (
+                  <span className="absolute top-2 right-2 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                    要セットアップ
+                  </span>
+                )}
+                <Mail className="h-8 w-8 text-primary" />
+                <div className="font-semibold text-sm">Gmail（推奨）</div>
+                <div className="text-xs text-muted-foreground text-center">
+                  Google アカウントで OAuth 認証
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep('smtp')}
+                className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition"
+              >
+                <Server className="h-8 w-8 text-primary" />
+                <div className="font-semibold text-sm">SMTP</div>
+                <div className="text-xs text-muted-foreground text-center">
+                  Outlook / Yahoo / 自社 SMTP など
+                </div>
+              </button>
+            </div>
+            {!oauthConfigured && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                Gmail を使うには初期セットアップ（Cloud Console での OAuth クライアント作成）が必要です。
+                {onOpenOAuthWizard && (
+                  <button
+                    type="button"
+                    className="ml-1 font-semibold underline hover:no-underline"
+                    onClick={onOpenOAuthWizard}
+                  >
+                    セットアップウィザードを開く
+                  </button>
+                )}
               </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setStep('smtp')}
-              className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition"
-            >
-              <Server className="h-8 w-8 text-primary" />
-              <div className="font-semibold text-sm">SMTP</div>
-              <div className="text-xs text-muted-foreground text-center">
-                Outlook / Yahoo / 自社 SMTP など
-              </div>
-            </button>
+            )}
           </div>
         )}
 
         {step === 'gmail' && (
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="gmail-display-name">表示名（任意）</Label>
-              <Input
-                id="gmail-display-name"
-                placeholder="例: 運営事務局メール"
-                value={gmailDisplayName}
-                onChange={(e) => setGmailDisplayName(e.target.value)}
-                disabled={busy}
-              />
-              <p className="text-xs text-muted-foreground">
-                未入力の場合、認証完了時の Gmail アドレスがそのまま表示名になります。
-              </p>
-            </div>
-            <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700">
-              ボタンを押すとポップアップで Google 認証画面が開きます。Gmail スコープ（送信のみ）を許可してください。
-            </div>
+            {!oauthConfigured ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-sm font-semibold text-amber-900">OAuth クライアント未設定</div>
+                    <p className="text-xs text-amber-800 mt-1">
+                      先に Google Cloud Console で OAuth 2.0 クライアントを 1 度作成し、Client ID と Secret をこのアプリに登録する必要があります。
+                    </p>
+                  </div>
+                </div>
+                {onOpenOAuthWizard && (
+                  <Button
+                    onClick={onOpenOAuthWizard}
+                    className="w-full bg-amber-500 hover:bg-amber-600 text-white rounded-xl"
+                  >
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    セットアップウィザードを開く
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="gmail-display-name">表示名（任意）</Label>
+                  <Input
+                    id="gmail-display-name"
+                    placeholder="例: 運営事務局メール"
+                    value={gmailDisplayName}
+                    onChange={(e) => setGmailDisplayName(e.target.value)}
+                    disabled={busy}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    未入力の場合、認証完了時の Gmail アドレスがそのまま表示名になります。
+                  </p>
+                </div>
+                <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700">
+                  ボタンを押すとポップアップで Google 認証画面が開きます。Gmail スコープ（送信のみ）を許可してください。
+                </div>
+              </>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
                 キャンセル
               </Button>
-              <Button onClick={handleGmailStart} disabled={busy}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Google で認証する
-              </Button>
+              {oauthConfigured && (
+                <Button onClick={handleGmailStart} disabled={busy}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Google で認証する
+                </Button>
+              )}
             </DialogFooter>
           </div>
         )}

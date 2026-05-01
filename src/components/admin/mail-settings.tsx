@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,10 +25,13 @@ import {
   Loader2,
   AlertTriangle,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import { useMailAccounts, type MailAccountRecord } from '@/hooks/use-mail-accounts';
 import { AddMailAccountDialog } from './add-mail-account-dialog';
 import { TestMailSendDialog } from './test-mail-send-dialog';
+import { GmailOAuthSetupWizard } from './gmail-oauth-setup-wizard';
+import { getSecretsStatus } from '@/lib/secret-actions';
 
 function StatusBadge({ status }: { status: MailAccountRecord['status'] }) {
   const map: Record<MailAccountRecord['status'], { label: string; className: string }> = {
@@ -63,10 +66,25 @@ export function MailSettings() {
   } = useMailAccounts();
 
   const [addOpen, setAddOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
   const [testTarget, setTestTarget] = useState<MailAccountRecord | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<MailAccountRecord | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<MailAccountRecord | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const refreshOAuthStatus = useCallback(async () => {
+    try {
+      const status = await getSecretsStatus();
+      setOauthConfigured(!!status.gmailOAuthClientId && !!status.gmailOAuthClientSecret);
+    } catch {
+      setOauthConfigured(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshOAuthStatus();
+  }, [refreshOAuthStatus]);
 
   const handleSetDefault = async (acc: MailAccountRecord) => {
     setBusyId(acc.id);
@@ -142,6 +160,26 @@ export function MailSettings() {
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
+        {oauthConfigured === false && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            <Sparkles className="h-5 w-5 text-amber-600 flex-shrink-0" />
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-amber-900">Gmail OAuth クライアントの初期設定が必要です</div>
+              <div className="text-xs text-amber-800 mt-0.5">
+                Gmail アカウントを追加するには Google Cloud Console で OAuth クライアントを 1 回作成する必要があります。SMTP の追加だけなら不要です。
+              </div>
+            </div>
+            <Button
+              size="sm"
+              className="rounded-xl bg-amber-500 hover:bg-amber-600 text-white"
+              onClick={() => setWizardOpen(true)}
+            >
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+              セットアップを開始
+            </Button>
+          </div>
+        )}
+
         {error && (
           <div className="p-3 rounded-xl bg-red-50 text-red-600 text-sm flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -261,6 +299,17 @@ export function MailSettings() {
         open={addOpen}
         onOpenChange={setAddOpen}
         onSuccess={refetch}
+        oauthConfigured={oauthConfigured === true}
+        onOpenOAuthWizard={() => {
+          setAddOpen(false);
+          setWizardOpen(true);
+        }}
+      />
+
+      <GmailOAuthSetupWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onSuccess={refreshOAuthStatus}
       />
 
       <TestMailSendDialog
