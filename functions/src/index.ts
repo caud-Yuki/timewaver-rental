@@ -8,8 +8,20 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const StripeSDK = require("stripe") as typeof import("stripe");
 import { sendTriggeredEmail } from "./triggers";
-import { sendMail } from "./gmail";
+import { sendViaAccount } from "./mail/lib/sendDispatcher";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
+
+// Mail account management callables (Phase: multi-account sender)
+export {
+  listMailAccounts,
+  createSmtpAccount,
+  updateSmtpAccount,
+  deleteMailAccount,
+  setDefaultMailAccount,
+  testMailAccount,
+} from "./mail/accounts";
+export { gmailOAuthStart, gmailOAuthCallback } from "./mail/gmailOAuth";
+export { revokeGmailAuth } from "./mail/revokeGmail";
 
 log("Top-level: functions/index.ts loaded. v2 with sendAdHocEmail.");
 
@@ -1261,13 +1273,18 @@ export const stripeWebhook = onRequest({ cors: false }, async (req, res) => {
  * Wraps body in the HTML email template with company branding.
  */
 export const sendAdHocEmail = onCall(async (request) => {
-  const { to, subject, body } = request.data;
+  const { to, subject, body, fromAccountId } = request.data as {
+    to?: string;
+    subject?: string;
+    body?: string;
+    fromAccountId?: string;
+  };
 
   if (!to || !subject || !body) {
     throw new HttpsError("invalid-argument", "to, subject, and body are required.");
   }
 
-  log(`[sendAdHocEmail] Sending email to: ${to}, subject: ${subject}`);
+  log(`[sendAdHocEmail] Sending email to: ${to}, subject: ${subject}, fromAccountId: ${fromAccountId || "(default)"}`);
 
   try {
     // Fetch email design settings
@@ -1307,11 +1324,12 @@ export const sendAdHocEmail = onCall(async (request) => {
 </table>
 </body></html>`;
 
-    await sendMail(to, subject, htmlBody);
+    await sendViaAccount({ accountId: fromAccountId, to, subject, body: htmlBody });
     log(`[sendAdHocEmail] Email sent successfully to ${to}`);
     return { success: true };
   } catch (error: any) {
     log(`[sendAdHocEmail] Error:`, error);
+    if (error instanceof HttpsError) throw error;
     throw new HttpsError("internal", error.message || "Failed to send email.");
   }
 });

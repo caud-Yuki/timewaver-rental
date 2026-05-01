@@ -79,6 +79,24 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Mail Accounts: Admin reads list of senders. All writes go through Cloud Functions
+    // (createSmtpAccount / gmailOAuthCallback / setDefaultMailAccount / etc).
+    match /mail_accounts/{accountId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Mail Gmail tokens / SMTP credentials / OAuth state: Cloud Function only.
+    match /mail_gmail_tokens/{accountId} {
+      allow read, write: if false;
+    }
+    match /mail_smtp_credentials/{accountId} {
+      allow read, write: if false;
+    }
+    match /oauth_states/{state} {
+      allow read, write: if false;
+    }
+
     // Device Modules: Public read for product details. Admins manage.
     match /deviceModules/{moduleId} {
       allow read: if true;

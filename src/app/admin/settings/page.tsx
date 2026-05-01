@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Phone, Layers, Package } from 'lucide-react';
+import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Phone, Layers, Package, Mail } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { GlobalSettings, UserProfile } from '@/types';
@@ -18,6 +18,7 @@ import { saveSecrets, getSecretsStatus, type SecretPayload } from '@/lib/secret-
 import { AVAILABLE_GEMINI_MODELS, DEFAULT_GEMINI_MODEL } from '@/ai/models';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConsentFormManager } from '@/components/admin/consent-form-manager';
+import { MailSettings } from '@/components/admin/mail-settings';
 
 export default function SettingsPage() {
   const db = useFirestore();
@@ -176,16 +177,62 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="settings">
-        <TabsList className="grid w-full grid-cols-2 rounded-xl mb-2">
+        <TabsList className="grid w-full grid-cols-3 rounded-xl mb-2">
           <TabsTrigger value="settings" className="rounded-lg">
             <Settings className="h-3.5 w-3.5 mr-1.5" />
             一般設定
+          </TabsTrigger>
+          <TabsTrigger value="mail" className="rounded-lg">
+            <Mail className="h-3.5 w-3.5 mr-1.5" />
+            メール設定
           </TabsTrigger>
           <TabsTrigger value="consent" className="rounded-lg">
             <FileText className="h-3.5 w-3.5 mr-1.5" />
             同意書管理
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="mail" className="space-y-6 mt-6">
+          <MailSettings />
+
+          {/* Gmail OAuth Client (Secret Manager) */}
+          <Card className="border-none shadow-lg rounded-2xl bg-white">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+                <KeyRound className="h-5 w-5" />
+                Gmail OAuth クライアント
+              </CardTitle>
+              <div className="flex items-center gap-1.5 mt-1">
+                <Lock className="h-3 w-3 text-green-600" />
+                <span className="text-[11px] text-green-600 font-medium">Google Cloud Secret Manager で安全に管理されています</span>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Google Cloud Console で発行した OAuth 2.0 クライアント ID とシークレットを登録します。Gmail プロバイダのアカウントを追加する前に必須の設定です。
+                変更後は <code className="px-1 py-0.5 bg-gray-100 rounded text-[10px]">firebase deploy --only functions</code> で関連 Function を再デプロイしてください。
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SecretField
+                  label="GMAIL OAUTH CLIENT ID"
+                  field="gmailOAuthClientId"
+                  placeholder="xxxxxxxxxxxx-xxxxxx.apps.googleusercontent.com"
+                />
+                <SecretField
+                  label="GMAIL OAUTH CLIENT SECRET"
+                  field="gmailOAuthClientSecret"
+                  placeholder="GOCSPX-..."
+                />
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button onClick={handleSave} disabled={isSaving} size="sm" className="rounded-xl">
+                  {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                  シークレットを保存
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="consent" className="mt-6">
           <ConsentFormManager />

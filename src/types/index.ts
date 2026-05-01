@@ -217,6 +217,49 @@ export const waitlistConverter: FirestoreDataConverter<Waitlist> = {
   },
 };
 
+// Mail Accounts (Phase 26 multi-account sender architecture)
+export type MailAccountProvider = 'gmail_oauth' | 'smtp';
+export type MailAccountStatus = 'active' | 'pending_oauth' | 'unauthorized' | 'revoked';
+
+export interface MailAccount {
+  id: string;
+  displayName: string;
+  email: string;
+  provider: MailAccountProvider;
+  status: MailAccountStatus;
+  isDefault: boolean;
+  fromName?: string;
+  consecutiveFailures?: number;
+  lastError?: string | null;
+  createdBy?: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export const mailAccountConverter: FirestoreDataConverter<MailAccount> = {
+  toFirestore: (account: WithFieldValue<MailAccount>): DocumentData => {
+    const { id, ...data } = account;
+    return data;
+  },
+  fromFirestore: (snapshot: QueryDocumentSnapshot, options: SnapshotOptions): MailAccount => {
+    const data = snapshot.data(options);
+    return {
+      id: snapshot.id,
+      displayName: data.displayName,
+      email: data.email,
+      provider: data.provider,
+      status: data.status,
+      isDefault: data.isDefault ?? false,
+      fromName: data.fromName,
+      consecutiveFailures: data.consecutiveFailures ?? 0,
+      lastError: data.lastError ?? null,
+      createdBy: data.createdBy,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt,
+    };
+  },
+};
+
 // Added EmailTemplate and its converter
 export interface EmailTemplate {
     id: string;

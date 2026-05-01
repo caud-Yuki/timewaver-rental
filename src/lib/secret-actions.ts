@@ -19,6 +19,8 @@ export interface SecretPayload {
   chatworkApiToken?: string;
   chatworkRoomId?: string;
   googleChatWebhookUrl?: string;
+  gmailOAuthClientId?: string;
+  gmailOAuthClientSecret?: string;
 }
 
 export interface StripeSecretsResult {
@@ -45,6 +47,8 @@ export async function saveSecrets(payload: SecretPayload): Promise<{ success: bo
       [SECRET_NAMES.CHATWORK_API_TOKEN, payload.chatworkApiToken],
       [SECRET_NAMES.CHATWORK_ROOM_ID, payload.chatworkRoomId],
       [SECRET_NAMES.GOOGLE_CHAT_WEBHOOK_URL, payload.googleChatWebhookUrl],
+      [SECRET_NAMES.GMAIL_OAUTH_CLIENT_ID, payload.gmailOAuthClientId],
+      [SECRET_NAMES.GMAIL_OAUTH_CLIENT_SECRET, payload.gmailOAuthClientSecret],
     ];
 
     for (const [name, value] of entries) {
@@ -129,6 +133,8 @@ export async function getSecretsStatus(): Promise<Record<string, boolean>> {
       getSecret(SECRET_NAMES.CHATWORK_API_TOKEN),
       getSecret(SECRET_NAMES.CHATWORK_ROOM_ID),
       getSecret(SECRET_NAMES.GOOGLE_CHAT_WEBHOOK_URL),
+      getSecret(SECRET_NAMES.GMAIL_OAUTH_CLIENT_ID),
+      getSecret(SECRET_NAMES.GMAIL_OAUTH_CLIENT_SECRET),
     ]);
 
     return {
@@ -141,6 +147,8 @@ export async function getSecretsStatus(): Promise<Record<string, boolean>> {
       chatworkApiToken: !!results[6],
       chatworkRoomId: !!results[7],
       googleChatWebhookUrl: !!results[8],
+      gmailOAuthClientId: !!results[9],
+      gmailOAuthClientSecret: !!results[10],
     };
   } catch (error) {
     return {
@@ -153,6 +161,8 @@ export async function getSecretsStatus(): Promise<Record<string, boolean>> {
       chatworkApiToken: false,
       chatworkRoomId: false,
       googleChatWebhookUrl: false,
+      gmailOAuthClientId: false,
+      gmailOAuthClientSecret: false,
     };
   }
 }

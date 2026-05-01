@@ -216,6 +216,26 @@ export interface EmailTemplate {
 }
 export const emailTemplateConverter = createConverter<EmailTemplate>();
 
+// Mail Accounts (Phase 26 multi-account sender architecture)
+export type MailAccountProvider = 'gmail_oauth' | 'smtp';
+export type MailAccountStatus = 'active' | 'pending_oauth' | 'unauthorized' | 'revoked';
+
+export interface MailAccount {
+  id: string;
+  displayName: string;
+  email: string;
+  provider: MailAccountProvider;
+  status: MailAccountStatus;
+  isDefault: boolean;
+  fromName?: string;
+  consecutiveFailures?: number;
+  lastError?: string | null;
+  createdBy?: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+export const mailAccountConverter = createConverter<MailAccount>();
+
 export interface News {
   id: string;
   title: string;
