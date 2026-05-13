@@ -28,6 +28,7 @@ export default function DeviceManagementPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Partial<Device> | null>(null);
+  const [syncingDeviceId, setSyncingDeviceId] = useState<string | null>(null);
 
   const profileRef = useMemo(() => user ? doc(db, 'users', user.uid).withConverter(userProfileConverter) : null, [db, user]);
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef);
@@ -105,16 +106,6 @@ export default function DeviceManagementPage() {
         await updateDoc(doc(db, 'devices', id), { ...dataToUpdate, updatedAt: serverTimestamp() });
         toast({ title: "Device updated successfully." });
 
-        // Sync prices to Stripe (creates new Prices if amounts changed)
-        try {
-          const functions = getFunctions();
-          const syncFn = httpsCallable(functions, 'syncDeviceToStripe');
-          await syncFn({ deviceId: id });
-          toast({ title: "Stripe同期完了", description: "Products & Pricesが同期されました。" });
-        } catch (syncErr: any) {
-          console.warn('[Device] Stripe sync failed:', syncErr.message);
-        }
-
         if (formData.status === 'available' && editingDevice?.status !== 'available' && settings) {
           const waitlistQuery = query(
             collection(db, 'waitlist').withConverter(waitlistConverter),
@@ -173,16 +164,10 @@ export default function DeviceManagementPage() {
           console.warn('[Device] News creation failed:', newsErr.message);
         }
 
-        // Auto-sync new device to Stripe (create Products & Prices)
-        try {
-          const functions = getFunctions();
-          const syncFn = httpsCallable(functions, 'syncDeviceToStripe');
-          await syncFn({ deviceId: newDocRef.id });
-          toast({ title: "Stripe同期完了", description: "Products & Pricesが自動生成されました。" });
-        } catch (syncErr: any) {
-          console.warn('[Device] Stripe sync failed:', syncErr.message);
-          toast({ variant: "destructive", title: "Stripe同期エラー", description: syncErr.message });
-        }
+        toast({
+          title: "保存しました",
+          description: "Stripe には自動登録されません。内容を確認のうえ、編集モーダルまたは一覧の「Stripe登録」から手動で登録してください。",
+        });
       }
       setIsDialogOpen(false);
     } catch (error) {
@@ -199,6 +184,31 @@ export default function DeviceManagementPage() {
       toast({ title: "Device deleted successfully." });
     } catch (error) {
       toast({ variant: "destructive", title: "Failed to delete device." });
+    }
+  };
+
+  const handleSyncStripe = async (deviceId: string) => {
+    if (!deviceId) return;
+    setSyncingDeviceId(deviceId);
+    try {
+      const functions = getFunctions();
+      const syncFn = httpsCallable(functions, 'syncDeviceToStripe');
+      const result: any = await syncFn({ deviceId });
+      const synced = result?.data?.stripeProducts;
+      const productCount = synced ? Object.values(synced).filter((p: any) => p?.productId).length : 0;
+      toast({
+        title: 'Stripe同期完了',
+        description: `${productCount}件のプラン（3ヶ月/6ヶ月/12ヶ月）を Stripe に登録しました。`,
+      });
+      // Refresh editingDevice from the just-synced state so the modal shows new IDs immediately.
+      if (editingDevice?.id === deviceId && synced) {
+        setEditingDevice((prev) => prev ? { ...prev, stripeProducts: synced } : prev);
+      }
+    } catch (err: any) {
+      console.error('[Device] Stripe sync failed:', err);
+      toast({ variant: 'destructive', title: 'Stripe同期エラー', description: err?.message || '同期に失敗しました。' });
+    } finally {
+      setSyncingDeviceId(null);
     }
   };
 
@@ -277,6 +287,22 @@ export default function DeviceManagementPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right pr-8 space-x-1">
+                        {(() => {
+                          const isSynced = !!d.stripeProducts && Object.values(d.stripeProducts).some((p: any) => p?.productId);
+                          const isSyncing = syncingDeviceId === d.id;
+                          return (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`h-8 w-8 rounded-lg ${isSynced ? 'text-emerald-600' : 'text-amber-600'}`}
+                              title={isSynced ? 'Stripe 再同期' : 'Stripe に登録'}
+                              disabled={isSyncing}
+                              onClick={() => handleSyncStripe(d.id)}
+                            >
+                              {isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            </Button>
+                          );
+                        })()}
                         <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-primary" onClick={() => handleOpenEditModal(d)}><Edit className="h-4 w-4" /></Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-destructive" onClick={() => handleDeleteDevice(d.id)}><Trash2 className="h-4 w-4" /></Button>
                       </TableCell>
@@ -319,6 +345,26 @@ export default function DeviceManagementPage() {
                   </div>
                 </CardContent>
                 <CardFooter className="bg-secondary/5 p-4 flex justify-end gap-2 border-t">
+                  {(() => {
+                    const isSynced = !!d.stripeProducts && Object.values(d.stripeProducts).some((p: any) => p?.productId);
+                    const isSyncing = syncingDeviceId === d.id;
+                    return (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={`rounded-xl h-9 ${isSynced ? 'text-emerald-600' : 'text-amber-600'}`}
+                        disabled={isSyncing}
+                        onClick={() => handleSyncStripe(d.id)}
+                      >
+                        {isSyncing ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                        )}
+                        {isSynced ? 'Stripe再同期' : 'Stripe登録'}
+                      </Button>
+                    );
+                  })()}
                   <Button variant="ghost" size="sm" className="rounded-xl h-9" onClick={() => handleOpenEditModal(d)}><Edit className="h-4 w-4 mr-2" /> 編集</Button>
                   <Button variant="ghost" size="sm" className="rounded-xl h-9 text-destructive" onClick={() => handleDeleteDevice(d.id)}><Trash2 className="h-4 w-4 mr-2" /> 削除</Button>
                 </CardFooter>
@@ -340,6 +386,9 @@ export default function DeviceManagementPage() {
             onCancel={() => setIsDialogOpen(false)}
             deviceTypeCodes={deviceTypeCodes || []}
             deviceModules={deviceModules || []}
+            moduleBasePrice={settings?.moduleBasePrice || 0}
+            onSyncStripe={handleSyncStripe}
+            syncingStripe={!!editingDevice?.id && syncingDeviceId === editingDevice.id}
           />
         </DialogContent>
       </Dialog>

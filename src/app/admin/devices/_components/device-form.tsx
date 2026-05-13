@@ -9,24 +9,31 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { Device, DeviceModule, DeviceTypeCode } from '@/types';
-import { Percent, Trash2, Plus, Upload, ImageIcon, X } from 'lucide-react';
+import { Percent, Trash2, Plus, Upload, ImageIcon, X, RefreshCw, Loader2, Calculator } from 'lucide-react';
 import Image from 'next/image';
 import { useRef } from 'react';
+import { calculateTotalMonthly, calculateTotalFull, calculateModuleAddon } from '@/lib/module-pricing';
 
 interface DeviceFormProps {
   device?: Partial<Device> | null;
   deviceTypeCodes: DeviceTypeCode[];
   deviceModules: DeviceModule[];
+  moduleBasePrice?: number;
   onSave: (device: Partial<Device>, newImages?: File[] | null, removedUrls?: string[] | null) => void;
   onCancel: () => void;
+  onSyncStripe?: (deviceId: string) => Promise<void>;
+  syncingStripe?: boolean;
 }
 
 export const DeviceForm = ({
   device,
   deviceTypeCodes,
   deviceModules,
+  moduleBasePrice = 0,
   onSave,
-  onCancel
+  onCancel,
+  onSyncStripe,
+  syncingStripe = false,
 }: DeviceFormProps) => {
   const [formData, setFormData] = useState<Partial<Device>>(
     device || {
@@ -352,14 +359,45 @@ export const DeviceForm = ({
         </div>
       </div>
 
-      {/* Stripe Integration — read-only display of synced IDs */}
-      {formData.stripeProducts && Object.values(formData.stripeProducts).some(p => p?.productId) && (
-        <div className="space-y-4 pt-2 border-t">
+      {/* Stripe Integration — sync button + synced IDs */}
+      <div className="space-y-3 pt-2 border-t">
+        <div className="flex items-center justify-between">
           <Label className="text-base font-bold flex items-center gap-2">
             Stripe連携
-            <span className="text-[10px] font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">同期済み</span>
+            {formData.stripeProducts && Object.values(formData.stripeProducts).some(p => p?.productId) ? (
+              <span className="text-[10px] font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">同期済み</span>
+            ) : (
+              <span className="text-[10px] font-normal text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">未登録</span>
+            )}
           </Label>
-          <div className="space-y-3">
+          {formData.id && onSyncStripe && (
+            <Button
+              type="button"
+              size="sm"
+              variant={formData.stripeProducts && Object.values(formData.stripeProducts).some(p => p?.productId) ? 'outline' : 'default'}
+              className="rounded-xl"
+              disabled={syncingStripe}
+              onClick={() => onSyncStripe(formData.id!)}
+            >
+              {syncingStripe ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />同期中...</>
+              ) : (
+                <><RefreshCw className="h-3.5 w-3.5 mr-2" />
+                  {formData.stripeProducts && Object.values(formData.stripeProducts).some(p => p?.productId)
+                    ? 'Stripeに再同期'
+                    : 'Stripeに登録'}
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+        {!formData.id && (
+          <p className="text-[11px] text-muted-foreground">
+            機器を保存後、編集画面から Stripe に登録できます。
+          </p>
+        )}
+        {formData.stripeProducts && Object.values(formData.stripeProducts).some(p => p?.productId) && (
+          <div className="space-y-2">
             {(['3m', '6m', '12m'] as const).map((term) => {
               const months = term === '3m' ? 3 : term === '6m' ? 6 : 12;
               const sp = formData.stripeProducts?.[term];
@@ -375,9 +413,12 @@ export const DeviceForm = ({
                 </div>
               );
             })}
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              ※ 登録される金額は機器のベース価格のみです。お客様請求時にはモジュール追加料金が動的に加算されます（下記「参考: モジュール込み合計」を参照）。
+            </p>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Modules */}
       {deviceModules.length > 0 && (
@@ -438,6 +479,75 @@ export const DeviceForm = ({
             <Plus className="h-3.5 w-3.5 mr-1" /> 項目を追加
           </Button>
         </div>
+      </div>
+
+      {/* Reference total price including modules */}
+      <div className="space-y-3 pt-2 border-t">
+        <div className="flex items-center justify-between">
+          <Label className="text-base font-bold flex items-center gap-2">
+            <Calculator className="h-4 w-4 text-primary" />
+            参考: モジュール込み合計
+          </Label>
+          <span className="text-[10px] text-muted-foreground">
+            選択中モジュール: {(formData.modules || []).length} 個
+            {moduleBasePrice > 0 && (
+              <> / 単価 ¥{moduleBasePrice.toLocaleString()} × ポイント</>
+            )}
+          </span>
+        </div>
+        {moduleBasePrice <= 0 ? (
+          <p className="text-[11px] text-amber-600 bg-amber-50 rounded-lg p-3 leading-relaxed">
+            <a href="/admin/settings" className="underline font-semibold">基本設定</a> の「モジュール単価」が未設定のため、モジュール料金が 0 円として計算されています。
+          </p>
+        ) : (
+          (() => {
+            const addonMonthly = calculateModuleAddon(formData.modules, moduleBasePrice);
+            return (
+              <div className="rounded-2xl border bg-gradient-to-br from-primary/5 to-primary/10 p-4 space-y-2">
+                {(['3m', '6m', '12m'] as const).map((term) => {
+                  const months = term === '3m' ? 3 : term === '6m' ? 6 : 12;
+                  const baseMonthly = formData.price?.[term]?.monthly || 0;
+                  const baseFull = formData.price?.[term]?.full || 0;
+                  const totalMonthly = calculateTotalMonthly(baseMonthly, formData.modules, moduleBasePrice);
+                  const totalFull = calculateTotalFull(baseFull, formData.modules, moduleBasePrice, months);
+                  return (
+                    <div
+                      key={term}
+                      className="grid grid-cols-[60px_1fr_1fr] gap-3 items-center py-2 border-b border-primary/10 last:border-b-0"
+                    >
+                      <span className="text-sm font-bold text-primary">{months}ヶ月</span>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-muted-foreground">月額</span>
+                        <span className="font-bold text-sm">
+                          ¥{totalMonthly.toLocaleString()}
+                          {addonMonthly > 0 && (
+                            <span className="text-[10px] text-primary/70 font-normal ml-1.5">
+                              （+¥{addonMonthly.toLocaleString()}/月）
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-muted-foreground">一括（{months}ヶ月分）</span>
+                        <span className="font-bold text-sm">
+                          ¥{totalFull.toLocaleString()}
+                          {addonMonthly > 0 && (
+                            <span className="text-[10px] text-primary/70 font-normal ml-1.5">
+                              （+¥{(addonMonthly * months).toLocaleString()}）
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-[10px] text-muted-foreground leading-relaxed pt-1">
+                  ※ ベース価格 + 選択中モジュール（{moduleBasePrice > 0 ? `¥${moduleBasePrice.toLocaleString()} × 各ポイント` : '無効'}）の合計。実際にお客様請求される目安です。Stripe には機器ベース価格が登録され、申込時にモジュール込みの金額が動的に算出されます。
+                </p>
+              </div>
+            );
+          })()
+        )}
       </div>
 
       {/* Actions */}
