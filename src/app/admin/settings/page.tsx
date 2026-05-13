@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Phone, Layers, Package, Mail } from 'lucide-react';
+import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Layers, Package, Mail } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { GlobalSettings, UserProfile } from '@/types';
@@ -256,19 +256,12 @@ export default function SettingsPage() {
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-sm font-semibold flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-primary" />
-                  無料相談予約URL
-                </Label>
-                <Input
-                  type="url"
-                  placeholder="https://timerex.net/s/... or https://calendar.google.com/..."
-                  value={settings.consultationBookingUrl || ''}
-                  onChange={(e) => handleInputChange('consultationBookingUrl', e.target.value)}
-                />
-                <p className="text-xs text-blue-500">
-                  /about-twrental の「無料相談予約」CTAから遷移するURLです。空の場合はCTAセクションが非表示になります。
+              <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-xs text-blue-700 leading-relaxed">
+                <p className="font-semibold mb-1">CTAボタン・URLの設定について</p>
+                <p>
+                  /about-twrental に表示するCTAボタン（ラベル・URL・表示/非表示）は{' '}
+                  <a href="/admin/landing" className="underline font-semibold">ランディング管理 &gt; CTA設定</a>{' '}
+                  から行います。先行予約モード ON / OFF それぞれで個別に設定可能です。
                 </p>
               </div>
             </CardContent>
@@ -392,6 +385,12 @@ export default function SettingsPage() {
                   <SecretField label="PUBLISHABLE KEY (TEST)" field="stripeTestPublishableKey" placeholder="pk_test_..." />
                   <SecretField label="SECRET KEY (TEST)" field="stripeTestSecretKey" placeholder="sk_test_..." />
                 </div>
+                <div className="pt-2 border-t border-blue-200/60">
+                  <SecretField label="WEBHOOK SECRET (TEST)" field="stripeTestWebhookSecret" placeholder="whsec_..." />
+                  <p className="text-[11px] text-blue-600/80 mt-1.5">
+                    Stripe ダッシュボード（テストモード）→ Developers → Webhooks から取得します。
+                  </p>
+                </div>
               </div>
 
               {/* Production Environment */}
@@ -404,17 +403,18 @@ export default function SettingsPage() {
                   <SecretField label="PUBLISHABLE KEY (LIVE)" field="stripeLivePublishableKey" placeholder="pk_live_..." />
                   <SecretField label="SECRET KEY (LIVE)" field="stripeLiveSecretKey" placeholder="sk_live_..." />
                 </div>
+                <div className="pt-2 border-t border-red-200/60">
+                  <SecretField label="WEBHOOK SECRET (LIVE)" field="stripeLiveWebhookSecret" placeholder="whsec_..." />
+                  <p className="text-[11px] text-red-500/80 mt-1.5">
+                    Stripe ダッシュボード（本番モード）→ Developers → Webhooks から取得します。
+                  </p>
+                </div>
               </div>
 
-              {/* Webhook Secret */}
-              <div className="p-5 rounded-xl border border-amber-200 bg-amber-50/30 space-y-4">
-                <h3 className="text-sm font-bold text-amber-600 flex items-center gap-2">
-                  <KeyRound className="h-4 w-4" />
-                  Webhook
-                </h3>
-                <SecretField label="WEBHOOK SECRET" field="stripeWebhookSecret" placeholder="whsec_..." />
-                <p className="text-xs text-amber-600">Stripeダッシュボードの Developers → Webhooks から取得できます。決済ステータスのリアルタイム同期に使用されます。</p>
-              </div>
+              <p className="text-xs text-muted-foreground px-1">
+                Webhook Secret は決済イベント（決済完了・失敗・サブスクキャンセル等）のリアルタイム受信時に署名検証に使用されます。
+                テスト環境と本番環境で別の値を設定してください。
+              </p>
             </CardContent>
           </Card>
 

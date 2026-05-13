@@ -12,13 +12,14 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import {
   Award, ShieldCheck, Globe2, Sparkles,
   Wallet, Wrench, Rocket, ChevronRight,
-  CheckCircle2, XCircle, Phone, ArrowRight, Quote
+  CheckCircle2, Quote
 } from 'lucide-react';
 import { useServiceName } from '@/hooks/use-service-name';
 import {
   GlobalSettings, Testimonial, Faq, CaseStudy, Device,
   testimonialConverter, faqConverter, caseStudyConverter, deviceConverter
 } from '@/types';
+import { LandingCtaButtons } from '@/components/landing/landing-cta-buttons';
 
 export default function AboutTWRentalPage() {
   const db = useFirestore();
@@ -62,7 +63,6 @@ export default function AboutTWRentalPage() {
   }, [devices]);
 
   const preBookingMode = settings?.preBookingMode === true;
-  const consultationUrl = settings?.consultationBookingUrl || '';
   // Default to true when unset — the section is visible unless the admin explicitly hides it.
   const showDeviceDigest = settings?.showDeviceDigest ?? true;
 
@@ -81,6 +81,13 @@ export default function AboutTWRentalPage() {
           高額な初期投資なしに、月額固定でTimeWaverを導入・検証できます。
           セットアップから日本語サポートまで、TimeWaver Japan 総代理店が全てお届けします。
         </p>
+        <div className="pt-4">
+          <LandingCtaButtons
+            preBookingMode={preBookingMode}
+            landingCtas={settings?.landingCtas}
+            variant="hero"
+          />
+        </div>
       </section>
 
       {/* 02 WHY US */}
@@ -341,24 +348,6 @@ export default function AboutTWRentalPage() {
         </section>
       )}
 
-      {/* 05e CONSULTATION CTA */}
-      {consultationUrl && (
-        <section className="bg-gradient-to-br from-primary/5 to-primary/10 rounded-[3rem] p-10 md:p-16 text-center space-y-6">
-          <div className="h-16 w-16 mx-auto rounded-2xl bg-primary/20 text-primary flex items-center justify-center">
-            <Phone className="h-8 w-8" />
-          </div>
-          <h2 className="font-headline text-3xl md:text-4xl font-bold">無料相談をご予約</h2>
-          <p className="text-muted-foreground max-w-2xl mx-auto">
-            どの機種がお客様に最適か、レンタルで何ができるか。経験豊富なコンサルタントが直接ご相談に応じます。
-          </p>
-          <a href={consultationUrl} target="_blank" rel="noopener noreferrer">
-            <Button size="lg" className="rounded-2xl h-14 px-10 font-bold shadow-lg">
-              相談枠を予約する <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
-          </a>
-        </section>
-      )}
-
       {/* 05f CASE STUDIES — auto-hide when empty */}
       {caseStudies && caseStudies.length > 0 && (
         <section className="space-y-10">
@@ -405,11 +394,6 @@ export default function AboutTWRentalPage() {
                 {serviceName}は現在、先行予約を受け付けています。
                 正式ローンチ時に優先的にご案内差し上げます。
               </p>
-              <Link href="/early-booking">
-                <Button size="lg" className="bg-white text-primary hover:bg-white/90 font-bold h-14 px-12 rounded-2xl text-lg shadow-xl">
-                  先行予約に登録する <ChevronRight className="ml-2 h-6 w-6" />
-                </Button>
-              </Link>
             </>
           ) : (
             <>
@@ -419,13 +403,13 @@ export default function AboutTWRentalPage() {
               <p className="text-primary-foreground/80 text-xl">
                 全機種のラインナップ・月額料金をご確認いただけます。
               </p>
-              <Link href="/devices">
-                <Button size="lg" className="bg-white text-primary hover:bg-white/90 font-bold h-14 px-12 rounded-2xl text-lg shadow-xl">
-                  機器ラインナップを見る <ChevronRight className="ml-2 h-6 w-6" />
-                </Button>
-              </Link>
             </>
           )}
+          <LandingCtaButtons
+            preBookingMode={preBookingMode}
+            landingCtas={settings?.landingCtas}
+            variant="final"
+          />
         </div>
       </section>
     </div>

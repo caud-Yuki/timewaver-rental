@@ -1,15 +1,23 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useUser, useFirestore, useDoc } from '@/firebase';
-import { doc } from 'firebase/firestore';
-import { Card, CardContent } from '@/components/ui/card';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useToast } from '@/hooks/use-toast';
 import {
-  Loader2, ShieldAlert, Layers, MessageCircle, HelpCircle, Briefcase, ArrowUpRight
+  Loader2, ShieldAlert, Layers, MessageCircle, HelpCircle, Briefcase, ArrowUpRight,
+  MousePointerClick, Save, Rocket
 } from 'lucide-react';
-import { UserProfile } from '@/types';
+import { UserProfile, GlobalSettings, LandingCtas, LandingCtaConfig, LandingCtaButton } from '@/types';
+import { DEFAULT_LANDING_CTAS } from '@/components/landing/landing-cta-buttons';
 
 const landingModules = [
   {
@@ -38,15 +46,112 @@ const landingModules = [
   },
 ];
 
+function CtaSlotEditor({
+  title,
+  button,
+  onChange,
+}: {
+  title: string;
+  button: LandingCtaButton;
+  onChange: (next: LandingCtaButton) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-sm">{title}</span>
+          {button.enabled ? (
+            <Badge className="bg-green-500 hover:bg-green-600 text-white text-xs">表示</Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs">非表示</Badge>
+          )}
+        </div>
+        <Switch
+          checked={button.enabled}
+          onCheckedChange={(checked) => onChange({ ...button, enabled: checked })}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold text-muted-foreground">ボタンラベル</Label>
+        <Input
+          placeholder="例: 先行予約に登録する"
+          value={button.label}
+          onChange={(e) => onChange({ ...button, label: e.target.value })}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold text-muted-foreground">遷移先URL</Label>
+        <Input
+          placeholder="/early-booking または https://..."
+          value={button.url}
+          onChange={(e) => onChange({ ...button, url: e.target.value })}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          サイト内ページは「/」始まり（例: /early-booking）、外部URLは「https://」始まりで入力してください。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function CtaModeEditor({
+  config,
+  onChange,
+}: {
+  config: LandingCtaConfig;
+  onChange: (next: LandingCtaConfig) => void;
+}) {
+  return (
+    <div className="grid md:grid-cols-2 gap-4">
+      <CtaSlotEditor
+        title="プライマリCTA"
+        button={config.primary}
+        onChange={(next) => onChange({ ...config, primary: next })}
+      />
+      <CtaSlotEditor
+        title="セカンダリCTA"
+        button={config.secondary}
+        onChange={(next) => onChange({ ...config, secondary: next })}
+      />
+    </div>
+  );
+}
+
 export default function AdminLandingPage() {
   const { user, loading: authLoading } = useUser();
   const db = useFirestore();
+  const { toast } = useToast();
 
   const profileRef = useMemo(
     () => user ? doc(db, 'users', user.uid) : null,
     [db, user]
   );
   const { data: profile, loading: profileLoading } = useDoc<UserProfile>(profileRef as any);
+
+  const settingsRef = useMemo(() => doc(db, 'settings', 'global'), [db]);
+  const { data: settings, loading: settingsLoading } = useDoc<GlobalSettings>(settingsRef as any);
+
+  const [landingCtas, setLandingCtas] = useState<LandingCtas>(DEFAULT_LANDING_CTAS);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (settings?.landingCtas) {
+      setLandingCtas(settings.landingCtas);
+    }
+  }, [settings?.landingCtas]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await updateDoc(settingsRef, { landingCtas, updatedAt: serverTimestamp() } as any);
+      toast({ title: '保存しました', description: 'CTA設定が更新されました。' });
+    } catch (e) {
+      console.error('Save CTA error', e);
+      toast({ variant: 'destructive', title: 'エラー', description: 'CTA設定の保存に失敗しました。' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   if (authLoading || (profileLoading && !profile)) {
     return (
@@ -104,6 +209,72 @@ export default function AdminLandingPage() {
           </Link>
         ))}
       </div>
+
+      {/* CTA Configuration */}
+      <Card className="border-none shadow-lg rounded-3xl bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xl font-bold text-primary flex items-center gap-2">
+            <MousePointerClick className="h-5 w-5" />
+            CTA設定
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            /about-twrental のヒーローセクションと最終CTAセクションに表示されるボタンを設定します。<br />
+            プライマリ・セカンダリの2つを基本とし、それぞれ個別に表示/非表示を切替可能です。
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {settingsLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : (
+            <>
+              <Tabs defaultValue={settings?.preBookingMode ? 'on' : 'off'}>
+                <TabsList className="grid w-full grid-cols-2 rounded-xl">
+                  <TabsTrigger value="on" className="rounded-lg flex items-center gap-2">
+                    <Rocket className="h-3.5 w-3.5" />
+                    先行予約モード ON
+                  </TabsTrigger>
+                  <TabsTrigger value="off" className="rounded-lg">
+                    先行予約モード OFF
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="on" className="mt-4 space-y-2">
+                  <p className="text-xs text-muted-foreground px-1">
+                    先行予約モードが <span className="font-semibold text-rose-500">ON</span> の時に表示されるCTAです。
+                  </p>
+                  <CtaModeEditor
+                    config={landingCtas.preBookingOn}
+                    onChange={(next) => setLandingCtas((prev) => ({ ...prev, preBookingOn: next }))}
+                  />
+                </TabsContent>
+
+                <TabsContent value="off" className="mt-4 space-y-2">
+                  <p className="text-xs text-muted-foreground px-1">
+                    先行予約モードが <span className="font-semibold">OFF</span> の時に表示されるCTAです。
+                  </p>
+                  <CtaModeEditor
+                    config={landingCtas.preBookingOff}
+                    onChange={(next) => setLandingCtas((prev) => ({ ...prev, preBookingOff: next }))}
+                  />
+                </TabsContent>
+              </Tabs>
+
+              <div className="flex justify-end">
+                <Button onClick={handleSave} disabled={isSaving} className="rounded-xl px-6">
+                  {isSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  CTA設定を保存
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="border-none shadow-lg rounded-3xl bg-gradient-to-br from-primary/5 to-primary/10">
         <CardContent className="p-8 space-y-3">

@@ -119,6 +119,25 @@ export interface Device {
 export const deviceConverter = createConverter<Device>();
 
 // =============================================================================
+// Landing CTA Configuration
+// =============================================================================
+export interface LandingCtaButton {
+  label: string;
+  url: string;
+  enabled: boolean;
+}
+
+export interface LandingCtaConfig {
+  primary: LandingCtaButton;
+  secondary: LandingCtaButton;
+}
+
+export interface LandingCtas {
+  preBookingOn: LandingCtaConfig;
+  preBookingOff: LandingCtaConfig;
+}
+
+// =============================================================================
 // Settings
 // =============================================================================
 export interface GlobalSettings {
@@ -146,7 +165,11 @@ export interface GlobalSettings {
   // Pre-booking mode — when true, /devices disables apply buttons and /about-twrental final CTA routes to the pre-booking form.
   preBookingMode?: boolean;
   // External booking URL (e.g. Google Calendar / TimeRex) used for the "無料相談予約" CTA.
+  // Deprecated: superseded by landingCtas. Retained for /devices ComingSoon fallback compatibility.
   consultationBookingUrl?: string;
+  // Configurable CTA buttons rendered in the /about-twrental hero and final CTA sections.
+  // Two slots per mode (primary + secondary), each independently toggleable.
+  landingCtas?: LandingCtas;
   // /about-twrental section visibility toggles (undefined = visible by default).
   showDeviceDigest?: boolean;
   emailDesign?: {
