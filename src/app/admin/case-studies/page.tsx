@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Edit, Trash2, Loader2, Briefcase, ShieldAlert } from 'lucide-react';
 import { CaseStudy, caseStudyConverter, UserProfile } from '@/types';
+import { LandingImageField } from '@/components/admin/landing-image-picker';
 
 const emptyForm: Partial<CaseStudy> = {
   title: '', industry: '', client: '', summary: '', body: '', imageUrl: '', order: 0, isPublic: true,
@@ -167,8 +168,12 @@ export default function AdminCaseStudiesPage() {
               <Textarea rows={6} value={current.body || ''} onChange={(e) => setCurrent({ ...current, body: e.target.value })} />
             </div>
             <div className="space-y-1.5">
-              <Label>画像URL</Label>
-              <Input placeholder="https://..." value={current.imageUrl || ''} onChange={(e) => setCurrent({ ...current, imageUrl: e.target.value })} />
+              <Label>画像</Label>
+              <LandingImageField
+                value={current.imageUrl || ''}
+                onChange={(url) => setCurrent({ ...current, imageUrl: url })}
+                helperText="アップロード済みの画像から選択するか、新しい画像をアップロードしてください。"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>表示順</Label>

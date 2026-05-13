@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Edit, Trash2, Loader2, MessageCircle, ShieldAlert } from 'lucide-react';
 import { Testimonial, testimonialConverter, UserProfile } from '@/types';
+import { LandingImageField } from '@/components/admin/landing-image-picker';
 
 const emptyForm: Partial<Testimonial> = {
   name: '', title: '', industry: '', comment: '',
@@ -175,8 +176,12 @@ export default function AdminTestimonialsPage() {
               <Textarea rows={6} value={current.comment || ''} onChange={(e) => setCurrent({ ...current, comment: e.target.value })} />
             </div>
             <div className="space-y-1.5">
-              <Label>顔写真URL</Label>
-              <Input placeholder="https://..." value={current.imageUrl || ''} onChange={(e) => setCurrent({ ...current, imageUrl: e.target.value })} />
+              <Label>顔写真</Label>
+              <LandingImageField
+                value={current.imageUrl || ''}
+                onChange={(url) => setCurrent({ ...current, imageUrl: url })}
+                helperText="アップロード済みの画像から選択するか、新しい画像をアップロードしてください。"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>動画埋め込みURL (YouTube embed形式)</Label>

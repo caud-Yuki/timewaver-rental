@@ -18,6 +18,17 @@ service firebase.storage {
                    && request.resource.contentType.matches('image/.*');
     }
 
+    // Landing assets (testimonials / case-studies images) — public read,
+    // admin-only listing/write/delete.
+    match /system/landing/{fileName} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create, update: if isAdmin()
+                            && request.resource.size < 5 * 1024 * 1024
+                            && request.resource.contentType.matches('image/.*');
+      allow delete: if isAdmin();
+    }
+
     // All user-related data lives under this path
     match /users/{userId}/{allPaths=**} {
       
