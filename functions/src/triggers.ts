@@ -72,12 +72,22 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
     const templateDoc = await db.collection('emailTemplates').doc(templateId).get();
     let subject: string;
     let body: string;
+    let chatSubject: string | undefined;
+    let chatBody: string | undefined;
     let isAdmin: boolean | undefined;
 
     if (templateDoc.exists) {
-      const t = templateDoc.data() as { subject: string; body: string; isAdmin?: boolean };
+      const t = templateDoc.data() as {
+        subject: string;
+        body: string;
+        isAdmin?: boolean;
+        chatSubject?: string;
+        chatBody?: string;
+      };
       subject = t.subject;
       body = t.body;
+      chatSubject = t.chatSubject;
+      chatBody = t.chatBody;
       isAdmin = t.isAdmin;
     } else if (SYSTEM_TEMPLATE_FALLBACK[templateId]) {
       const fallback = SYSTEM_TEMPLATE_FALLBACK[templateId];
@@ -139,8 +149,12 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
     for (const [key, value] of Object.entries(templateData)) {
       if (value === undefined || value === null) continue;
       const placeholder = `{{${key}}}`;
-      subject = subject.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "g"), String(value));
-      body = body.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "g"), String(value));
+      const escaped = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(escaped, 'g');
+      subject = subject.replace(re, String(value));
+      body = body.replace(re, String(value));
+      if (chatSubject) chatSubject = chatSubject.replace(re, String(value));
+      if (chatBody) chatBody = chatBody.replace(re, String(value));
     }
 
     // Check which channels are enabled
@@ -172,7 +186,10 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
 
     // 3. Google Chat — supports multiple destinations.
     if (channels.googleChat) {
-      const chatMessage = `*${subject}*\n\n${stripHtmlForChat(body)}`;
+      // Prefer template's chat-specific override; fall back to stripped HTML body.
+      const chatHeader = (chatSubject && chatSubject.trim()) || subject;
+      const chatPayload = (chatBody && chatBody.trim()) || stripHtmlForChat(body);
+      const chatMessage = `*${chatHeader}*\n\n${chatPayload}`;
       const destinations: Array<{ id: string; label: string; enabled: boolean; hasUrl: boolean }> =
         Array.isArray(settings.googleChatDestinations) ? settings.googleChatDestinations : [];
       const enabledDestinations = destinations.filter((d) => d?.enabled !== false && d?.hasUrl !== false);

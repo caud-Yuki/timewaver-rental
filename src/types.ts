@@ -248,6 +248,10 @@ export interface EmailTemplate {
   subject: string;
   body: string;
   isAdmin?: boolean;
+  // Optional chat-specific overrides used when this template is dispatched to
+  // Google Chat. When empty, the email body is auto-stripped of HTML and used.
+  chatBody?: string;
+  chatSubject?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
