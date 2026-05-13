@@ -14,7 +14,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import {
   Loader2, ShieldAlert, Layers, MessageCircle, HelpCircle, Briefcase, ArrowUpRight,
-  MousePointerClick, Save, Rocket
+  MousePointerClick, Save, Rocket, Package, Eye
 } from 'lucide-react';
 import { UserProfile, GlobalSettings, LandingCtas, LandingCtaConfig, LandingCtaButton } from '@/types';
 import { DEFAULT_LANDING_CTAS } from '@/components/landing/landing-cta-buttons';
@@ -153,6 +153,19 @@ export default function AdminLandingPage() {
     }
   };
 
+  // Default visible until the admin explicitly turns it off (matches /about-twrental behavior).
+  const showDeviceDigest = settings?.showDeviceDigest ?? true;
+
+  const handleToggleDeviceDigest = async (checked: boolean) => {
+    try {
+      await updateDoc(settingsRef, { showDeviceDigest: checked, updatedAt: serverTimestamp() } as any);
+      toast({ title: '更新しました', description: `対応機種ダイジェストを${checked ? '表示' : '非表示'}にしました。` });
+    } catch (e) {
+      console.error('Toggle deviceDigest error', e);
+      toast({ variant: 'destructive', title: 'エラー', description: '更新に失敗しました。' });
+    }
+  };
+
   if (authLoading || (profileLoading && !profile)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -272,6 +285,48 @@ export default function AdminLandingPage() {
                 </Button>
               </div>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Section Visibility */}
+      <Card className="border-none shadow-lg rounded-3xl bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xl font-bold text-primary flex items-center gap-2">
+            <Eye className="h-5 w-5" />
+            ランディングページ表示設定
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            /about-twrental（導入説明）ページ内の各セクションの表示/非表示を切り替えます。
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {settingsLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="flex items-center justify-between p-4 rounded-2xl bg-gray-50/80">
+              <div className="space-y-1 flex-1 pr-4">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-primary" />
+                  <span className="font-semibold text-sm">対応機種ダイジェスト</span>
+                  {showDeviceDigest ? (
+                    <Badge className="bg-green-500 hover:bg-green-600 text-white text-xs">表示</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs">非表示</Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  /about-twrental に表示される「対応機種ダイジェスト」セクションの表示を制御します。
+                  非表示にすると機器カード一覧が描画されません。
+                </p>
+              </div>
+              <Switch
+                checked={showDeviceDigest}
+                onCheckedChange={handleToggleDeviceDigest}
+              />
+            </div>
           )}
         </CardContent>
       </Card>
