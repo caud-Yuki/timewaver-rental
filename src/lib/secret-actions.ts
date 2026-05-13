@@ -5,7 +5,7 @@
  * These actions run on the server and are safe to call from client components.
  */
 
-import { getSecret, setSecret, SECRET_NAMES } from '@/lib/secret-manager';
+import { getSecret, setSecret, deleteSecret, googleChatWebhookSecretName, SECRET_NAMES } from '@/lib/secret-manager';
 
 // --- Types ---
 
@@ -14,7 +14,10 @@ export interface SecretPayload {
   stripeTestSecretKey?: string;
   stripeLivePublishableKey?: string;
   stripeLiveSecretKey?: string;
+  /** @deprecated Use stripeTestWebhookSecret / stripeLiveWebhookSecret instead. Kept for backward compat. */
   stripeWebhookSecret?: string;
+  stripeTestWebhookSecret?: string;
+  stripeLiveWebhookSecret?: string;
   geminiApiKey?: string;
   chatworkApiToken?: string;
   chatworkRoomId?: string;
@@ -42,7 +45,9 @@ export async function saveSecrets(payload: SecretPayload): Promise<{ success: bo
       [SECRET_NAMES.STRIPE_TEST_SECRET_KEY, payload.stripeTestSecretKey],
       [SECRET_NAMES.STRIPE_LIVE_PUBLISHABLE_KEY, payload.stripeLivePublishableKey],
       [SECRET_NAMES.STRIPE_LIVE_SECRET_KEY, payload.stripeLiveSecretKey],
-      [SECRET_NAMES.STRIPE_WEBHOOK_SECRET, payload.stripeWebhookSecret],
+      [SECRET_NAMES.STRIPE_TEST_WEBHOOK_SECRET, payload.stripeTestWebhookSecret],
+      [SECRET_NAMES.STRIPE_LIVE_WEBHOOK_SECRET, payload.stripeLiveWebhookSecret],
+      [SECRET_NAMES.STRIPE_WEBHOOK_SECRET, payload.stripeWebhookSecret], // legacy
       [SECRET_NAMES.GEMINI_API_KEY, payload.geminiApiKey],
       [SECRET_NAMES.CHATWORK_API_TOKEN, payload.chatworkApiToken],
       [SECRET_NAMES.CHATWORK_ROOM_ID, payload.chatworkRoomId],
@@ -90,10 +95,18 @@ export async function getStripeSecrets(mode: 'test' | 'production'): Promise<Str
 }
 
 /**
- * Get the Stripe webhook secret from Secret Manager.
+ * Get the Stripe webhook signing secret for the given mode.
+ * Tries the mode-specific secret first, then falls back to the legacy single secret
+ * for backward compatibility with existing deployments.
  */
-export async function getStripeWebhookSecret(): Promise<string | null> {
+export async function getStripeWebhookSecret(mode: 'test' | 'production' = 'test'): Promise<string | null> {
   try {
+    const modeSpecific = mode === 'test'
+      ? SECRET_NAMES.STRIPE_TEST_WEBHOOK_SECRET
+      : SECRET_NAMES.STRIPE_LIVE_WEBHOOK_SECRET;
+    const value = await getSecret(modeSpecific);
+    if (value) return value;
+    // Fallback to legacy
     return await getSecret(SECRET_NAMES.STRIPE_WEBHOOK_SECRET);
   } catch (error: any) {
     console.error('[getStripeWebhookSecret] Error:', error.message);
@@ -128,7 +141,9 @@ export async function getSecretsStatus(): Promise<Record<string, boolean>> {
       getSecret(SECRET_NAMES.STRIPE_TEST_SECRET_KEY),
       getSecret(SECRET_NAMES.STRIPE_LIVE_PUBLISHABLE_KEY),
       getSecret(SECRET_NAMES.STRIPE_LIVE_SECRET_KEY),
-      getSecret(SECRET_NAMES.STRIPE_WEBHOOK_SECRET),
+      getSecret(SECRET_NAMES.STRIPE_TEST_WEBHOOK_SECRET),
+      getSecret(SECRET_NAMES.STRIPE_LIVE_WEBHOOK_SECRET),
+      getSecret(SECRET_NAMES.STRIPE_WEBHOOK_SECRET), // legacy
       getSecret(SECRET_NAMES.GEMINI_API_KEY),
       getSecret(SECRET_NAMES.CHATWORK_API_TOKEN),
       getSecret(SECRET_NAMES.CHATWORK_ROOM_ID),
@@ -142,13 +157,15 @@ export async function getSecretsStatus(): Promise<Record<string, boolean>> {
       stripeTestSecretKey: !!results[1],
       stripeLivePublishableKey: !!results[2],
       stripeLiveSecretKey: !!results[3],
-      stripeWebhookSecret: !!results[4],
-      geminiApiKey: !!results[5],
-      chatworkApiToken: !!results[6],
-      chatworkRoomId: !!results[7],
-      googleChatWebhookUrl: !!results[8],
-      gmailOAuthClientId: !!results[9],
-      gmailOAuthClientSecret: !!results[10],
+      stripeTestWebhookSecret: !!results[4],
+      stripeLiveWebhookSecret: !!results[5],
+      stripeWebhookSecret: !!results[6], // legacy
+      geminiApiKey: !!results[7],
+      chatworkApiToken: !!results[8],
+      chatworkRoomId: !!results[9],
+      googleChatWebhookUrl: !!results[10],
+      gmailOAuthClientId: !!results[11],
+      gmailOAuthClientSecret: !!results[12],
     };
   } catch (error) {
     return {
@@ -156,6 +173,8 @@ export async function getSecretsStatus(): Promise<Record<string, boolean>> {
       stripeTestSecretKey: false,
       stripeLivePublishableKey: false,
       stripeLiveSecretKey: false,
+      stripeTestWebhookSecret: false,
+      stripeLiveWebhookSecret: false,
       stripeWebhookSecret: false,
       geminiApiKey: false,
       chatworkApiToken: false,
@@ -164,5 +183,84 @@ export async function getSecretsStatus(): Promise<Record<string, boolean>> {
       gmailOAuthClientId: false,
       gmailOAuthClientSecret: false,
     };
+  }
+}
+
+// --- Google Chat Destinations (multi-destination) ---
+
+/**
+ * Save a Google Chat destination's webhook URL to Secret Manager.
+ * Returns { success, error } so the caller can surface failure to the user.
+ */
+export async function saveGoogleChatDestinationUrl(
+  destinationId: string,
+  webhookUrl: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!destinationId || !destinationId.match(/^[a-zA-Z0-9_-]{1,40}$/)) {
+      return { success: false, error: 'Invalid destination id.' };
+    }
+    if (!webhookUrl || !webhookUrl.startsWith('https://chat.googleapis.com/')) {
+      return { success: false, error: '正しい Google Chat Webhook URL を入力してください。' };
+    }
+    await setSecret(googleChatWebhookSecretName(destinationId), webhookUrl.trim());
+    return { success: true };
+  } catch (error: any) {
+    console.error('[saveGoogleChatDestinationUrl] Error:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Remove a destination's webhook URL from Secret Manager. Idempotent — calling
+ * on an unknown destinationId still resolves successfully.
+ */
+export async function deleteGoogleChatDestinationUrl(
+  destinationId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await deleteSecret(googleChatWebhookSecretName(destinationId));
+    return { success: true };
+  } catch (error: any) {
+    console.error('[deleteGoogleChatDestinationUrl] Error:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send a test message to a Google Chat destination. The caller can pass an
+ * explicit `webhookUrl` to test before saving, or omit it to use the URL
+ * stored for `destinationId`. Returns plain status (no leaked details).
+ */
+export async function testGoogleChatDestination(args: {
+  destinationId?: string;
+  webhookUrl?: string;
+  message?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    let url = args.webhookUrl?.trim() || '';
+    if (!url && args.destinationId) {
+      const stored = await getSecret(googleChatWebhookSecretName(args.destinationId));
+      if (!stored) return { success: false, error: 'この通知先は URL が未設定です。' };
+      url = stored;
+    }
+    if (!url || !url.startsWith('https://chat.googleapis.com/')) {
+      return { success: false, error: 'Google Chat の Webhook URL が見つかりません。' };
+    }
+
+    const text = args.message?.trim() || '✅ TimeWaverHub からのテスト送信です。この宛先で通知が受け取れます。';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      return { success: false, error: `Google Chat returned ${res.status}: ${detail.slice(0, 200)}` };
+    }
+    return { success: true };
+  } catch (error: any) {
+    console.error('[testGoogleChatDestination] Error:', error.message);
+    return { success: false, error: error.message };
   }
 }

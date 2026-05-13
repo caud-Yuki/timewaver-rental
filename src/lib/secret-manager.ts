@@ -31,7 +31,7 @@ export async function getSecret(secretName: string): Promise<string | null> {
 
     if (typeof payload === 'string') return payload;
     if (payload instanceof Uint8Array) return new TextDecoder().decode(payload);
-    return payload.toString();
+    return String(payload);
   } catch (error: any) {
     // Secret not found (NOT_FOUND) is expected for first-time setup
     if (error?.code === 5) {
@@ -79,6 +79,30 @@ export async function setSecret(secretName: string, value: string): Promise<void
 }
 
 /**
+ * Permanently delete a secret (all versions). Used when an admin removes a
+ * notification destination that owns its own webhook secret. Safe to call on
+ * a non-existent secret — NOT_FOUND is treated as success.
+ */
+export async function deleteSecret(secretName: string): Promise<void> {
+  const smClient = getClient();
+  const name = `projects/${PROJECT_ID}/secrets/${secretName}`;
+  try {
+    await smClient.deleteSecret({ name });
+  } catch (error: any) {
+    if (error?.code === 5) return; // NOT_FOUND — already gone
+    throw error;
+  }
+}
+
+/**
+ * Helper to construct the Secret Manager key used for a Google Chat
+ * destination's webhook URL.
+ */
+export function googleChatWebhookSecretName(destinationId: string): string {
+  return `GOOGLE_CHAT_WEBHOOK_${destinationId}`;
+}
+
+/**
  * Secret name constants used throughout the application.
  */
 export const SECRET_NAMES = {
@@ -87,6 +111,11 @@ export const SECRET_NAMES = {
   STRIPE_TEST_SECRET_KEY: 'STRIPE_TEST_SECRET_KEY',
   STRIPE_LIVE_PUBLISHABLE_KEY: 'STRIPE_LIVE_PUBLISHABLE_KEY',
   STRIPE_LIVE_SECRET_KEY: 'STRIPE_LIVE_SECRET_KEY',
+  // Webhook signing secrets — separated by mode so test/production can coexist
+  STRIPE_TEST_WEBHOOK_SECRET: 'STRIPE_TEST_WEBHOOK_SECRET',
+  STRIPE_LIVE_WEBHOOK_SECRET: 'STRIPE_LIVE_WEBHOOK_SECRET',
+  // Legacy single-name webhook secret — kept for backward compatibility while
+  // existing deployments migrate to the test/live split. Functions read either.
   STRIPE_WEBHOOK_SECRET: 'STRIPE_WEBHOOK_SECRET',
   // Other services
   GEMINI_API_KEY: 'GEMINI_API_KEY',

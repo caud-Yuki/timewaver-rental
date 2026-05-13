@@ -119,6 +119,16 @@ export interface Device {
 export const deviceConverter = createConverter<Device>();
 
 // =============================================================================
+// Notification Destinations (Google Chat)
+// =============================================================================
+export interface GoogleChatDestination {
+  id: string;            // short unique id (e.g. Date.now().toString(36) + suffix)
+  label: string;         // admin-facing display name, e.g. "TimeWaver管理者通知"
+  enabled: boolean;      // master on/off for this destination
+  hasUrl: boolean;       // mirror flag: true when the matching Secret Manager entry is set
+}
+
+// =============================================================================
 // Landing CTA Configuration
 // =============================================================================
 export interface LandingCtaButton {
@@ -170,6 +180,10 @@ export interface GlobalSettings {
   // Configurable CTA buttons rendered in the /about-twrental hero and final CTA sections.
   // Two slots per mode (primary + secondary), each independently toggleable.
   landingCtas?: LandingCtas;
+  // Google Chat notification destinations (multi-destination support).
+  // Webhook URLs live in Secret Manager as GOOGLE_CHAT_WEBHOOK_<id>; this list
+  // holds only the admin-visible metadata.
+  googleChatDestinations?: GoogleChatDestination[];
   // /about-twrental section visibility toggles (undefined = visible by default).
   showDeviceDigest?: boolean;
   emailDesign?: {

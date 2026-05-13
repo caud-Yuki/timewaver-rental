@@ -13,8 +13,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Mail } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { GlobalSettings, UserProfile } from '@/types';
+import { GlobalSettings, UserProfile, GoogleChatDestination } from '@/types';
 import { saveSecrets, getSecretsStatus, type SecretPayload } from '@/lib/secret-actions';
+import { GoogleChatDestinationsEditor } from '@/components/admin/google-chat-destinations-editor';
 import { AVAILABLE_GEMINI_MODELS, DEFAULT_GEMINI_MODEL } from '@/ai/models';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConsentFormManager } from '@/components/admin/consent-form-manager';
@@ -590,10 +591,12 @@ export default function SettingsPage() {
                   <SecretField label="ROOM ID" field="chatworkRoomId" placeholder="123456789" />
                 </div>
               </div>
-              {/* Google Chat */}
-              <div className="p-5 rounded-xl border border-gray-200 bg-gray-50/30 space-y-4">
-                <h3 className="text-sm font-bold text-gray-700">Google Chat</h3>
-                <SecretField label="WEBHOOK URL" field="googleChatWebhookUrl" placeholder="https://chat.googleapis.com/v1/spaces/..." />
+              {/* Google Chat — multi-destination */}
+              <div className="p-5 rounded-xl border border-gray-200 bg-gray-50/30">
+                <GoogleChatDestinationsEditor
+                  destinations={settings.googleChatDestinations || []}
+                  onChange={(next: GoogleChatDestination[]) => handleInputChange('googleChatDestinations', next)}
+                />
               </div>
             </CardContent>
           </Card>

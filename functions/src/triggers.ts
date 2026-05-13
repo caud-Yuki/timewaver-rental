@@ -170,14 +170,41 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       }
     }
 
-    // 3. Google Chat
+    // 3. Google Chat — supports multiple destinations.
     if (channels.googleChat) {
-      const webhookUrl = await getSecretValueLocal('GOOGLE_CHAT_WEBHOOK_URL');
-      if (webhookUrl) {
-        const chatMessage = `*${subject}*\n\n${body}`;
-        await sendGoogleChatMessage(webhookUrl, chatMessage);
+      const chatMessage = `*${subject}*\n\n${stripHtmlForChat(body)}`;
+      const destinations: Array<{ id: string; label: string; enabled: boolean; hasUrl: boolean }> =
+        Array.isArray(settings.googleChatDestinations) ? settings.googleChatDestinations : [];
+      const enabledDestinations = destinations.filter((d) => d?.enabled !== false && d?.hasUrl !== false);
+
+      // Per-event filter: if the trigger config restricts which destinations to use,
+      // honor it; otherwise broadcast to every enabled destination.
+      const requestedIds: string[] | undefined = Array.isArray(channels.googleChatDestinationIds)
+        ? channels.googleChatDestinationIds.filter((x: unknown) => typeof x === 'string')
+        : undefined;
+      const selected = requestedIds && requestedIds.length > 0
+        ? enabledDestinations.filter((d) => requestedIds.includes(d.id))
+        : enabledDestinations;
+
+      if (selected.length > 0) {
+        await Promise.all(selected.map(async (dest) => {
+          const url = await getSecretValueLocal(`GOOGLE_CHAT_WEBHOOK_${dest.id}`);
+          if (url) {
+            await sendGoogleChatMessage(url, chatMessage);
+            log(`[sendTriggeredEmail] Google Chat → "${dest.label}" (${dest.id})`);
+          } else {
+            log(`[sendTriggeredEmail] Skipping Google Chat destination "${dest.label}" (${dest.id}) — URL missing.`);
+          }
+        }));
       } else {
-        log(`[sendTriggeredEmail] Google Chat webhook not configured. Skipping.`);
+        // Legacy fallback: no destinations list configured — use the single-URL secret.
+        const legacyUrl = await getSecretValueLocal('GOOGLE_CHAT_WEBHOOK_URL');
+        if (legacyUrl) {
+          await sendGoogleChatMessage(legacyUrl, chatMessage);
+          log(`[sendTriggeredEmail] Google Chat → legacy single-URL destination`);
+        } else {
+          log(`[sendTriggeredEmail] Google Chat: no destinations configured. Skipping.`);
+        }
       }
     }
 
@@ -185,3 +212,27 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
     log(`[sendTriggeredEmail] CRITICAL: Error processing trigger '${trigger}'.`, error);
   }
 };
+
+/**
+ * Convert the HTML email body into something readable in Google Chat. Chat
+ * doesn't render HTML; sending raw tags makes notifications look broken.
+ */
+function stripHtmlForChat(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p\s*>/gi, '\n\n')
+    .replace(/<\/li\s*>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}

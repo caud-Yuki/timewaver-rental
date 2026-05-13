@@ -7,11 +7,13 @@ import { collection, query, doc, updateDoc, serverTimestamp, setDoc } from 'fire
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Zap, ShieldAlert, Mail, Settings2, Sparkles } from 'lucide-react';
-import { EmailTemplate, UserProfile } from '@/types';
+import { Loader2, Zap, ShieldAlert, Mail, Settings2, Sparkles, ChevronDown } from 'lucide-react';
+import { EmailTemplate, UserProfile, GlobalSettings } from '@/types';
 import { SYSTEM_TEMPLATES } from '@/lib/email-defaults';
 import Link from 'next/link';
 
@@ -25,7 +27,12 @@ const TRIGGER_POINTS = [
   // 決済
   { id: 'payment_link_sent', name: '決済リンク送付時', desc: '管理者が決済リンクを作成・送信した時', sysId: 'sys_payment_link_sent' },
   { id: 'payment_completed', name: '決済完了時', desc: '支払いが正常に完了した時', sysId: 'sys_payment_completed' },
-  { id: 'payment_failed', name: '決済失敗時', desc: '月次決済に失敗した時', sysId: 'sys_payment_failed' },
+  { id: 'payment_failed', name: '月次決済失敗時（管理者宛）', desc: '月次決済に失敗した時の管理者通知', sysId: 'sys_payment_failed' },
+  { id: 'payment_failed_user', name: '月次決済失敗時（ユーザー宛）', desc: '月次決済に失敗した時のユーザー通知（カード更新URL付き）', sysId: 'sys_payment_failed_user' },
+  { id: 'card_expiring', name: 'カード期限切れ予告（ユーザー宛）', desc: 'カードの有効期限切れ1ヶ月前にユーザーへ通知', sysId: 'sys_card_expiring' },
+  { id: 'initial_payment_failed', name: '初回決済失敗時（管理者宛）', desc: '初回決済（PaymentIntent）が失敗した時の管理者通知', sysId: 'sys_initial_payment_failed' },
+  { id: 'subscription_canceled_payment_failure', name: '決済失敗による自動解約（ユーザー宛）', desc: '決済失敗が14日継続して自動解約した時のユーザー通知', sysId: 'sys_subscription_canceled_payment_failure' },
+  { id: 'subscription_canceled_payment_failure_admin', name: '決済失敗による自動解約（管理者宛）', desc: '決済失敗が14日継続して自動解約した時の管理者通知', sysId: 'sys_subscription_canceled_payment_failure_admin' },
   // 発送・利用
   { id: 'device_prep_required', name: '発送準備依頼（スタッフ宛）', desc: '決済完了後、スタッフに発送準備を依頼する時', sysId: 'sys_device_prep_required' },
   { id: 'device_shipped', name: '発送通知', desc: '管理者がデバイスを発送した時', sysId: 'sys_device_shipped' },
@@ -69,6 +76,14 @@ export default function EmailTriggersPage() {
     return collection(db, 'emailTriggers');
   }, [db]);
   const { data: activeTriggers } = useCollection<any>(triggersQuery as any);
+
+  const settingsRef = useMemoFirebase(() => {
+    if (!db) return null;
+    return doc(db, 'settings', 'global');
+  }, [db]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
+  const allDestinations = settings?.googleChatDestinations || [];
+  const enabledDestinations = allDestinations.filter((d) => d.enabled !== false);
 
   const availableTemplates = useMemo(() => {
     const list = [...dbTemplates];
@@ -195,14 +210,90 @@ export default function EmailTriggersPage() {
                       />
                     </TableCell>
                     <TableCell className="text-center pr-8">
-                      <Switch
-                        checked={trigger?.channels?.googleChat || false}
-                        onCheckedChange={(checked) => {
-                          const channels = { ...(trigger?.channels || {}), googleChat: checked };
-                          handleUpdateTrigger(point.id, 'channels', channels);
-                        }}
-                        disabled={!currentTemplateId}
-                      />
+                      <div className="flex items-center justify-center gap-2">
+                        <Switch
+                          checked={trigger?.channels?.googleChat || false}
+                          onCheckedChange={(checked) => {
+                            const channels = { ...(trigger?.channels || {}), googleChat: checked };
+                            handleUpdateTrigger(point.id, 'channels', channels);
+                          }}
+                          disabled={!currentTemplateId}
+                        />
+                        {trigger?.channels?.googleChat && (
+                          (() => {
+                            const selectedIds: string[] = Array.isArray(trigger?.channels?.googleChatDestinationIds)
+                              ? trigger.channels.googleChatDestinationIds
+                              : [];
+                            const isAll = selectedIds.length === 0;
+                            const label = isAll
+                              ? `全宛先 (${enabledDestinations.length})`
+                              : `${selectedIds.length} / ${enabledDestinations.length}`;
+                            return (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button variant="outline" size="sm" className="h-7 px-2 text-[10px] gap-1 rounded-lg">
+                                    {label}
+                                    <ChevronDown className="h-3 w-3" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-72 p-3" align="end">
+                                  <div className="space-y-2">
+                                    <div className="text-xs font-bold mb-2">配信先 Google Chat</div>
+                                    {enabledDestinations.length === 0 ? (
+                                      <p className="text-[11px] text-muted-foreground">
+                                        通知先が未登録です。<Link href="/admin/settings" className="text-primary underline">基本設定</Link>から追加してください。
+                                      </p>
+                                    ) : (
+                                      <>
+                                        <label className="flex items-center gap-2 cursor-pointer rounded-md p-2 hover:bg-secondary/40">
+                                          <Checkbox
+                                            checked={isAll}
+                                            onCheckedChange={(checked) => {
+                                              const channels = { ...(trigger?.channels || {}) };
+                                              if (checked) {
+                                                delete channels.googleChatDestinationIds;
+                                              } else {
+                                                channels.googleChatDestinationIds = enabledDestinations.map((d) => d.id);
+                                              }
+                                              handleUpdateTrigger(point.id, 'channels', channels);
+                                            }}
+                                          />
+                                          <span className="text-xs font-semibold">すべての有効な宛先に配信</span>
+                                        </label>
+                                        <div className="border-t my-2" />
+                                        {enabledDestinations.map((d) => {
+                                          const checked = isAll || selectedIds.includes(d.id);
+                                          return (
+                                            <label key={d.id} className="flex items-center gap-2 cursor-pointer rounded-md p-2 hover:bg-secondary/40">
+                                              <Checkbox
+                                                checked={checked}
+                                                disabled={isAll}
+                                                onCheckedChange={(c) => {
+                                                  const next = c
+                                                    ? [...selectedIds, d.id]
+                                                    : selectedIds.filter((id) => id !== d.id);
+                                                  const channels = { ...(trigger?.channels || {}), googleChatDestinationIds: next };
+                                                  handleUpdateTrigger(point.id, 'channels', channels);
+                                                }}
+                                              />
+                                              <div className="flex-1">
+                                                <div className="text-xs font-medium">{d.label}</div>
+                                                {!d.hasUrl && (
+                                                  <div className="text-[10px] text-amber-600">URL未設定</div>
+                                                )}
+                                              </div>
+                                            </label>
+                                          );
+                                        })}
+                                      </>
+                                    )}
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            );
+                          })()
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
