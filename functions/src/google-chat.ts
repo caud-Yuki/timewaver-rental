@@ -98,9 +98,10 @@ export function buildGoogleChatCard(args: {
     widgets.push({ textParagraph: { text: '(no content)' } });
   }
 
+  // Note: intentionally omit `text` — Google Chat renders `text` and `cardsV2`
+  // as TWO separate messages (not as a graceful fallback), which would put a
+  // duplicate plain-text line above every card.
   return {
-    // Chat clients fall back to this when cards cannot render (e.g. on mobile previews).
-    text: args.title,
     cardsV2: [
       {
         cardId: 'tw-notification',

@@ -328,8 +328,9 @@ export async function testGoogleChatTemplatePreview(args: {
       if (buttons.length > 0) {
         widgets.push({ buttonList: { buttons } });
       }
+      // Card-only — omit `text` so Google Chat doesn't append a separate
+      // plain-text message above the card.
       payload = {
-        text: `🧪 [テスト送信] ${subject}`,
         cardsV2: [
           {
             cardId: 'tw-template-preview',
