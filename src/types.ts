@@ -252,6 +252,12 @@ export interface EmailTemplate {
   // Google Chat. When empty, the email body is auto-stripped of HTML and used.
   chatBody?: string;
   chatSubject?: string;
+  // 'text' (default) sends a plain markdown message; 'card' renders a
+  // Google Chat Cards V2 payload with header / body / buttons.
+  chatFormat?: 'text' | 'card';
+  // Buttons rendered at the bottom of the card. Label and URL both support
+  // {{placeholder}} substitution. Only used when chatFormat === 'card'.
+  chatCardButtons?: Array<{ label: string; url: string }>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

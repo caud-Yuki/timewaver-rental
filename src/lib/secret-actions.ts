@@ -264,3 +264,93 @@ export async function testGoogleChatDestination(args: {
     return { success: false, error: error.message };
   }
 }
+
+/**
+ * Mirror of the Cloud Function chat-markdown → Cards V2 HTML converter, kept
+ * here so the test-send action can build the same payload server-side without
+ * importing from the functions package.
+ */
+function chatMarkdownToCardHtmlLocal(input: string): string {
+  if (!input) return '';
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')
+    .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
+    .replace(/_([^_\n]+)_/g, '<i>$1</i>')
+    .replace(/~([^~\n]+)~/g, '<s>$1</s>')
+    .replace(/`([^`\n]+)`/g, '<font face="monospace">$1</font>')
+    .replace(/\n/g, '<br>');
+}
+
+/**
+ * Send a fully-composed template preview to one Google Chat destination so
+ * admins can verify formatting before wiring the template up to a live trigger.
+ * Placeholders ({{userName}} etc.) are sent verbatim — this is intentional so
+ * admins can spot any unfilled slots.
+ */
+export async function testGoogleChatTemplatePreview(args: {
+  destinationId: string;
+  format: 'text' | 'card';
+  subject: string;
+  body: string;
+  cardButtons?: Array<{ label: string; url: string }>;
+  serviceName?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!args.destinationId) return { success: false, error: '送信先を選択してください。' };
+    const url = await getSecret(googleChatWebhookSecretName(args.destinationId));
+    if (!url) return { success: false, error: 'この通知先は URL が未設定です。' };
+
+    const subject = (args.subject || '').trim() || '(件名未設定)';
+    const body = (args.body || '').trim() || '(本文未設定)';
+
+    let payload: any;
+    if (args.format === 'card') {
+      const widgets: any[] = [{ textParagraph: { text: chatMarkdownToCardHtmlLocal(body) } }];
+      const buttons = (args.cardButtons || []).filter((b) => b?.label?.trim() && b?.url?.trim());
+      if (buttons.length > 0) {
+        widgets.push({
+          buttonList: {
+            buttons: buttons.map((b) => ({
+              text: b.label,
+              onClick: { openLink: { url: b.url } },
+            })),
+          },
+        });
+      }
+      payload = {
+        text: `🧪 [テスト送信] ${subject}`,
+        cardsV2: [
+          {
+            cardId: 'tw-template-preview',
+            card: {
+              header: {
+                title: subject,
+                subtitle: `🧪 テスト送信 — ${args.serviceName || 'TimeWaverHub'}`,
+              },
+              sections: [{ widgets }],
+            },
+          },
+        ],
+      };
+    } else {
+      payload = { text: `🧪 [テスト送信]\n\n*${subject}*\n\n${body}` };
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      return { success: false, error: `Google Chat returned ${res.status}: ${detail.slice(0, 200)}` };
+    }
+    return { success: true };
+  } catch (error: any) {
+    console.error('[testGoogleChatTemplatePreview] Error:', error.message);
+    return { success: false, error: error.message };
+  }
+}

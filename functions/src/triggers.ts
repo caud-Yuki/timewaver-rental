@@ -3,7 +3,7 @@ import {getFirestore} from "firebase-admin/firestore";
 import {log} from "firebase-functions/logger";
 import {sendMail} from "./gmail";
 import {sendChatworkMessage} from "./chatwork";
-import {sendGoogleChatMessage} from "./google-chat";
+import {sendGoogleChatMessage, buildGoogleChatCard} from "./google-chat";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
 
 interface EmailRecipient {
@@ -76,6 +76,9 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
     let chatBody: string | undefined;
     let isAdmin: boolean | undefined;
 
+    let chatFormat: 'text' | 'card' = 'text';
+    let chatCardButtons: Array<{ label: string; url: string }> = [];
+
     if (templateDoc.exists) {
       const t = templateDoc.data() as {
         subject: string;
@@ -83,12 +86,16 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
         isAdmin?: boolean;
         chatSubject?: string;
         chatBody?: string;
+        chatFormat?: 'text' | 'card';
+        chatCardButtons?: Array<{ label: string; url: string }>;
       };
       subject = t.subject;
       body = t.body;
       chatSubject = t.chatSubject;
       chatBody = t.chatBody;
       isAdmin = t.isAdmin;
+      chatFormat = t.chatFormat === 'card' ? 'card' : 'text';
+      chatCardButtons = Array.isArray(t.chatCardButtons) ? t.chatCardButtons : [];
     } else if (SYSTEM_TEMPLATE_FALLBACK[templateId]) {
       const fallback = SYSTEM_TEMPLATE_FALLBACK[templateId];
       subject = fallback.subject;
@@ -151,10 +158,17 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       const placeholder = `{{${key}}}`;
       const escaped = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const re = new RegExp(escaped, 'g');
-      subject = subject.replace(re, String(value));
-      body = body.replace(re, String(value));
-      if (chatSubject) chatSubject = chatSubject.replace(re, String(value));
-      if (chatBody) chatBody = chatBody.replace(re, String(value));
+      const v = String(value);
+      subject = subject.replace(re, v);
+      body = body.replace(re, v);
+      if (chatSubject) chatSubject = chatSubject.replace(re, v);
+      if (chatBody) chatBody = chatBody.replace(re, v);
+      if (chatCardButtons.length > 0) {
+        chatCardButtons = chatCardButtons.map((btn) => ({
+          label: (btn.label || '').replace(re, v),
+          url: (btn.url || '').replace(re, v),
+        }));
+      }
     }
 
     // Check which channels are enabled
@@ -188,8 +202,17 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
     if (channels.googleChat) {
       // Prefer template's chat-specific override; fall back to stripped HTML body.
       const chatHeader = (chatSubject && chatSubject.trim()) || subject;
-      const chatPayload = (chatBody && chatBody.trim()) || stripHtmlForChat(body);
-      const chatMessage = `*${chatHeader}*\n\n${chatPayload}`;
+      const chatBodyText = (chatBody && chatBody.trim()) || stripHtmlForChat(body);
+      const serviceName = (settings as any)?.serviceName || 'TimeWaverHub';
+
+      const chatPayload = chatFormat === 'card'
+        ? buildGoogleChatCard({
+            title: chatHeader,
+            subtitle: serviceName,
+            body: chatBodyText,
+            buttons: chatCardButtons,
+          })
+        : `*${chatHeader}*\n\n${chatBodyText}`;
       const destinations: Array<{ id: string; label: string; enabled: boolean; hasUrl: boolean }> =
         Array.isArray(settings.googleChatDestinations) ? settings.googleChatDestinations : [];
       const enabledDestinations = destinations.filter((d) => d?.enabled !== false && d?.hasUrl !== false);
@@ -207,7 +230,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
         await Promise.all(selected.map(async (dest) => {
           const url = await getSecretValueLocal(`GOOGLE_CHAT_WEBHOOK_${dest.id}`);
           if (url) {
-            await sendGoogleChatMessage(url, chatMessage);
+            await sendGoogleChatMessage(url, chatPayload);
             log(`[sendTriggeredEmail] Google Chat → "${dest.label}" (${dest.id})`);
           } else {
             log(`[sendTriggeredEmail] Skipping Google Chat destination "${dest.label}" (${dest.id}) — URL missing.`);
@@ -217,7 +240,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
         // Legacy fallback: no destinations list configured — use the single-URL secret.
         const legacyUrl = await getSecretValueLocal('GOOGLE_CHAT_WEBHOOK_URL');
         if (legacyUrl) {
-          await sendGoogleChatMessage(legacyUrl, chatMessage);
+          await sendGoogleChatMessage(legacyUrl, chatPayload);
           log(`[sendTriggeredEmail] Google Chat → legacy single-URL destination`);
         } else {
           log(`[sendTriggeredEmail] Google Chat: no destinations configured. Skipping.`);
