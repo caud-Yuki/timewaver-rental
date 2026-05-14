@@ -13,6 +13,46 @@ interface EmailRecipient {
 }
 
 /**
+ * Mapping from the per-audience trigger ids used at Cloud Function call sites
+ * to the consolidated event id stored in Firestore. Each entry records which
+ * template field to pull off the event doc (userTemplateId vs adminTemplateId).
+ *
+ * Legacy paired triggers are collapsed onto a single event id; for everything
+ * else the event id is the same as the trigger id.
+ */
+const TRIGGER_TO_EVENT: Record<string, { eventId: string; audience: 'user' | 'admin' }> = {
+  // Paired events
+  payment_failed: { eventId: 'payment_failed', audience: 'admin' },
+  payment_failed_user: { eventId: 'payment_failed', audience: 'user' },
+  subscription_canceled_payment_failure: { eventId: 'subscription_canceled_payment_failure', audience: 'user' },
+  subscription_canceled_payment_failure_admin: { eventId: 'subscription_canceled_payment_failure', audience: 'admin' },
+  early_booking_confirmation: { eventId: 'early_booking', audience: 'user' },
+  early_booking_admin_notification: { eventId: 'early_booking', audience: 'admin' },
+  // Audience-singular events — eventId === triggerId, audience inferred from name.
+  application_submitted: { eventId: 'application_submitted', audience: 'user' },
+  application_approved: { eventId: 'application_approved', audience: 'user' },
+  application_rejected: { eventId: 'application_rejected', audience: 'user' },
+  consent_form_submitted: { eventId: 'consent_form_submitted', audience: 'admin' },
+  consent_form_approved: { eventId: 'consent_form_approved', audience: 'user' },
+  payment_link_sent: { eventId: 'payment_link_sent', audience: 'user' },
+  payment_completed: { eventId: 'payment_completed', audience: 'user' },
+  card_expiring: { eventId: 'card_expiring', audience: 'user' },
+  initial_payment_failed: { eventId: 'initial_payment_failed', audience: 'admin' },
+  device_prep_required: { eventId: 'device_prep_required', audience: 'admin' },
+  device_shipped: { eventId: 'device_shipped', audience: 'user' },
+  contract_renewal_reminder: { eventId: 'contract_renewal_reminder', audience: 'user' },
+  subscription_canceled: { eventId: 'subscription_canceled', audience: 'user' },
+  contract_expired: { eventId: 'contract_expired', audience: 'user' },
+  device_return_guide: { eventId: 'device_return_guide', audience: 'user' },
+  device_inspection: { eventId: 'device_inspection', audience: 'admin' },
+  device_returned: { eventId: 'device_returned', audience: 'user' },
+  device_damaged: { eventId: 'device_damaged', audience: 'user' },
+  news_published: { eventId: 'news_published', audience: 'user' },
+  waitlist_device_available: { eventId: 'waitlist_device_available', audience: 'user' },
+  welcome_registration: { eventId: 'welcome_registration', audience: 'user' },
+};
+
+/**
  * Built-in fallback templates — used when the admin has selected a "[標準]"
  * system template (id starts with `sys_`) that hasn't been materialized into
  * the `emailTemplates` Firestore collection. Sourced from the same data the
@@ -49,17 +89,47 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
   log(`[sendTriggeredEmail] Initiated for trigger '${trigger}' to ${recipient.email}`);
 
   try {
-    const triggerDoc = await db.collection('emailTriggers').doc(trigger).get();
-    if (!triggerDoc.exists) {
-      log(`[sendTriggeredEmail] No email trigger found for '${trigger}'. Aborting.`);
-      return;
+    // Resolve the per-audience trigger id to the consolidated event doc.
+    const mapping = TRIGGER_TO_EVENT[trigger] || { eventId: trigger, audience: 'user' as const };
+
+    // Prefer the new-format event doc (id = eventId, fields userTemplateId /
+    // adminTemplateId). Fall back to the legacy per-audience doc if absent,
+    // so deployments that haven't migrated yet keep working untouched.
+    const eventDoc = await db.collection('emailTriggers').doc(mapping.eventId).get();
+    let triggerConfig: FirebaseFirestore.DocumentData | undefined;
+    let templateId: string | undefined;
+
+    if (eventDoc.exists) {
+      const data = eventDoc.data() || {};
+      const audienceField = mapping.audience === 'user' ? 'userTemplateId' : 'adminTemplateId';
+      const newFormatTemplate = data[audienceField];
+      // Detect "old-format doc at the eventId slot" — for trigger ids that
+      // collide with eventId (e.g. payment_failed), the legacy doc has a flat
+      // templateId field instead of userTemplateId/adminTemplateId.
+      const hasNewFormat = ('userTemplateId' in data) || ('adminTemplateId' in data);
+      if (hasNewFormat) {
+        templateId = newFormatTemplate;
+        triggerConfig = data;
+      } else if (mapping.eventId === trigger) {
+        // Same id, but legacy single-template shape — use the flat field.
+        templateId = data.templateId;
+        triggerConfig = data;
+      }
     }
 
-    const triggerConfig = triggerDoc.data();
-    const templateId = triggerConfig?.templateId;
+    if (!templateId) {
+      // Final fallback: try the legacy per-audience doc id directly.
+      const legacyDoc = await db.collection('emailTriggers').doc(trigger).get();
+      if (!legacyDoc.exists) {
+        log(`[sendTriggeredEmail] No trigger config for '${trigger}' (event '${mapping.eventId}'). Aborting.`);
+        return;
+      }
+      triggerConfig = legacyDoc.data();
+      templateId = triggerConfig?.templateId;
+    }
 
     if (!templateId) {
-      log(`[sendTriggeredEmail] Trigger '${trigger}' has no templateId. Aborting.`);
+      log(`[sendTriggeredEmail] Trigger '${trigger}' has no ${mapping.audience}TemplateId. Aborting.`);
       return;
     }
 
