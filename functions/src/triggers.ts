@@ -5,6 +5,7 @@ import {sendMail} from "./gmail";
 import {sendChatworkMessage} from "./chatwork";
 import {sendGoogleChatMessage, buildGoogleChatCard} from "./google-chat";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
+import { SYSTEM_TEMPLATES } from "./email-defaults";
 
 interface EmailRecipient {
   email: string;
@@ -14,20 +15,13 @@ interface EmailRecipient {
 /**
  * Built-in fallback templates — used when the admin has selected a "[標準]"
  * system template (id starts with `sys_`) that hasn't been materialized into
- * the `emailTemplates` collection. Mirrors entries in
- * `src/lib/email-defaults.ts` so the admin UI dropdown matches runtime behavior.
+ * the `emailTemplates` Firestore collection. Sourced from the same data the
+ * admin UI uses so the dropdown options match runtime behavior.
  */
-const SYSTEM_TEMPLATE_FALLBACK: Record<string, { subject: string; body: string; isAdmin?: boolean }> = {
-  sys_early_booking_confirmation: {
-    subject: '【{{serviceName}}】先行予約を受け付けました',
-    body: `{{userName}} 様\n\nこの度は {{serviceName}} の先行予約にご登録いただき、誠にありがとうございます。\n\n下記の内容で予約を受け付けましたのでご確認ください。\n\n━━━━━━━━━━━━━━━━━━━━\nお名前: {{userName}}\n会社名・屋号: {{companyName}}\nメールアドレス: {{userEmail}}\n電話番号: {{phone}}\nご興味のある機器: {{desiredDevice}}\nご質問・ご要望:\n{{message}}\n━━━━━━━━━━━━━━━━━━━━\n\n正式ローンチ時には、優先的にご案内差し上げます。\nご質問等ございましたら、このメールへ直接ご返信ください。\n\n改めまして、ご登録ありがとうございました。\n今後ともどうぞよろしくお願いいたします。\n\n—\n{{operatorCompanyName}}`,
-  },
-  sys_early_booking_admin_notification: {
-    subject: '【{{serviceName}}管理者】新規先行予約がありました — {{userName}} 様',
-    body: `管理者様\n\n新しい先行予約が登録されました。\n\n━━━━━━━━━━━━━━━━━━━━\nお名前: {{userName}}\n会社名・屋号: {{companyName}}\nメールアドレス: {{userEmail}}\n電話番号: {{phone}}\nご興味のある機器: {{desiredDevice}}\nご質問・ご要望:\n{{message}}\n登録日時: {{submittedAt}}\n━━━━━━━━━━━━━━━━━━━━\n\n管理画面で詳細を確認してください:\n{{linkAdminEarlyBookings}}`,
-    isAdmin: true,
-  },
-};
+const SYSTEM_TEMPLATE_FALLBACK: Record<string, { subject: string; body: string; isAdmin?: boolean }> =
+  Object.fromEntries(
+    SYSTEM_TEMPLATES.map((t) => [t.id, { subject: t.subject, body: t.body, isAdmin: t.isAdmin }])
+  );
 
 const secretClient = new SecretManagerServiceClient();
 const PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "studio-3681859885-cd9c1";

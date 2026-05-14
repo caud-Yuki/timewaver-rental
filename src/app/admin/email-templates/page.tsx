@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useFirestore, useCollection, useDoc } from '@/firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -14,16 +14,39 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Edit, Trash2, Mail, Loader2, Palette, Eye, ShieldAlert, MessageSquare, Send, Plus, X, Link as LinkIcon } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Mail, Loader2, Palette, Eye, ShieldAlert, MessageSquare, Send, Plus, X, Link as LinkIcon, Sparkles } from 'lucide-react';
 import { EmailTemplate, emailTemplateConverter, GlobalSettings } from '@/types';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { testGoogleChatTemplatePreview } from '@/lib/secret-actions';
+import { SYSTEM_TEMPLATES } from '@/lib/email-defaults';
+
+type DisplayTemplate = EmailTemplate & { isSystemDefault?: boolean };
 
 export default function EmailTemplatesPage() {
   const db = useFirestore();
   const templatesQuery = useMemo(() => query(collection(db, 'emailTemplates'), orderBy('createdAt', 'desc')).withConverter(emailTemplateConverter), [db]);
   const { data: templates, loading } = useCollection<EmailTemplate>(templatesQuery as any);
   const { toast } = useToast();
+
+  // Merge Firestore templates with built-in system templates so admins can see
+  // and customize the system defaults from this screen. Editing a system
+  // template creates a Firestore document with the same id, which overrides it.
+  const displayTemplates: DisplayTemplate[] = useMemo(() => {
+    const fromDb = templates || [];
+    const systemOnly = SYSTEM_TEMPLATES.filter(s => !fromDb.some(t => t.id === s.id));
+    const systemRows: DisplayTemplate[] = systemOnly.map(s => ({
+      id: s.id,
+      type: s.type,
+      name: s.name,
+      subject: s.subject,
+      body: s.body,
+      isAdmin: !!s.isAdmin,
+      isSystemDefault: true,
+      createdAt: null as any,
+      updatedAt: null as any,
+    }));
+    return [...fromDb, ...systemRows];
+  }, [templates]);
 
   const settingsRef = useMemo(() => doc(db, 'settings', 'global'), [db]);
   const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
@@ -94,7 +117,19 @@ export default function EmailTemplatesPage() {
   };
 
   const handleSave = async () => {
-    if (!formName || !formSubject || !formBody || !formType) return;
+    const missing: string[] = [];
+    if (!formType?.trim()) missing.push('テンプレートタイプ');
+    if (!formName?.trim()) missing.push('テンプレート名');
+    if (!formSubject?.trim()) missing.push('件名');
+    if (!formBody?.trim()) missing.push('本文');
+    if (missing.length > 0) {
+      toast({
+        variant: 'destructive',
+        title: '必須項目が未入力です',
+        description: `${missing.join(' / ')} を入力してください。`,
+      });
+      return;
+    }
     try {
       const data: any = {
         type: formType, name: formName, subject: formSubject, body: formBody,
@@ -105,20 +140,31 @@ export default function EmailTemplatesPage() {
         chatCardButtons: formChatButtons.filter((b) => b.label.trim() && b.url.trim()),
         updatedAt: serverTimestamp(),
       };
-      if (editingTemplate?.id) {
-        await updateDoc(doc(db, 'emailTemplates', editingTemplate.id), data);
-        toast({ title: "成功", description: "テンプレートを更新しました。" });
+      const existing = editingTemplate as DisplayTemplate | null;
+      if (existing?.id && !existing.isSystemDefault) {
+        // Existing Firestore-backed template — patch in place.
+        await updateDoc(doc(db, 'emailTemplates', existing.id), data);
+        toast({ title: '更新しました' });
+      } else if (existing?.isSystemDefault && existing.id) {
+        // First customization of a system default — create override with the same id.
+        await setDoc(doc(db, 'emailTemplates', existing.id), {
+          ...data,
+          createdAt: serverTimestamp(),
+        });
+        toast({ title: 'カスタマイズ版を保存しました', description: 'この設定がシステム標準より優先されます。' });
       } else {
+        // Brand-new template — let Firestore generate the id.
         await addDoc(collection(db, 'emailTemplates'), {
           ...data,
           createdAt: serverTimestamp(),
         });
-        toast({ title: "成功", description: "テンプレートを作成しました。" });
+        toast({ title: '作成しました' });
       }
       setIsFormOpen(false);
       setEditingTemplate(null);
-    } catch (e) {
-      toast({ variant: "destructive", title: "エラー", description: "保存に失敗しました。" });
+    } catch (e: any) {
+      console.error('[email-templates] save error', e);
+      toast({ variant: 'destructive', title: 'エラー', description: e?.message || '保存に失敗しました。' });
     }
   };
 
@@ -631,31 +677,42 @@ ${isStaff ? '<p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">管理者�
                 </TableHeader>
                 <TableBody>
                   {loading && <TableRow><TableCell colSpan={5} className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>}
-                  {!loading && templates?.map((template) => (
-                    <TableRow key={template.id}>
+                  {!loading && displayTemplates.map((template) => (
+                    <TableRow key={template.id} className={template.isSystemDefault ? 'bg-blue-50/20' : ''}>
                       <TableCell className="pl-8 font-medium">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {template.name}
                           {template.isAdmin && (
                             <Badge className="bg-gray-700 text-white text-[10px] px-1.5 py-0 flex items-center gap-0.5 shrink-0">
                               <ShieldAlert className="h-2.5 w-2.5" /> 管理用
                             </Badge>
                           )}
+                          {template.isSystemDefault && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex items-center gap-0.5 shrink-0 text-blue-600 border-blue-200 bg-blue-50">
+                              <Sparkles className="h-2.5 w-2.5" /> システム標準
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell><code className="bg-muted px-2 py-1 rounded-md text-sm">{template.type}</code></TableCell>
                       <TableCell className="text-sm">{template.subject}</TableCell>
-                      <TableCell className="text-sm">{template.updatedAt?.toDate?.() ? template.updatedAt.toDate().toLocaleDateString() : '-'}</TableCell>
+                      <TableCell className="text-sm">
+                        {template.isSystemDefault
+                          ? <span className="text-[10px] text-muted-foreground italic">未カスタマイズ</span>
+                          : (template.updatedAt?.toDate?.() ? template.updatedAt.toDate().toLocaleDateString() : '-')}
+                      </TableCell>
                       <TableCell className="text-right pr-8 space-x-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => handlePreview(template)} title="プレビュー">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => handlePreview(template as any)} title="プレビュー">
                           <Eye className="h-4 w-4 text-muted-foreground" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => openEdit(template)}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => openEdit(template as any)} title={template.isSystemDefault ? 'カスタマイズする' : '編集'}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-destructive" onClick={() => handleDelete(template.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {!template.isSystemDefault && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-destructive" onClick={() => handleDelete(template.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
