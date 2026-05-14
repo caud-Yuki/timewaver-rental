@@ -309,16 +309,24 @@ export async function testGoogleChatTemplatePreview(args: {
     let payload: any;
     if (args.format === 'card') {
       const widgets: any[] = [{ textParagraph: { text: chatMarkdownToCardHtmlLocal(body) } }];
-      const buttons = (args.cardButtons || []).filter((b) => b?.label?.trim() && b?.url?.trim());
-      if (buttons.length > 0) {
-        widgets.push({
-          buttonList: {
-            buttons: buttons.map((b) => ({
-              text: b.label,
-              onClick: { openLink: { url: b.url } },
-            })),
-          },
+      // For test sends, substitute placeholder URLs with a valid sample URL so
+      // Google Chat accepts the card. The admin still sees the button + label.
+      const PREVIEW_BASE = 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app';
+      const buttons = (args.cardButtons || [])
+        .filter((b) => b?.label?.trim() && b?.url?.trim())
+        .map((b) => {
+          let url = b.url.trim();
+          if (url.includes('{{')) {
+            // Replace whole-URL placeholder with a recognizable preview URL.
+            url = `${PREVIEW_BASE}/?preview=${encodeURIComponent(url)}`;
+          } else if (!/^https?:\/\//i.test(url)) {
+            // Relative path — make absolute so Google Chat accepts it.
+            url = `${PREVIEW_BASE}${url.startsWith('/') ? '' : '/'}${url}`;
+          }
+          return { text: b.label, onClick: { openLink: { url } } };
         });
+      if (buttons.length > 0) {
+        widgets.push({ buttonList: { buttons } });
       }
       payload = {
         text: `🧪 [テスト送信] ${subject}`,

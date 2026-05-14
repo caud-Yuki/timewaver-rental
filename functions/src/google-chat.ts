@@ -63,6 +63,10 @@ export function chatMarkdownToCardHtml(input: string): string {
 
 /**
  * Build a Cards V2 payload from admin-supplied content.
+ *
+ * Buttons whose URL is not a valid http(s) link (e.g. placeholders left
+ * unresolved like `{{linkAdminEarlyBookings}}`) are silently dropped — Google
+ * Chat rejects the entire card otherwise, which would lose the notification.
  */
 export function buildGoogleChatCard(args: {
   title: string;
@@ -74,13 +78,18 @@ export function buildGoogleChatCard(args: {
   if (args.body && args.body.trim()) {
     widgets.push({ textParagraph: { text: chatMarkdownToCardHtml(args.body) } });
   }
-  const validButtons = (args.buttons || []).filter((b) => b?.label?.trim() && b?.url?.trim());
+  const validButtons = (args.buttons || []).filter((b) => {
+    if (!b?.label?.trim() || !b?.url?.trim()) return false;
+    const url = b.url.trim();
+    // Must be an absolute http(s) URL with no unresolved placeholders.
+    return /^https?:\/\//i.test(url) && !url.includes('{{');
+  });
   if (validButtons.length > 0) {
     widgets.push({
       buttonList: {
         buttons: validButtons.map((b) => ({
-          text: b.label,
-          onClick: { openLink: { url: b.url } },
+          text: b.label.trim(),
+          onClick: { openLink: { url: b.url.trim() } },
         })),
       },
     });
