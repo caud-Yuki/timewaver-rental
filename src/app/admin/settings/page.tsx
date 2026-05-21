@@ -294,6 +294,25 @@ export default function SettingsPage() {
                 <p className="text-xs text-blue-500">案内プロセスの最後の1人への通知が完了した後、この時間が経過しても申し込みがない場合、その機器のキャンセル待ちリストを自動的にリフレッシュします。</p>
               </div>
               <div className="space-y-2">
+                <Label className="text-sm font-semibold flex items-center gap-2"><span className="text-indigo-500">🏢</span>キャンセル待ちの案内優先ルール</Label>
+                <div className="flex items-center gap-3">
+                  <Select
+                    value={settings.waitlistPriorityMode || 'unified_fcfs'}
+                    onValueChange={(v) => handleInputChange('waitlistPriorityMode', v)}
+                  >
+                    <SelectTrigger className="w-[280px]">
+                      <SelectValue placeholder="案内ルールを選択" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="corporate_first">法人を優先 → 個人（各グループ内は先着順）</SelectItem>
+                      <SelectItem value="individual_first">個人を優先 → 法人（各グループ内は先着順）</SelectItem>
+                      <SelectItem value="unified_fcfs">区別せず一律で先着順（既定）</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-xs text-blue-500">キャンセル待ちユーザーへの一括案内送信時の並び順を決めるルールです。優先グループ内では登録日時の早い順に並びます。</p>
+              </div>
+              <div className="space-y-2">
                 <Label className="text-sm font-semibold flex items-center gap-2"><span className="text-gray-400">⏱</span>申請セッションタイム（分）</Label>
                 <div className="flex items-center gap-3">
                   <Input type="number" className="w-24" value={settings.applicationSessionMinutes || 0} onChange={(e) => handleInputChange('applicationSessionMinutes', Number(e.target.value) || 0)} />

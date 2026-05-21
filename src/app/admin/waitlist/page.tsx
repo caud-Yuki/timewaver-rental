@@ -6,24 +6,37 @@ import { useFirestore, useCollection } from '@/firebase';
 import { collection, query } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, User, Clock, ChevronRight } from 'lucide-react';
-import { Waitlist, Device, waitlistConverter, deviceConverter } from '@/types';
+import { Loader2, User, Clock, ChevronRight, Building2, UserCheck } from 'lucide-react';
+import { Waitlist, Device, DeviceTypeCode, waitlistConverter, deviceConverter, deviceTypeCodeConverter } from '@/types';
 
 export default function WaitlistPage() {
   const db = useFirestore();
 
-  const devicesQuery = useMemo(() => 
+  const devicesQuery = useMemo(() =>
     query(collection(db, 'devices')).withConverter(deviceConverter)
   , [db]);
   const { data: devices, loading: devicesLoading, error: devicesError } = useCollection<Device>(devicesQuery);
 
-  const waitlistQuery = useMemo(() => 
+  const waitlistQuery = useMemo(() =>
     query(collection(db, 'waitlist'), ).withConverter(waitlistConverter)
   , [db]);
   const { data: waitlist, loading: waitlistLoading, error: waitlistError } = useCollection<Waitlist>(waitlistQuery);
 
+  const deviceTypeCodesQuery = useMemo(() =>
+    collection(db, 'deviceTypeCodes').withConverter(deviceTypeCodeConverter)
+  , [db]);
+  const { data: deviceTypeCodes } = useCollection<DeviceTypeCode>(deviceTypeCodesQuery);
+
+  const deviceTypeMap = useMemo(() => {
+    if (!deviceTypeCodes) return {} as Record<string, string>;
+    return deviceTypeCodes.reduce((acc, tc) => {
+      acc[tc.id] = tc.type;
+      return acc;
+    }, {} as Record<string, string>);
+  }, [deviceTypeCodes]);
+
   const waitlistByDevice = useMemo(() => {
-    if (!waitlist) return {};
+    if (!waitlist) return {} as Record<string, Waitlist[]>;
     return waitlist.reduce((acc, item) => {
       const deviceId = item.deviceId;
       if (deviceId) {
@@ -36,15 +49,30 @@ export default function WaitlistPage() {
     }, {} as Record<string, Waitlist[]>);
   }, [waitlist]);
 
+  const countByApplicantType = (items: Waitlist[] | undefined) => {
+    if (!items) return { corporate: 0, individual: 0 };
+    return items.reduce(
+      (acc, w) => {
+        if (w.applicantType === 'corporate') acc.corporate += 1;
+        else acc.individual += 1;
+        return acc;
+      },
+      { corporate: 0, individual: 0 }
+    );
+  };
+
   const getDeviceStatusBadge = (status: Device['status']) => {
     switch (status) {
       case 'available': return <Badge className="bg-green-500 text-white" variant="default">利用可能(在庫)</Badge>;
       case 'active': return <Badge className="bg-yellow-500 text-white" variant="default">レンタル中</Badge>;
+      case 'in_use': return <Badge className="bg-yellow-500 text-white" variant="default">レンタル中</Badge>;
       case 'processing': return <Badge variant="secondary">処理中</Badge>;
+      case 'under_review': return <Badge className="bg-blue-500 text-white" variant="default">審査中</Badge>;
+      case 'maintenance': return <Badge variant="secondary">メンテナンス</Badge>;
       case 'terminated':
       case 'terminated_early':
         return <Badge variant="destructive">契約終了</Badge>;
-      default: return <Badge variant="outline">{status}</Badge>;
+      default: return <Badge variant="outline">{status || '不明'}</Badge>;
     }
   };
 
@@ -69,17 +97,25 @@ export default function WaitlistPage() {
       {!loading && !error && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
           {devices?.map((device) => {
-            const waitlistCount = waitlistByDevice[device.id]?.length || 0;
+            const deviceWaitlist = waitlistByDevice[device.id] || [];
+            const waitlistCount = deviceWaitlist.length;
+            const breakdown = countByApplicantType(deviceWaitlist);
+            const typeCodeLabel = (typeof device.typeCode === 'string'
+              ? (deviceTypeMap[device.typeCode] || device.typeCode)
+              : '') as string;
+            const deviceLabel = (device as any).name || device.type || device.serialNumber || '機器';
             return (
               <Card key={device.id} className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out border-slate-200/80">
                 <CardHeader className="pb-4">
                   <div className="flex justify-between items-start">
-                    <Badge variant="outline" className="font-mono text-xs font-medium">{device.typeCode.type.toUpperCase()}</Badge>
+                    {typeCodeLabel && (
+                      <Badge variant="outline" className="font-mono text-xs font-medium uppercase">{typeCodeLabel}</Badge>
+                    )}
                     {getDeviceStatusBadge(device.status)}
                   </div>
                   <div className="pt-4">
                     <CardTitle className="text-xl font-bold font-headline text-slate-800">
-                      {device.name}
+                      {deviceLabel}
                     </CardTitle>
                     <CardDescription className="text-xs text-slate-500 pt-1 font-mono">
                       SN: {device.serialNumber}
@@ -103,6 +139,16 @@ export default function WaitlistPage() {
                             </div>
                             <ChevronRight className="h-6 w-6 text-slate-400" />
                         </div>
+                        {waitlistCount > 0 && (
+                          <div className="flex items-center gap-3 mt-3 text-xs text-slate-600">
+                            <span className="inline-flex items-center gap-1">
+                              <Building2 className="h-3.5 w-3.5 text-indigo-500" /> 法人 {breakdown.corporate}名
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                              <UserCheck className="h-3.5 w-3.5 text-emerald-500" /> 個人 {breakdown.individual}名
+                            </span>
+                          </div>
+                        )}
                     </div>
                   </Link>
                 </CardContent>

@@ -8,19 +8,21 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-  Loader2, 
-  ChevronLeft, 
-  Send, 
-  User, 
-  Clock, 
-  Trash2, 
+import {
+  Loader2,
+  ChevronLeft,
+  Send,
+  User,
+  Clock,
+  Trash2,
   AlertCircle,
-  Bell, 
+  Bell,
   Calendar,
-  Mail
+  Mail,
+  Building2,
+  UserCheck
 } from 'lucide-react';
-import { Waitlist, Device, waitlistConverter, deviceConverter } from '@/types';
+import { Waitlist, Device, GlobalSettings, waitlistConverter, deviceConverter, globalSettingsConverter } from '@/types';
 import { 
   Dialog, 
   DialogContent, 
@@ -45,14 +47,42 @@ export default function DeviceWaitlistPage() {
   const deviceRef = useMemo(() => doc(db, 'devices', deviceId).withConverter(deviceConverter), [db, deviceId]);
   const { data: device, loading: deviceLoading, error: deviceError } = useDoc<Device>(deviceRef);
 
-  const waitlistQuery = useMemo(() => 
+  const settingsRef = useMemo(() => doc(db, 'settings', 'global').withConverter(globalSettingsConverter), [db]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef);
+
+  const waitlistQuery = useMemo(() =>
     query(
-      collection(db, 'waitlist'), 
-      where('deviceId', '==', deviceId), 
+      collection(db, 'waitlist'),
+      where('deviceId', '==', deviceId),
       orderBy('createdAt', 'asc')
     ).withConverter(waitlistConverter)
   , [db, deviceId]);
   const { data: waitlist, loading: waitlistLoading, error: waitlistError } = useCollection<Waitlist>(waitlistQuery);
+
+  const priorityMode = settings?.waitlistPriorityMode || 'unified_fcfs';
+
+  const sortedWaitlist = useMemo(() => {
+    if (!waitlist) return [] as Waitlist[];
+    const byTime = (a: Waitlist, b: Waitlist) => {
+      const aT = a.createdAt?.toMillis?.() ?? 0;
+      const bT = b.createdAt?.toMillis?.() ?? 0;
+      return aT - bT;
+    };
+    if (priorityMode === 'unified_fcfs') {
+      return [...waitlist].sort(byTime);
+    }
+    const corporate = waitlist.filter(w => w.applicantType === 'corporate').sort(byTime);
+    const individual = waitlist.filter(w => w.applicantType !== 'corporate').sort(byTime);
+    return priorityMode === 'corporate_first'
+      ? [...corporate, ...individual]
+      : [...individual, ...corporate];
+  }, [waitlist, priorityMode]);
+
+  const priorityLabel = priorityMode === 'corporate_first'
+    ? '法人優先 → 個人'
+    : priorityMode === 'individual_first'
+      ? '個人優先 → 法人'
+      : '区別なし（先着順）';
 
   const getStatusBadge = (status: Waitlist['status']) => {
     switch (status) {
@@ -144,12 +174,21 @@ export default function DeviceWaitlistPage() {
                       <p className="text-sm text-slate-500">現在 <strong className="text-2xl text-primary font-bold">{waitingUsers}</strong> 名が待機中</p>
                   </div>
               </div>
-              <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-lg p-3 flex items-center gap-3">
-                  <Bell className="h-5 w-5"/>
-                  <div>
-                      <p><strong className="font-bold">返信期限設定:</strong> 24時間おき</p>
-                      <p className="text-xs">ユーザーへの案内後、返信がない場合の有効期限</p>
-                  </div>
+              <div className="flex flex-col gap-2">
+                <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-lg p-3 flex items-center gap-3">
+                    <Bell className="h-5 w-5"/>
+                    <div>
+                        <p><strong className="font-bold">返信期限設定:</strong> 24時間おき</p>
+                        <p className="text-xs">ユーザーへの案内後、返信がない場合の有効期限</p>
+                    </div>
+                </div>
+                <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 text-sm rounded-lg p-3 flex items-center gap-3">
+                    <Building2 className="h-5 w-5" />
+                    <div>
+                        <p><strong className="font-bold">案内優先ルール:</strong> {priorityLabel}</p>
+                        <p className="text-xs">設定 &gt; 自動化・セッション設定 から変更できます</p>
+                    </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -159,48 +198,66 @@ export default function DeviceWaitlistPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50/70">
-                    <TableHead className="p-5 pl-8 w-[80px]">登録順</TableHead>
+                    <TableHead className="p-5 pl-8 w-[80px]">案内順</TableHead>
                     <TableHead>ユーザー名 / メール</TableHead>
+                    <TableHead>申込タイプ</TableHead>
                     <TableHead>ステータス</TableHead>
                     <TableHead>案内予定</TableHead>
                     <TableHead className="text-right pr-8">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {waitlist?.map((user, index) => (
-                    <TableRow key={user.id} className="border-t border-slate-200/80">
-                      <TableCell className="pl-8 py-4 font-bold text-slate-600">#{index + 1}</TableCell>
-                      <TableCell>
-                        <div className="font-semibold">{user.userName || 'ユーザー名未設定'}</div>
-                        <div className="text-xs text-muted-foreground font-mono flex items-center gap-1.5 mt-1">
-                          <Mail className="h-3 w-3" />
-                          {user.userEmail}
-                        </div>
-                      </TableCell>
-                      <TableCell>{getStatusBadge(user.status)}</TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {user.scheduledNotifyAt ? 
-                          <div className="flex items-center gap-1.5">
-                            <Calendar className="h-3.5 w-3.5" />
-                            {user.scheduledNotifyAt.toDate().toLocaleString()}
+                  {sortedWaitlist.map((user, index) => {
+                    const isCorporate = user.applicantType === 'corporate';
+                    return (
+                      <TableRow key={user.id} className="border-t border-slate-200/80">
+                        <TableCell className="pl-8 py-4 font-bold text-slate-600">#{index + 1}</TableCell>
+                        <TableCell>
+                          <div className="font-semibold">{user.userName || 'ユーザー名未設定'}</div>
+                          {user.companyName && (
+                            <div className="text-xs text-slate-500 mt-0.5">{user.companyName}</div>
+                          )}
+                          <div className="text-xs text-muted-foreground font-mono flex items-center gap-1.5 mt-1">
+                            <Mail className="h-3 w-3" />
+                            {user.userEmail}
                           </div>
-                          : '-'
-                        }
-                      </TableCell>
-                      <TableCell className="text-right pr-8">
-                        <Button variant="outline" size="sm" onClick={() => handleManualNotification(user)} className="mr-2">
-                          <Send className="h-3.5 w-3.5 mr-1.5" />
-                          案内送信済
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDeleteClick(user)} className="text-slate-500 hover:text-destructive">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {waitlist?.length === 0 && (
+                        </TableCell>
+                        <TableCell>
+                          {isCorporate ? (
+                            <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200" variant="outline">
+                              <Building2 className="h-3 w-3 mr-1" /> 法人
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200" variant="outline">
+                              <UserCheck className="h-3 w-3 mr-1" /> 個人
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>{getStatusBadge(user.status)}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {user.scheduledNotifyAt ?
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5" />
+                              {user.scheduledNotifyAt.toDate().toLocaleString()}
+                            </div>
+                            : '-'
+                          }
+                        </TableCell>
+                        <TableCell className="text-right pr-8">
+                          <Button variant="outline" size="sm" onClick={() => handleManualNotification(user)} className="mr-2">
+                            <Send className="h-3.5 w-3.5 mr-1.5" />
+                            案内送信済
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDeleteClick(user)} className="text-slate-500 hover:text-destructive">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {sortedWaitlist.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-24 text-muted-foreground">
+                      <TableCell colSpan={6} className="text-center py-24 text-muted-foreground">
                         <p className="font-semibold">待機中のユーザーはいません</p>
                         <p className="text-sm mt-2">このデバイスのキャンセル待ちに登録しているユーザーは現在いません。</p>
                       </TableCell>

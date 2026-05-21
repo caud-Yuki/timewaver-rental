@@ -22,8 +22,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck, Timer, Percent, Mail, UserPlus, Tag, X, CheckCircle2 } from 'lucide-react';
-import { Device, UserProfile, GlobalSettings } from '@/types';
+import { Loader2, ShieldCheck, ClipboardCheck, ArrowRight, Package, AlertCircle, Camera, FileCheck, Timer, Percent, Mail, UserPlus, Tag, X, CheckCircle2, Building2, User as UserIcon, Briefcase } from 'lucide-react';
+import { Device, UserProfile, GlobalSettings, ApplicantType } from '@/types';
+import { cn } from '@/lib/utils';
 import { calculateTotalMonthly, calculateTotalFull } from '@/lib/module-pricing';
 import Link from 'next/link';
 
@@ -175,9 +176,20 @@ function ApplyForm() {
     address1: '',
     address2: '',
     companyName: '',
+    // Applicant type
+    applicantType: 'individual' as ApplicantType,
+    // Corporate fields (only used when applicantType === 'corporate')
+    corporateNumber: '',
+    invoiceNumber: '',
+    corpCompanyName: '',
+    corpZipcode: '',
+    corpAddress: '',
+    corpPhone: '',
+    contactName: '',
+    contactEmail: '',
   });
 
-  // Pre-populate shipping address from user profile
+  // Pre-populate shipping address & corporate info from user profile
   useEffect(() => {
     if (profile) {
       setFormData(prev => ({
@@ -188,6 +200,11 @@ function ApplyForm() {
         address1: prev.address1 || profile.address1 || '',
         address2: prev.address2 || profile.address2 || '',
         companyName: prev.companyName || profile.companyName || '',
+        // Reuse stored invoice number if available
+        invoiceNumber: prev.invoiceNumber || profile.invoiceNumber || '',
+        corpCompanyName: prev.corpCompanyName || profile.companyName || '',
+        contactEmail: prev.contactEmail || profile.email || '',
+        contactName: prev.contactName || (profile.familyName ? `${profile.familyName} ${profile.givenName || ''}`.trim() : ''),
       }));
     }
   }, [profile]);
@@ -326,12 +343,16 @@ function ApplyForm() {
         return;
       }
 
+      const profileApplicantType = ((profile as any)?.applicantType as ApplicantType | undefined) || 'individual';
       await addDoc(collection(db, 'waitlist'), {
         userId: user.uid,
         userEmail: user.email,
         userName: profile?.familyName ? `${profile.familyName} ${profile.givenName}` : 'N/A',
         deviceType: device.type,
+        deviceId: device.id,
         status: 'waiting',
+        applicantType: profileApplicantType,
+        companyName: profile?.companyName || null,
         createdAt: serverTimestamp(),
       });
       toast({ title: "キャンセル待ちに登録しました", description: "空きが出たらメールでお知らせします。" });
@@ -362,6 +383,26 @@ function ApplyForm() {
       return;
     }
 
+    // Validate corporate-only required fields when applicant is a company
+    if (formData.applicantType === 'corporate') {
+      if (!formData.corpCompanyName.trim() || !formData.contactName.trim() || !formData.contactEmail.trim()) {
+        toast({ variant: "destructive", title: "法人情報が必要です", description: "法人名・担当者名・担当者メールアドレスは必須項目です。" });
+        setIsSubmitting(false);
+        return;
+      }
+    }
+
+    const corporateInfo = formData.applicantType === 'corporate' ? {
+      corporateNumber: formData.corporateNumber.trim() || null,
+      invoiceNumber: formData.invoiceNumber.trim() || null,
+      companyName: formData.corpCompanyName.trim() || null,
+      companyZipcode: formData.corpZipcode.trim() || null,
+      companyAddress: formData.corpAddress.trim() || null,
+      companyPhone: formData.corpPhone.trim() || null,
+      contactName: formData.contactName.trim() || null,
+      contactEmail: formData.contactEmail.trim() || null,
+    } : null;
+
     const applicationData = {
       userId: user.uid,
       userName: `${profile?.familyName} ${profile?.givenName}`,
@@ -373,13 +414,16 @@ function ApplyForm() {
       payType: formData.payType,
       payAmount: calculateAmount(),
       status: 'pending',
+      // Applicant classification
+      applicantType: formData.applicantType,
+      corporateInfo,
       // Shipping address (structured)
       shippingTel: formData.tel,
       shippingZipcode: formData.zipcode,
       shippingPrefecture: formData.prefectureCode,
       shippingAddress1: formData.address1,
       shippingAddress2: formData.address2,
-      shippingCompanyName: formData.companyName,
+      shippingCompanyName: formData.applicantType === 'corporate' ? formData.corpCompanyName : formData.companyName,
       // Legacy fields for backward compatibility
       tel: formData.tel,
       zip: formData.zipcode,
@@ -403,17 +447,22 @@ function ApplyForm() {
       }).catch(() => {});
     }
 
-    // Also update user profile with shipping address
+    // Also update user profile with shipping address & corporate info
     if (user) {
-      updateDoc(doc(db, 'users', user.uid), {
+      const profileUpdate: Record<string, any> = {
         tel: formData.tel,
         zipcode: formData.zipcode,
         prefectureCode: formData.prefectureCode,
         address1: formData.address1,
         address2: formData.address2,
-        companyName: formData.companyName,
+        companyName: formData.applicantType === 'corporate' ? formData.corpCompanyName : formData.companyName,
+        applicantType: formData.applicantType,
         updatedAt: serverTimestamp(),
-      }).catch(() => {}); // Non-blocking
+      };
+      if (formData.applicantType === 'corporate' && formData.invoiceNumber.trim()) {
+        profileUpdate.invoiceNumber = formData.invoiceNumber.trim();
+      }
+      updateDoc(doc(db, 'users', user.uid), profileUpdate).catch(() => {}); // Non-blocking
     }
 
     try {
@@ -522,6 +571,90 @@ function ApplyForm() {
               </CardHeader>
               <CardContent className="p-8">
                 <form onSubmit={handleSubmit} className="space-y-8">
+                  {/* Applicant Type Toggle */}
+                  <div className="space-y-3">
+                    <Label className="text-base font-bold flex items-center gap-2">
+                      <Briefcase className="h-4 w-4" /> 申込タイプ
+                    </Label>
+                    <div className="inline-flex w-full md:w-auto rounded-2xl border-2 border-muted bg-slate-50 p-1">
+                      {([
+                        { key: 'individual' as ApplicantType, label: '個人', icon: UserIcon },
+                        { key: 'corporate' as ApplicantType, label: '法人', icon: Building2 },
+                      ]).map(({ key, label, icon: Icon }) => {
+                        const selected = formData.applicantType === key;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, applicantType: key })}
+                            className={cn(
+                              "flex-1 md:flex-none md:min-w-[140px] flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all",
+                              selected
+                                ? "bg-primary text-primary-foreground shadow-md"
+                                : "text-slate-500 hover:text-slate-700 hover:bg-white"
+                            )}
+                            aria-pressed={selected}
+                          >
+                            <Icon className="h-4 w-4" /> {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      法人として契約する場合は「法人」を選択すると、法人情報の入力欄が表示されます。
+                    </p>
+                  </div>
+
+                  {/* Corporate Info — visible only when applicantType is 'corporate' */}
+                  {formData.applicantType === 'corporate' && (
+                    <div className="space-y-4 rounded-2xl border border-indigo-100 bg-indigo-50/30 p-5">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-5 w-5 text-indigo-600" />
+                        <Label className="text-base font-bold text-indigo-900">法人情報</Label>
+                      </div>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="corporateNumber" className="text-xs">法人番号</Label>
+                          <Input id="corporateNumber" placeholder="13桁の法人番号" className="rounded-xl bg-white" value={formData.corporateNumber} onChange={e => setFormData({...formData, corporateNumber: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="invoiceNumber" className="text-xs">インボイス登録番号</Label>
+                          <Input id="invoiceNumber" placeholder="T1234567890123" className="rounded-xl bg-white" value={formData.invoiceNumber} onChange={e => setFormData({...formData, invoiceNumber: e.target.value})} />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="corpCompanyName" className="text-xs">法人名 / 会社名 <span className="text-red-500">*</span></Label>
+                        <Input id="corpCompanyName" placeholder="株式会社〇〇" className="rounded-xl bg-white" value={formData.corpCompanyName} onChange={e => setFormData({...formData, corpCompanyName: e.target.value})} required={formData.applicantType === 'corporate'} />
+                      </div>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="corpZipcode" className="text-xs">会社郵便番号</Label>
+                          <Input id="corpZipcode" placeholder="123-4567" className="rounded-xl bg-white" value={formData.corpZipcode} onChange={e => setFormData({...formData, corpZipcode: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="corpPhone" className="text-xs">会社電話番号</Label>
+                          <Input id="corpPhone" placeholder="03-0000-0000" className="rounded-xl bg-white" value={formData.corpPhone} onChange={e => setFormData({...formData, corpPhone: e.target.value})} />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="corpAddress" className="text-xs">会社住所</Label>
+                        <Input id="corpAddress" placeholder="東京都渋谷区神宮前1-2-3 〇〇ビル5F" className="rounded-xl bg-white" value={formData.corpAddress} onChange={e => setFormData({...formData, corpAddress: e.target.value})} />
+                      </div>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="contactName" className="text-xs">担当者名 <span className="text-red-500">*</span></Label>
+                          <Input id="contactName" placeholder="山田 太郎" className="rounded-xl bg-white" value={formData.contactName} onChange={e => setFormData({...formData, contactName: e.target.value})} required={formData.applicantType === 'corporate'} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="contactEmail" className="text-xs">担当者メールアドレス <span className="text-red-500">*</span></Label>
+                          <Input id="contactEmail" type="email" placeholder="taro@example.co.jp" className="rounded-xl bg-white" value={formData.contactEmail} onChange={e => setFormData({...formData, contactEmail: e.target.value})} required={formData.applicantType === 'corporate'} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <Separator />
+
                   <div className="space-y-4">
                     <Label className="text-base font-bold">レンタル期間</Label>
                     <RadioGroup 
@@ -668,10 +801,19 @@ function ApplyForm() {
                         <Label htmlFor="prefectureCode">都道府県</Label>
                         <Input id="prefectureCode" placeholder="東京都" className="rounded-xl" value={formData.prefectureCode} onChange={e => setFormData({...formData, prefectureCode: e.target.value})} />
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="companyName">会社名（個人の場合は空欄）</Label>
-                        <Input id="companyName" placeholder="株式会社〇〇" className="rounded-xl" value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} />
-                      </div>
+                      {formData.applicantType === 'individual' ? (
+                        <div className="space-y-2">
+                          <Label htmlFor="companyName">会社名（任意）</Label>
+                          <Input id="companyName" placeholder="株式会社〇〇" className="rounded-xl" value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} />
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">配送先 会社名</Label>
+                          <div className="h-10 px-3 flex items-center rounded-xl bg-slate-100 text-sm text-slate-600 truncate">
+                            {formData.corpCompanyName || '—'}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="address1">市区町村・番地 <span className="text-red-500">*</span></Label>

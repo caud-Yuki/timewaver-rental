@@ -41,6 +41,19 @@ export const userProfileConverter = createConverter<UserProfile>();
 // =============================================================================
 export type ApplicationStatus = 'pending' | 'awaiting_consent_form' | 'consent_form_review' | 'consent_form_approved' | 'approved' | 'rejected' | 'canceled' | 'payment_sent' | 'completed' | 'shipped' | 'in_use' | 'expired' | 'returning' | 'inspection' | 'returned' | 'damaged' | 'closed';
 
+export type ApplicantType = 'individual' | 'corporate';
+
+export interface CorporateInfo {
+  corporateNumber?: string;       // 法人番号
+  invoiceNumber?: string;         // インボイス登録番号
+  companyName?: string;           // 法人名 / 会社名
+  companyZipcode?: string;        // 会社郵便番号
+  companyAddress?: string;        // 会社住所
+  companyPhone?: string;          // 会社電話番号
+  contactName?: string;           // 担当者名
+  contactEmail?: string;          // 担当者メールアドレス
+}
+
 export interface Application {
   id: string;
   userId: string;
@@ -58,6 +71,9 @@ export interface Application {
   deviceSerialNumber?: string;
   deviceId?: string;
   paymentLinkId?: string;
+  // Applicant classification & corporate info
+  applicantType?: ApplicantType;
+  corporateInfo?: CorporateInfo;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -156,6 +172,11 @@ export interface GlobalSettings {
   waitlistEmailInterval?: number;
   waitlistValidityHours?: number;
   applicationSessionMinutes?: number;
+  // キャンセル待ち案内の送信順序ルール。
+  //   'corporate_first' — 法人を先着順 → そのあと個人を先着順
+  //   'individual_first' — 個人を先着順 → そのあと法人を先着順
+  //   'unified_fcfs' — 法人・個人を区別せず、登録された順番にそのまま案内
+  waitlistPriorityMode?: 'corporate_first' | 'individual_first' | 'unified_fcfs';
   mode?: 'test' | 'production';
   managerName?: string;
   managerEmail?: string;
@@ -212,6 +233,10 @@ export interface Waitlist {
   deviceType: string;
   deviceId?: string;
   status: WaitlistStatus;
+  // Applicant classification snapshotted at the time of waitlist signup.
+  // Used for prioritized offer dispatch (see GlobalSettings.waitlistPriorityMode).
+  applicantType?: ApplicantType;
+  companyName?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   scheduledNotifyAt?: Timestamp;
