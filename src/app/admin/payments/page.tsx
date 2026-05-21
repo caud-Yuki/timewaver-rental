@@ -39,6 +39,15 @@ interface SubscriptionRecord {
     cancelAt?: string;
     lastSyncedAt?: string;
   };
+  paymentFailure?: {
+    count?: number;
+    firstFailedAt?: string;
+    lastFailedAt?: string;
+    nextAttemptAt?: string;
+    declineCode?: string;
+    failureMessage?: string;
+    lastAmount?: number;
+  };
 }
 
 export default function AdminPaymentsPage() {
@@ -148,16 +157,42 @@ export default function AdminPaymentsPage() {
     return `${months}ヶ月プラン`;
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (sub: SubscriptionRecord | string) => {
+    // Backwards-compat: accept either a sub record or a raw status string
+    if (typeof sub === 'string') {
+      const status = sub;
+      switch (status) {
+        case 'active':
+          return <Badge className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-0.5 rounded-full">正常</Badge>;
+        case 'completed':
+          return <Badge variant="secondary" className="text-xs px-3 py-0.5 rounded-full">完了</Badge>;
+        case 'canceled':
+          return <Badge variant="destructive" className="text-xs px-3 py-0.5 rounded-full">解約</Badge>;
+        default:
+          return <Badge variant="outline" className="text-xs px-3 py-0.5 rounded-full">{status}</Badge>;
+      }
+    }
+
+    // past_due takes priority over the local status
+    if (sub.stripeStatus?.status === 'past_due') {
+      const failureCount = sub.paymentFailure?.count;
+      return (
+        <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-0.5 rounded-full" title={sub.paymentFailure?.failureMessage || ''}>
+          ⚠️ 決済失敗{failureCount ? ` (${failureCount}回)` : ''}
+        </Badge>
+      );
+    }
+    switch (sub.status) {
       case 'active':
         return <Badge className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-0.5 rounded-full">正常</Badge>;
       case 'completed':
         return <Badge variant="secondary" className="text-xs px-3 py-0.5 rounded-full">完了</Badge>;
       case 'canceled':
         return <Badge variant="destructive" className="text-xs px-3 py-0.5 rounded-full">解約</Badge>;
+      case 'expired':
+        return <Badge variant="secondary" className="text-xs px-3 py-0.5 rounded-full">満了</Badge>;
       default:
-        return <Badge variant="outline" className="text-xs px-3 py-0.5 rounded-full">{status}</Badge>;
+        return <Badge variant="outline" className="text-xs px-3 py-0.5 rounded-full">{sub.status}</Badge>;
     }
   };
 
@@ -306,7 +341,7 @@ export default function AdminPaymentsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
-                            {getStatusBadge(sub.status)}
+                            {getStatusBadge(sub)}
                             {getStripeSyncBadge(sub)}
                           </div>
                         </TableCell>

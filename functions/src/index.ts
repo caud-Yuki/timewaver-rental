@@ -4,7 +4,7 @@ import { onDocumentUpdated, onDocumentCreated } from "firebase-functions/v2/fire
 import { log } from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getStorage } from "firebase-admin/storage";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const StripeSDK = require("stripe") as typeof import("stripe");
 import { sendTriggeredEmail } from "./triggers";
@@ -143,13 +143,44 @@ async function onDeviceReleased(deviceId: string, deviceType: string, reason: 'c
   }
 }
 
+// --- Auth Helpers ---
+
+/**
+ * Require an authenticated admin caller. Throws HttpsError on failure.
+ * Looks up the caller's user doc and verifies role === 'admin'.
+ */
+async function requireAdmin(request: any): Promise<string> {
+  if (!request?.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  const uid = request.auth.uid;
+  const db = getFirestore();
+  const userDoc = await db.collection('users').doc(uid).get();
+  if (!userDoc.exists) {
+    throw new HttpsError("permission-denied", "User profile not found.");
+  }
+  const role = userDoc.data()?.role;
+  if (role !== 'admin') {
+    throw new HttpsError("permission-denied", "Admin role required.");
+  }
+  return uid;
+}
+
 // --- Stripe Helper ---
 
-async function getStripeClient(): Promise<any> {
+/**
+ * Reads the current Stripe API mode from `settings/global.mode`.
+ * Defaults to 'test' if missing.
+ */
+async function getStripeMode(): Promise<'test' | 'production'> {
   const db = getFirestore();
   const settingsDoc = await db.collection('settings').doc('global').get();
-  const settings = settingsDoc.data() as GlobalSettings;
-  const apiMode = settings?.mode || 'test';
+  const settings = settingsDoc.data() as GlobalSettings | undefined;
+  return (settings?.mode === 'production' ? 'production' : 'test');
+}
+
+async function getStripeClient(): Promise<any> {
+  const apiMode = await getStripeMode();
   const isTest = apiMode === 'test';
 
   const secretKey = await getSecretValue(
@@ -164,6 +195,47 @@ async function getStripeClient(): Promise<any> {
 }
 
 /**
+ * Resolve the webhook signing secret for the current mode.
+ * Tries the mode-specific secret first (STRIPE_TEST_WEBHOOK_SECRET /
+ * STRIPE_LIVE_WEBHOOK_SECRET), then falls back to the legacy single-name
+ * secret (STRIPE_WEBHOOK_SECRET) for backward compatibility.
+ */
+async function getWebhookSecretForMode(mode: 'test' | 'production'): Promise<string | null> {
+  const modeSpecificName = mode === 'test' ? 'STRIPE_TEST_WEBHOOK_SECRET' : 'STRIPE_LIVE_WEBHOOK_SECRET';
+  const modeSpecific = await getSecretValue(modeSpecificName);
+  if (modeSpecific) return modeSpecific;
+  // Backward compatibility — legacy single-name secret
+  return await getSecretValue('STRIPE_WEBHOOK_SECRET');
+}
+
+// --- Stripe API version compatibility helpers ---
+// Stripe API 2025-04+ moved several fields. These accessors handle both old and new shapes.
+
+/** Extract the subscription id from an invoice across API versions. */
+function getInvoiceSubscriptionId(invoice: any): string | null {
+  if (!invoice) return null;
+  // Old API (≤2024-12)
+  if (typeof invoice.subscription === 'string') return invoice.subscription;
+  if (invoice.subscription?.id) return invoice.subscription.id;
+  // New API (2025-04+) — moved under parent.subscription_details.subscription
+  const parentSub = invoice.parent?.subscription_details?.subscription;
+  if (typeof parentSub === 'string') return parentSub;
+  if (parentSub?.id) return parentSub.id;
+  return null;
+}
+
+/** Extract the current_period_end Unix timestamp from a subscription across API versions. */
+function getSubscriptionCurrentPeriodEnd(stripeSub: any): number | null {
+  if (!stripeSub) return null;
+  // Old API — top-level
+  if (typeof stripeSub.current_period_end === 'number') return stripeSub.current_period_end;
+  // New API (2025-04+) — moved onto each subscription item
+  const item0 = stripeSub.items?.data?.[0];
+  if (typeof item0?.current_period_end === 'number') return item0.current_period_end;
+  return null;
+}
+
+/**
  * Creates a Stripe PaymentIntent (for one-time payments) or Subscription (for monthly),
  * and returns the clientSecret for frontend confirmation via Stripe Elements.
  */
@@ -174,6 +246,8 @@ async function getStripeClient(): Promise<any> {
  * Saves the generated IDs back to the device document.
  */
 export const syncDeviceToStripe = onCall(async (request) => {
+  await requireAdmin(request);
+
   const { deviceId } = request.data;
   if (!deviceId) {
     throw new HttpsError("invalid-argument", "deviceId is required.");
@@ -286,10 +360,16 @@ export const syncDeviceToStripe = onCall(async (request) => {
 });
 
 export const createStripePayment = onCall(async (request) => {
-  const { paymentLinkId, userId } = request.data;
-
+  // --- AUTH: Require an authenticated caller and prevent acting on behalf of others ---
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  const { paymentLinkId, userId } = request.data || {};
   if (!paymentLinkId || !userId) {
     throw new HttpsError("invalid-argument", "paymentLinkId and userId are required.");
+  }
+  if (request.auth.uid !== userId) {
+    throw new HttpsError("permission-denied", "userId does not match the authenticated caller.");
   }
 
   log(`[createStripePayment] Called for paymentLink: ${paymentLinkId}, user: ${userId}`);
@@ -303,6 +383,17 @@ export const createStripePayment = onCall(async (request) => {
     }
     const link = linkDoc.data()!;
 
+    // 1b. Reject already-used / canceled / expired links
+    const linkStatus = link.status || 'pending';
+    if (!['pending', 'open', 'active'].includes(linkStatus)) {
+      throw new HttpsError("failed-precondition", `Payment link is not usable (status=${linkStatus}).`);
+    }
+
+    // 1c. Authorize: the link must belong to this user (if a userId is recorded on the link).
+    if (link.userId && link.userId !== userId) {
+      throw new HttpsError("permission-denied", "This payment link does not belong to the authenticated user.");
+    }
+
     // 2. Get user data
     const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
@@ -314,59 +405,94 @@ export const createStripePayment = onCall(async (request) => {
     const appDoc = await db.collection('applications').doc(link.applicationId).get();
     const appData = appDoc.exists ? appDoc.data()! : {};
 
-    // 4. Initialize Stripe
+    // 4. Validate amount (Stripe JPY minimum charge is ¥50)
+    const amount = link.payAmount || 0;
+    if (!Number.isInteger(amount) || amount < 50) {
+      throw new HttpsError("invalid-argument", `Invalid payAmount: ${amount}. Must be an integer ≥ 50.`);
+    }
+
+    // 5. Initialize Stripe
     const stripe = await getStripeClient();
 
-    // 5. Get or create Stripe customer
+    // 6. Get or create Stripe customer (idempotent — looks up cached id first)
     let stripeCustomerId = userData.stripeCustomerId;
     if (!stripeCustomerId) {
-      const customer = await stripe.customers.create({
-        email: userData.email,
-        name: `${userData.familyName || ''} ${userData.givenName || ''}`.trim(),
-        phone: userData.tel,
-        metadata: { firebaseUserId: userId },
-      });
+      const customer = await stripe.customers.create(
+        {
+          email: userData.email,
+          name: `${userData.familyName || ''} ${userData.givenName || ''}`.trim(),
+          phone: userData.tel,
+          metadata: { firebaseUserId: userId },
+        },
+        { idempotencyKey: `customer-create:${userId}` },
+      );
       stripeCustomerId = customer.id;
       log(`[createStripePayment] Created Stripe customer: ${stripeCustomerId}`);
     } else {
-      // Update card info by letting Elements handle it
       log(`[createStripePayment] Reusing existing Stripe customer: ${stripeCustomerId}`);
     }
 
-    const amount = link.payAmount || 0;
     const deviceName = link.deviceName || 'TimeWaver Rental';
 
+    // 7. If a PaymentIntent was already created for this link, reuse it instead of creating
+    //    a duplicate. Avoids racing/double-clicks creating multiple charges.
+    if (link.stripePaymentIntentId) {
+      try {
+        const existingPi = await stripe.paymentIntents.retrieve(link.stripePaymentIntentId);
+        const reusableStatuses = ['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing'];
+        if (reusableStatuses.includes(existingPi.status) && existingPi.amount === amount) {
+          log(`[createStripePayment] Reusing existing PaymentIntent: ${existingPi.id} (status=${existingPi.status})`);
+          return {
+            clientSecret: existingPi.client_secret!,
+            stripeCustomerId,
+            paymentIntentId: existingPi.id,
+          };
+        }
+        if (existingPi.status === 'succeeded') {
+          throw new HttpsError("failed-precondition", "This payment link has already been paid.");
+        }
+      } catch (reuseErr: any) {
+        if (reuseErr instanceof HttpsError) throw reuseErr;
+        log(`[createStripePayment] Could not reuse existing PaymentIntent: ${reuseErr.message}`);
+      }
+    }
+
+    // 8. Build common PaymentIntent params (card-only to match the frontend <CardElement>)
     let clientSecret: string;
     let paymentIntentId: string = '';
 
+    const idempotencyKey = `pi-create:${paymentLinkId}:${amount}:${link.payType || 'full'}`;
+
     if (link.payType === 'full') {
       // --- One-time payment via PaymentIntent ---
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount,
-        currency: 'jpy',
-        customer: stripeCustomerId,
-        description: `Rental: ${deviceName}`,
-        metadata: {
-          paymentLinkId,
-          applicationId: link.applicationId,
-          deviceId: link.deviceId || '',
-          payType: 'full',
+      const paymentIntent = await stripe.paymentIntents.create(
+        {
+          amount,
+          currency: 'jpy',
+          customer: stripeCustomerId,
+          description: `Rental: ${deviceName}`,
+          metadata: {
+            paymentLinkId,
+            applicationId: link.applicationId,
+            deviceId: link.deviceId || '',
+            userId,
+            payType: 'full',
+          },
+          payment_method_types: ['card'],
         },
-        automatic_payment_methods: { enabled: true },
-      });
+        { idempotencyKey },
+      );
 
       clientSecret = paymentIntent.client_secret!;
       paymentIntentId = paymentIntent.id;
       log(`[createStripePayment] Created full PaymentIntent: ${paymentIntent.id}`);
     } else {
       // --- Monthly: charge 1st month + save card for future subscription ---
-      // Look up the device's pre-created Stripe priceId to avoid duplicates
       let monthlyPriceId: string | null = null;
       if (link.deviceId) {
         const deviceDoc = await db.collection('devices').doc(link.deviceId).get();
         if (deviceDoc.exists) {
           const deviceData = deviceDoc.data()!;
-          // Determine which term (3m, 6m, 12m) from rentalPeriod
           const rentalPeriod = appData.rentalPeriod || 12;
           const termKey = rentalPeriod <= 3 ? '3m' : rentalPeriod <= 6 ? '6m' : '12m';
           monthlyPriceId = deviceData.stripeProducts?.[termKey]?.monthlyPriceId || null;
@@ -376,26 +502,41 @@ export const createStripePayment = onCall(async (request) => {
 
       const rentalMonths = appData.rentalPeriod || 12;
 
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount,
-        currency: 'jpy',
-        customer: stripeCustomerId,
-        description: `Monthly Rental (1st month): ${deviceName}`,
-        metadata: {
-          paymentLinkId,
-          applicationId: link.applicationId,
-          deviceId: link.deviceId || '',
-          payType: 'monthly',
-          rentalMonths: String(rentalMonths),
-          monthlyPriceId: monthlyPriceId || '',
+      const paymentIntent = await stripe.paymentIntents.create(
+        {
+          amount,
+          currency: 'jpy',
+          customer: stripeCustomerId,
+          description: `Monthly Rental (1st month): ${deviceName}`,
+          metadata: {
+            paymentLinkId,
+            applicationId: link.applicationId,
+            deviceId: link.deviceId || '',
+            userId,
+            payType: 'monthly',
+            rentalMonths: String(rentalMonths),
+            monthlyPriceId: monthlyPriceId || '',
+          },
+          payment_method_types: ['card'],
+          setup_future_usage: 'off_session',
         },
-        automatic_payment_methods: { enabled: true },
-        setup_future_usage: 'off_session',
-      });
+        { idempotencyKey },
+      );
 
       clientSecret = paymentIntent.client_secret!;
       paymentIntentId = paymentIntent.id;
       log(`[createStripePayment] Created monthly PaymentIntent: ${paymentIntent.id} (¥${amount}), priceId: ${monthlyPriceId}`);
+    }
+
+    // 9. Persist the PaymentIntent id back onto the paymentLink so future calls can reuse it
+    try {
+      await linkDoc.ref.update({
+        stripePaymentIntentId: paymentIntentId,
+        stripeCustomerId,
+        updatedAt: Timestamp.now(),
+      });
+    } catch (writeErr: any) {
+      log(`[createStripePayment] Warning: failed to persist PI on paymentLink:`, writeErr.message);
     }
 
     return {
@@ -415,15 +556,23 @@ export const createStripePayment = onCall(async (request) => {
  * Creates a Stripe Subscription for monthly plans AFTER the first month's PaymentIntent succeeds.
  * Uses the saved payment method from the initial charge to enable recurring billing.
  * Called by the frontend after confirmCardPayment succeeds for monthly payType.
+ *
+ * IMPORTANT: Sets `cancel_at` based on the rental contract endAt so Stripe automatically
+ * stops charging at contract expiry. Without this, customers are over-charged after
+ * the rental period ends.
  */
 export const createStripeSubscription = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+
   const { stripeCustomerId, monthlyPriceId, paymentIntentId, firestoreSubscriptionId, payAmount, deviceName } = request.data;
 
   if (!stripeCustomerId || !paymentIntentId) {
     throw new HttpsError("invalid-argument", "stripeCustomerId and paymentIntentId are required.");
   }
 
-  log(`[createStripeSubscription] Customer: ${stripeCustomerId}, basePriceId: ${monthlyPriceId}, payAmount: ${payAmount}`);
+  log(`[createStripeSubscription] Customer: ${stripeCustomerId}, basePriceId: ${monthlyPriceId}, payAmount: ${payAmount}, firestoreSubId: ${firestoreSubscriptionId}`);
 
   try {
     const stripe = await getStripeClient();
@@ -435,6 +584,12 @@ export const createStripeSubscription = onCall(async (request) => {
 
     if (!paymentMethodId) {
       throw new HttpsError("failed-precondition", "No payment method found on PaymentIntent.");
+    }
+
+    // Verify the caller owns this customer (the PaymentIntent's customer must match)
+    const piCustomer = typeof pi.customer === 'string' ? pi.customer : (pi.customer as any)?.id;
+    if (piCustomer && piCustomer !== stripeCustomerId) {
+      throw new HttpsError("permission-denied", "PaymentIntent does not belong to this customer.");
     }
 
     // 2. Set as default payment method on the customer
@@ -450,14 +605,20 @@ export const createStripeSubscription = onCall(async (request) => {
       try {
         const basePrice = await stripe.prices.retrieve(monthlyPriceId);
         if (basePrice.unit_amount !== payAmount) {
-          // Amount differs (modules added) — create a dynamic price with the total
-          const dynamicPrice = await stripe.prices.create({
+          // Amount differs (modules added) — create a dynamic price re-using the base product
+          const baseProductId = typeof basePrice.product === 'string' ? basePrice.product : (basePrice.product as any)?.id;
+          const dynamicPriceParams: any = {
             unit_amount: payAmount,
             currency: 'jpy',
             recurring: { interval: 'month' },
-            product_data: { name: `${deviceName || 'TimeWaver Rental'} (カスタム)` },
             metadata: { basePriceId: monthlyPriceId, includesModules: 'true' },
-          });
+          };
+          if (baseProductId) {
+            dynamicPriceParams.product = baseProductId;
+          } else {
+            dynamicPriceParams.product_data = { name: `${deviceName || 'TimeWaver Rental'} (カスタム)` };
+          }
+          const dynamicPrice = await stripe.prices.create(dynamicPriceParams);
           subscriptionPriceId = dynamicPrice.id;
           log(`[createStripeSubscription] Module pricing: base ¥${basePrice.unit_amount} → total ¥${payAmount}, dynamic price: ${dynamicPrice.id}`);
         }
@@ -479,33 +640,77 @@ export const createStripeSubscription = onCall(async (request) => {
       log(`[createStripeSubscription] Created fallback dynamic price: ${subscriptionPriceId} (¥${payAmount})`);
     }
 
-    // 4. Create the subscription starting from next billing cycle
-    // (first month already paid via PaymentIntent)
-    const now = new Date();
-    const nextMonth = new Date(now);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    nextMonth.setDate(nextMonth.getDate() > 28 ? 28 : nextMonth.getDate());
+    // 4. Read the Firestore sub doc to get the rental endAt (used for cancel_at)
+    let cancelAtUnix: number | null = null;
+    let rentalMonths: number | null = null;
+    let firestoreEndAt: Date | null = null;
+    if (firestoreSubscriptionId) {
+      const fsSubDoc = await db.collection('subscriptions').doc(firestoreSubscriptionId).get();
+      if (fsSubDoc.exists) {
+        const fsData = fsSubDoc.data()!;
+        rentalMonths = fsData.rentalMonths || null;
+        const endAtRaw = fsData.endAt;
+        if (endAtRaw?.toDate) firestoreEndAt = endAtRaw.toDate();
+        else if (endAtRaw?._seconds) firestoreEndAt = new Date(endAtRaw._seconds * 1000);
+      }
+    }
 
-    const subscription = await stripe.subscriptions.create({
+    // 5. Compute billing_cycle_anchor: same day-of-month next month, clamped to ≤28 to avoid Feb skips
+    const now = new Date();
+    const targetDay = Math.min(now.getDate(), 28);
+    const anchorDate = new Date(now.getFullYear(), now.getMonth() + 1, targetDay, now.getHours(), now.getMinutes(), now.getSeconds());
+
+    // 6. Compute cancel_at: end of the rental contract.
+    // - If we have firestoreEndAt → use it
+    // - Else fall back to anchor + (rentalMonths-1) months (1st month already paid via PI)
+    if (firestoreEndAt && firestoreEndAt.getTime() > anchorDate.getTime()) {
+      cancelAtUnix = Math.floor(firestoreEndAt.getTime() / 1000);
+    } else if (rentalMonths && rentalMonths > 1) {
+      const fallbackEnd = new Date(anchorDate);
+      fallbackEnd.setMonth(fallbackEnd.getMonth() + (rentalMonths - 1));
+      cancelAtUnix = Math.floor(fallbackEnd.getTime() / 1000);
+    }
+
+    const subParams: any = {
       customer: stripeCustomerId,
       items: [{ price: subscriptionPriceId }],
       default_payment_method: paymentMethodId,
-      billing_cycle_anchor: Math.floor(nextMonth.getTime() / 1000),
+      billing_cycle_anchor: Math.floor(anchorDate.getTime() / 1000),
       proration_behavior: 'none',
+      collection_method: 'charge_automatically',
+      payment_settings: {
+        payment_method_types: ['card'],
+        save_default_payment_method: 'on_subscription',
+      },
       metadata: {
         firestoreSubscriptionId: firestoreSubscriptionId || '',
         paymentIntentId,
+        rentalMonths: rentalMonths ? String(rentalMonths) : '',
       },
-    });
+    };
+    if (cancelAtUnix) {
+      subParams.cancel_at = cancelAtUnix;
+      log(`[createStripeSubscription] Will cancel_at ${new Date(cancelAtUnix * 1000).toISOString()}`);
+    } else {
+      log(`[createStripeSubscription] WARNING: no cancel_at set (no endAt and no rentalMonths). Subscription will recur until manually canceled.`);
+    }
 
-    log(`[createStripeSubscription] Created Subscription: ${subscription.id}`);
+    const subscription = await stripe.subscriptions.create(
+      subParams,
+      { idempotencyKey: `sub-create:${firestoreSubscriptionId || paymentIntentId}` },
+    );
 
-    // 4. Update Firestore subscription doc with Stripe IDs
+    log(`[createStripeSubscription] Created Subscription: ${subscription.id}, cancel_at: ${(subscription as any).cancel_at || 'none'}`);
+
+    // 7. Update Firestore subscription doc with Stripe IDs
     if (firestoreSubscriptionId) {
       await db.collection('subscriptions').doc(firestoreSubscriptionId).update({
         stripeSubscriptionId: subscription.id,
         stripePaymentIntentId: paymentIntentId,
         stripeCustomerId,
+        'stripeStatus.status': subscription.status,
+        'stripeStatus.cancelAt': cancelAtUnix ? new Date(cancelAtUnix * 1000).toISOString() : null,
+        'stripeStatus.lastSyncedAt': new Date().toISOString(),
         updatedAt: Timestamp.now(),
       });
       log(`[createStripeSubscription] Updated Firestore sub: ${firestoreSubscriptionId}`);
@@ -514,6 +719,7 @@ export const createStripeSubscription = onCall(async (request) => {
     return {
       status: 'success',
       stripeSubscriptionId: subscription.id,
+      cancelAt: cancelAtUnix,
     };
 
   } catch (error: any) {
@@ -528,6 +734,8 @@ export const createStripeSubscription = onCall(async (request) => {
  * Modes: get-payment-by-id (PaymentIntent), get-subscription (Subscription), get-invoices (Invoice list)
  */
 export const getPaymentData = onCall(async (request) => {
+  await requireAdmin(request);
+
   const { mode, data } = request.data;
   const { paymentIntentId, subscriptionId } = data || {};
 
@@ -570,6 +778,8 @@ export const getPaymentData = onCall(async (request) => {
  * This is designed to provide all necessary data for the admin payment dashboard.
  */
 export const getSubscriptionsList = onCall(async (request) => {
+  await requireAdmin(request);
+
   log("[getSubscriptionsList] Function called.");
   const db = getFirestore();
 
@@ -645,6 +855,8 @@ export const getSubscriptionsList = onCall(async (request) => {
  * Also handles auto-expiry and renewal reminders.
  */
 export const syncPaymentData = onCall(async (request) => {
+  await requireAdmin(request);
+
   log("[syncPaymentData] Function called.");
   const db = getFirestore();
 
@@ -669,10 +881,11 @@ export const syncPaymentData = onCall(async (request) => {
         // Sync Stripe subscription status
         if (sub.stripeSubscriptionId) {
           const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+          const cpe = getSubscriptionCurrentPeriodEnd(stripeSub);
 
           updates.stripeStatus = {
             status: stripeSub.status,
-            currentPeriodEnd: new Date((stripeSub as any).current_period_end * 1000).toISOString(),
+            currentPeriodEnd: cpe ? new Date(cpe * 1000).toISOString() : null,
             cancelAt: (stripeSub as any).cancel_at ? new Date((stripeSub as any).cancel_at * 1000).toISOString() : null,
             lastSyncedAt: new Date().toISOString(),
           };
@@ -753,6 +966,91 @@ export const syncPaymentData = onCall(async (request) => {
       }
     }
 
+    // --- Auto-cancel subscriptions stuck in past_due > PAST_DUE_GRACE_DAYS ---
+    // Stripe Smart Retries handles retry attempts (default ~4 retries over 21 days).
+    // We add our own grace policy: if past_due persists for > 14 days from first failure,
+    // cancel both Stripe and Firestore, release the device, and notify all parties.
+    const PAST_DUE_GRACE_DAYS = 14;
+    let pastDueCanceled = 0;
+    for (const subDoc of subscriptionsSnapshot.docs) {
+      const sub = subDoc.data();
+      if (sub.status !== 'active') continue;
+      if (sub.stripeStatus?.status !== 'past_due') continue;
+
+      const firstFailedRaw = sub.paymentFailure?.firstFailedAt;
+      if (!firstFailedRaw) continue; // grace clock not started
+      const firstFailed = new Date(firstFailedRaw);
+      const graceDeadline = new Date(firstFailed.getTime() + PAST_DUE_GRACE_DAYS * 24 * 60 * 60 * 1000);
+
+      if (new Date() < graceDeadline) continue; // still within grace
+
+      log(`[syncPaymentData] Auto-canceling sub ${subDoc.id}: past_due since ${firstFailed.toISOString()} (>${PAST_DUE_GRACE_DAYS}d grace exceeded).`);
+
+      // 1. Cancel Stripe sub
+      if (sub.stripeSubscriptionId) {
+        try {
+          const currentSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+          if (!['canceled', 'incomplete_expired'].includes(currentSub.status)) {
+            await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+          }
+        } catch (cancelErr: any) {
+          log(`[syncPaymentData] Failed to cancel Stripe sub for past_due:`, cancelErr.message);
+        }
+      }
+
+      // 2. Mark Firestore canceled
+      await db.collection('subscriptions').doc(subDoc.id).update({
+        status: 'canceled',
+        'stripeStatus.status': 'canceled',
+        'stripeStatus.lastSyncedAt': new Date().toISOString(),
+        cancelReason: 'payment_failure_grace_exceeded',
+        canceledAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+
+      // 3. Release device
+      if (sub.deviceId) {
+        const deviceDoc = await db.collection('devices').doc(sub.deviceId).get();
+        const deviceType = deviceDoc.data()?.type || sub.deviceType || 'Unknown Device';
+        await db.collection('devices').doc(sub.deviceId).update({
+          status: 'available',
+          currentUserId: null,
+          updatedAt: Timestamp.now(),
+        });
+        await onDeviceReleased(sub.deviceId, deviceType, 'canceled');
+      }
+
+      // 4. Notify user + admin
+      try {
+        if (sub.userId) {
+          const userDoc = await db.collection('users').doc(sub.userId).get();
+          const userData = userDoc.exists ? userDoc.data() : null;
+          if (userData?.email) {
+            const userName = `${userData.familyName || ''} ${userData.givenName || ''}`.trim() || 'お客様';
+            await sendTriggeredEmail('subscription_canceled_payment_failure', { name: userName, email: userData.email }, {
+              deviceType: sub.deviceType || '',
+              graceDays: PAST_DUE_GRACE_DAYS,
+              firstFailedAt: firstFailed.toLocaleDateString('ja-JP'),
+            });
+          }
+        }
+        const settingsDoc = await db.collection('settings').doc('global').get();
+        const adminEmail = settingsDoc.data()?.managerEmail;
+        if (adminEmail) {
+          await sendTriggeredEmail('subscription_canceled_payment_failure_admin', { name: 'Admin', email: adminEmail }, {
+            subscriptionId: subDoc.id,
+            userId: sub.userId,
+            deviceType: sub.deviceType || '',
+            firstFailedAt: firstFailed.toLocaleDateString('ja-JP'),
+          });
+        }
+      } catch (notifyErr: any) {
+        log(`[syncPaymentData] Failed to notify on past_due cancellation:`, notifyErr.message);
+      }
+
+      pastDueCanceled++;
+    }
+
     // --- Auto-expire subscriptions past their end date ---
     let expired = 0;
     for (const subDoc of subscriptionsSnapshot.docs) {
@@ -763,9 +1061,27 @@ export const syncPaymentData = onCall(async (request) => {
       if (!endAt) continue;
 
       if (endAt < new Date()) {
+        // CRITICAL: Cancel the Stripe subscription FIRST so customers don't get charged
+        // beyond the contract end date. Older subs may not have cancel_at set, so this is
+        // a safety net. Idempotent — Stripe returns the canceled sub if already canceled.
+        if (sub.stripeSubscriptionId) {
+          try {
+            const currentSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+            if (!['canceled', 'incomplete_expired'].includes(currentSub.status)) {
+              await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+              log(`[syncPaymentData] Canceled Stripe subscription ${sub.stripeSubscriptionId} for expired sub ${subDoc.id}.`);
+            }
+          } catch (cancelErr: any) {
+            log(`[syncPaymentData] Failed to cancel Stripe sub ${sub.stripeSubscriptionId}:`, cancelErr.message);
+            // Continue — we still want to mark Firestore as expired even if Stripe call fails
+          }
+        }
+
         // Subscription has passed its end date — mark as expired
         await db.collection('subscriptions').doc(subDoc.id).update({
           status: 'expired',
+          'stripeStatus.status': 'canceled',
+          'stripeStatus.lastSyncedAt': new Date().toISOString(),
           updatedAt: Timestamp.now(),
         });
 
@@ -825,8 +1141,8 @@ export const syncPaymentData = onCall(async (request) => {
       }
     }
 
-    log(`[syncPaymentData] Sync complete. Synced: ${results.synced}, Errors: ${results.errors}, Expired: ${expired}, Reminders: ${reminders}, NewExpired: ${newExpired}`);
-    return { status: 'success', ...results, expired, reminders, newExpired };
+    log(`[syncPaymentData] Sync complete. Synced: ${results.synced}, Errors: ${results.errors}, Expired: ${expired}, PastDueCanceled: ${pastDueCanceled}, Reminders: ${reminders}, NewExpired: ${newExpired}`);
+    return { status: 'success', ...results, expired, pastDueCanceled, reminders, newExpired };
 
   } catch (error) {
     log("[syncPaymentData] ERROR:", error);
@@ -841,6 +1157,8 @@ export const syncPaymentData = onCall(async (request) => {
  * Also updates the subscription status in Firestore.
  */
 export const stopRecurringPayment = onCall(async (request) => {
+  await requireAdmin(request);
+
   const { subscriptionId } = request.data;
   if (!subscriptionId) {
     throw new HttpsError("invalid-argument", "subscriptionId is required.");
@@ -908,17 +1226,91 @@ export const stopRecurringPayment = onCall(async (request) => {
 });
 
 /**
- * Refunds a payment via Stripe API.
- * Uses stripe.refunds.create() with the PaymentIntent ID.
+ * Creates a Stripe Billing Portal session URL for the authenticated user.
+ * The user is redirected to Stripe's hosted portal where they can update card
+ * details, view invoices, and (if enabled in Stripe settings) cancel.
+ *
+ * Returns: { url: string }
  */
-export const refundPayment = onCall(async (request) => {
-  const { subscriptionId, paymentIntentId } = request.data;
+export const createBillingPortalSession = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  const uid = request.auth.uid;
+  const { returnUrl } = request.data || {};
 
-  if (!subscriptionId || !paymentIntentId) {
-    throw new HttpsError("invalid-argument", "subscriptionId and paymentIntentId are required.");
+  const db = getFirestore();
+  const userDoc = await db.collection('users').doc(uid).get();
+  if (!userDoc.exists) {
+    throw new HttpsError("not-found", "User profile not found.");
+  }
+  const userData = userDoc.data()!;
+  const stripeCustomerId = userData.stripeCustomerId;
+  if (!stripeCustomerId) {
+    throw new HttpsError(
+      "failed-precondition",
+      "No Stripe customer ID on file. Please complete a payment first.",
+    );
   }
 
-  log(`[refundPayment] Called: subscriptionId=${subscriptionId}, paymentIntentId=${paymentIntentId}`);
+  try {
+    const stripe = await getStripeClient();
+    const session = await stripe.billingPortal.sessions.create({
+      customer: stripeCustomerId,
+      return_url: returnUrl || 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app/mypage/payments',
+    });
+    log(`[createBillingPortalSession] Created portal session for ${uid}: ${session.id}`);
+    return { url: session.url };
+  } catch (error: any) {
+    log("[createBillingPortalSession] ERROR:", error);
+    // Stripe returns "No configuration provided" if the portal hasn't been
+    // configured in the Stripe Dashboard yet. Surface that to the caller so
+    // the user-facing UI can show a helpful error.
+    if (typeof error.message === 'string' && error.message.includes('No configuration')) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Stripe Billing Portal is not configured. Admin: please enable it at Stripe Dashboard → Settings → Billing → Customer portal.",
+      );
+    }
+    throw new HttpsError("internal", error.message || "Failed to create billing portal session.");
+  }
+});
+
+/**
+ * Refunds a payment via Stripe API.
+ *
+ * Accepts any of the following parameter shapes:
+ *   - { subscriptionId, paymentIntentId }                  — refund a PaymentIntent directly
+ *   - { subscriptionId, paymentId, type: 'charge' }        — legacy alias for paymentIntentId
+ *   - { subscriptionId, invoiceId }                        — refund the PaymentIntent attached to an invoice
+ *   - { subscriptionId, historyId, type: 'recurring' }     — legacy alias for invoiceId
+ */
+export const refundPayment = onCall(async (request) => {
+  await requireAdmin(request);
+
+  const {
+    subscriptionId,
+    paymentIntentId,
+    paymentId,        // legacy alias from admin UI
+    invoiceId,
+    historyId,        // legacy alias from admin UI (= invoice id for recurring rows)
+    type,
+  } = request.data || {};
+
+  if (!subscriptionId) {
+    throw new HttpsError("invalid-argument", "subscriptionId is required.");
+  }
+
+  // Resolve the target: PaymentIntent ID takes precedence; otherwise resolve via invoice
+  const piIdInput: string | undefined = paymentIntentId || (type !== 'recurring' ? paymentId : undefined);
+  const invIdInput: string | undefined = invoiceId || (type === 'recurring' ? historyId : undefined);
+
+  if (!piIdInput && !invIdInput) {
+    throw new HttpsError("invalid-argument", "Either paymentIntentId/paymentId or invoiceId/historyId is required.");
+  }
+
+  log(`[refundPayment] subscriptionId=${subscriptionId}, piIdInput=${piIdInput || '-'}, invIdInput=${invIdInput || '-'}, type=${type || '-'}`);
+
   const db = getFirestore();
 
   try {
@@ -928,16 +1320,37 @@ export const refundPayment = onCall(async (request) => {
     }
 
     const stripe = await getStripeClient();
+
+    // Resolve the actual PaymentIntent ID
+    let resolvedPaymentIntentId = piIdInput;
+    let resolvedInvoiceId: string | undefined = invIdInput;
+
+    if (!resolvedPaymentIntentId && resolvedInvoiceId) {
+      // Look up the invoice and find its payment_intent
+      const invoice = await stripe.invoices.retrieve(resolvedInvoiceId);
+      const piRef = (invoice as any).payment_intent;
+      const piFromInvoice = typeof piRef === 'string' ? piRef : piRef?.id;
+      if (!piFromInvoice) {
+        throw new HttpsError("failed-precondition", `Invoice ${resolvedInvoiceId} has no associated PaymentIntent (status=${invoice.status}).`);
+      }
+      resolvedPaymentIntentId = piFromInvoice;
+    }
+
+    if (!resolvedPaymentIntentId) {
+      throw new HttpsError("failed-precondition", "Could not resolve a PaymentIntent to refund.");
+    }
+
     const refund = await stripe.refunds.create({
-      payment_intent: paymentIntentId,
+      payment_intent: resolvedPaymentIntentId,
     });
 
-    log(`[refundPayment] Stripe refund created: ${refund.id}, status: ${refund.status}`);
+    log(`[refundPayment] Stripe refund created: ${refund.id}, status: ${refund.status}, amount: ${refund.amount}`);
 
     // Record refund in Firestore
     const refundRecord = {
       refundId: refund.id,
-      paymentIntentId,
+      paymentIntentId: resolvedPaymentIntentId,
+      invoiceId: resolvedInvoiceId || null,
       amount: refund.amount,
       status: refund.status,
       refundedAt: new Date().toISOString(),
@@ -954,7 +1367,12 @@ export const refundPayment = onCall(async (request) => {
     return {
       status: 'success',
       message: '返金処理が完了しました。',
-      data: { refundId: refund.id, status: refund.status, amount: refund.amount },
+      data: {
+        refundId: refund.id,
+        status: refund.status,
+        amount: refund.amount,
+        paymentIntentId: resolvedPaymentIntentId,
+      },
     };
 
   } catch (error: any) {
@@ -966,11 +1384,22 @@ export const refundPayment = onCall(async (request) => {
 
 /**
  * Fetches payment history for a specific subscription from Stripe API.
- * For subscriptions: retrieves invoices list.
- * For one-time: retrieves the PaymentIntent.
- * Also returns subscription metadata from Firestore for context.
+ *
+ * Returns a frontend-compatible shape (legacy field names retained from the
+ * pre-Stripe payment provider so existing admin UI keeps working):
+ *   - subscription.paymentId        = stripePaymentIntentId
+ *   - subscription.recurringId      = stripeSubscriptionId
+ *   - subscription.customerId       = stripeCustomerId
+ *   - history[].historyId           = stripe id (PaymentIntent or Invoice)
+ *   - history[].paymentId           = PaymentIntent id (when resolvable)
+ *   - history[].paymentStatus       = mapped to {SOLD,AUTHORIZED,OUTSTANDING,CANCELED}
+ *   - history[].type                = 'charge' | 'recurring'
  */
 export const getPaymentHistory = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+
   const { subscriptionId } = request.data;
   if (!subscriptionId) {
     throw new HttpsError("invalid-argument", "subscriptionId is required.");
@@ -978,6 +1407,45 @@ export const getPaymentHistory = onCall(async (request) => {
 
   log(`[getPaymentHistory] Called for subscription: ${subscriptionId}`);
   const db = getFirestore();
+
+  // Authorize: caller must be admin or the subscription's owner
+  {
+    const callerUid = request.auth.uid;
+    const callerDoc = await db.collection('users').doc(callerUid).get();
+    const isAdmin = callerDoc.data()?.role === 'admin';
+    if (!isAdmin) {
+      const subPeek = await db.collection('subscriptions').doc(subscriptionId).get();
+      if (!subPeek.exists || subPeek.data()?.userId !== callerUid) {
+        throw new HttpsError("permission-denied", "You do not have access to this subscription.");
+      }
+    }
+  }
+
+  // Map Stripe statuses → admin UI legacy status values
+  const mapPaymentIntentStatus = (s: string): string => {
+    switch (s) {
+      case 'succeeded': return 'SOLD';
+      case 'processing': return 'AUTHORIZED';
+      case 'requires_payment_method':
+      case 'requires_action':
+      case 'requires_confirmation':
+      case 'requires_capture':
+        return 'OUTSTANDING';
+      case 'canceled': return 'CANCELED';
+      default: return s.toUpperCase();
+    }
+  };
+
+  const mapInvoiceStatus = (s: string | null | undefined): string => {
+    switch (s) {
+      case 'paid': return 'SOLD';
+      case 'open': return 'OUTSTANDING';
+      case 'uncollectible': return 'OUTSTANDING';
+      case 'void': return 'CANCELED';
+      case 'draft': return 'SCHEDULED';
+      default: return (s || '').toUpperCase() || 'OUTSTANDING';
+    }
+  };
 
   try {
     // 1. Get subscription from Firestore
@@ -1000,27 +1468,39 @@ export const getPaymentHistory = onCall(async (request) => {
 
     const subscriptionInfo = {
       id: subDoc.id,
+      // Legacy aliases for the admin UI
+      customerId: sub.stripeCustomerId || null,
+      paymentId: sub.stripePaymentIntentId || null,
+      recurringId: sub.stripeSubscriptionId || null,
+      // Stripe-native fields (kept for newer callers)
       stripeCustomerId: sub.stripeCustomerId || null,
+      stripePaymentIntentId: sub.stripePaymentIntentId || null,
+      stripeSubscriptionId: sub.stripeSubscriptionId || null,
       payType: sub.payType || null,
       payAmount: sub.payAmount || 0,
       rentalMonths: sub.rentalMonths || null,
-      stripeSubscriptionId: sub.stripeSubscriptionId || null,
-      stripePaymentIntentId: sub.stripePaymentIntentId || null,
       status: sub.status,
       startAt: toISO(sub.startAt),
       endAt: toISO(sub.endAt),
     };
 
     // 4. Fetch history from Stripe
-    let history: any[] = [];
+    const history: any[] = [];
     let stripeDetails: any = null;
+    let recurringDetails: any = null;
 
     // For one-time payments — fetch PaymentIntent
     if (sub.stripePaymentIntentId) {
       try {
         const pi = await stripe.paymentIntents.retrieve(sub.stripePaymentIntentId);
         history.push({
+          // Legacy aliases
+          historyId: pi.id,
+          paymentId: pi.id,
+          paymentStatus: mapPaymentIntentStatus(pi.status),
+          // Stripe-native + meta
           id: pi.id,
+          paymentIntentId: pi.id,
           type: 'charge',
           status: pi.status,
           amount: pi.amount,
@@ -1035,10 +1515,28 @@ export const getPaymentHistory = onCall(async (request) => {
     if (sub.stripeSubscriptionId) {
       try {
         const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+        const cpe = getSubscriptionCurrentPeriodEnd(stripeSub);
+
         stripeDetails = {
           status: stripeSub.status,
-          currentPeriodEnd: new Date((stripeSub as any).current_period_end * 1000).toISOString(),
+          currentPeriodEnd: cpe ? new Date(cpe * 1000).toISOString() : null,
           cancelAt: (stripeSub as any).cancel_at ? new Date((stripeSub as any).cancel_at * 1000).toISOString() : null,
+        };
+
+        // Build recurringDetails for the admin history UI
+        const item0 = (stripeSub as any).items?.data?.[0];
+        recurringDetails = {
+          recurringId: stripeSub.id,
+          customerId: typeof stripeSub.customer === 'string' ? stripeSub.customer : (stripeSub.customer as any)?.id || null,
+          startAt: stripeSub.start_date ? new Date(stripeSub.start_date * 1000).toISOString() : null,
+          cycle: 'month',
+          payAmount: item0?.price?.unit_amount ?? sub.payAmount ?? 0,
+          currentlyPayAmount: item0?.price?.unit_amount ?? sub.payAmount ?? 0,
+          recurringDayOfMonth: stripeSub.billing_cycle_anchor
+            ? new Date(stripeSub.billing_cycle_anchor * 1000).getDate()
+            : undefined,
+          nextRecurringAt: cpe ? new Date(cpe * 1000).toISOString() : null,
+          isActive: ['active', 'trialing', 'past_due'].includes(stripeSub.status),
         };
       } catch (err: any) {
         log(`[getPaymentHistory] Failed to fetch subscription:`, err.message);
@@ -1049,14 +1547,24 @@ export const getPaymentHistory = onCall(async (request) => {
           subscription: sub.stripeSubscriptionId,
           limit: 100,
         });
-        for (const inv of invoices.data) {
+        // Sort oldest → newest so monthly entries align with the schedule rows
+        const sorted = [...invoices.data].sort((a: any, b: any) => (a.created || 0) - (b.created || 0));
+        for (const inv of sorted) {
+          const piRef = (inv as any).payment_intent;
+          const piId = typeof piRef === 'string' ? piRef : piRef?.id || null;
           history.push({
+            // Legacy aliases
+            historyId: inv.id,
+            paymentId: piId,
+            paymentStatus: mapInvoiceStatus(inv.status),
+            // Stripe-native + meta
             id: inv.id,
-            type: 'invoice',
+            invoiceId: inv.id,
+            paymentIntentId: piId,
+            type: 'recurring',
             status: inv.status,
             amount: inv.amount_paid || inv.amount_due,
             created: new Date((inv as any).created * 1000).toISOString(),
-            paymentIntentId: typeof inv.payment_intent === 'string' ? inv.payment_intent : (inv.payment_intent as any)?.id || null,
           });
         }
       } catch (err: any) {
@@ -1078,6 +1586,7 @@ export const getPaymentHistory = onCall(async (request) => {
       subscription: subscriptionInfo,
       customerName,
       stripeDetails,
+      recurringDetails,
       history,
     };
 
@@ -1102,25 +1611,37 @@ export const stripeWebhook = onRequest({ cors: false }, async (req, res) => {
   const db = getFirestore();
 
   try {
-    // 1. Get webhook secret
-    const webhookSecret = await getSecretValue('STRIPE_WEBHOOK_SECRET');
+    // 1. Get webhook secret for the current mode (test or production)
+    const apiMode = await getStripeMode();
+    const webhookSecret = await getWebhookSecretForMode(apiMode);
     const stripe = await getStripeClient();
 
     // 2. Verify signature
     let event: any;
     if (webhookSecret) {
       const sig = req.headers['stripe-signature'] as string;
+      if (!sig) {
+        log('[stripeWebhook] Missing Stripe-Signature header.');
+        res.status(400).send('Missing Stripe-Signature header.');
+        return;
+      }
       try {
         event = stripe.webhooks.constructEvent(req.rawBody, sig, webhookSecret);
       } catch (err: any) {
-        log(`[stripeWebhook] Signature verification failed:`, err.message);
+        log(`[stripeWebhook] Signature verification failed (mode=${apiMode}):`, err.message);
         res.status(400).send(`Webhook Error: ${err.message}`);
         return;
       }
     } else {
-      // No webhook secret configured — accept without verification (test mode only)
+      // SECURITY: Refuse unsigned webhooks when running in production. In test mode
+      // we still allow it for local dev convenience, but log a loud warning.
+      if (apiMode === 'production') {
+        log('[stripeWebhook] CRITICAL: Webhook signing secret missing in production mode. Refusing event.');
+        res.status(500).send('Webhook signing secret not configured.');
+        return;
+      }
       event = req.body;
-      log('[stripeWebhook] WARNING: No webhook secret configured, accepting without verification.');
+      log('[stripeWebhook] WARNING: No webhook secret configured (test mode), accepting without verification.');
     }
 
     log(`[stripeWebhook] Event: ${event.type}, ID: ${event.id}`);
@@ -1129,7 +1650,7 @@ export const stripeWebhook = onRequest({ cors: false }, async (req, res) => {
     switch (event.type) {
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object;
-        const subId = invoice.subscription;
+        const subId = getInvoiceSubscriptionId(invoice);
         if (subId) {
           // Find Firestore subscription by stripeSubscriptionId
           const subsSnap = await db.collection('subscriptions')
@@ -1150,30 +1671,117 @@ export const stripeWebhook = onRequest({ cors: false }, async (req, res) => {
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object;
-        const subId = invoice.subscription;
+        const subId = getInvoiceSubscriptionId(invoice);
         if (subId) {
           const subsSnap = await db.collection('subscriptions')
             .where('stripeSubscriptionId', '==', subId)
             .limit(1).get();
           if (!subsSnap.empty) {
             const subDoc = subsSnap.docs[0];
+            const subData = subDoc.data();
+            const prevFailureCount = subData.paymentFailure?.count || 0;
+            const newFailureCount = prevFailureCount + 1;
+            const nowIso = new Date().toISOString();
+
+            // Try to extract a friendly failure reason from the invoice
+            const lastErr = (invoice as any).last_finalization_error
+              || (invoice as any).last_payment_error
+              || (invoice as any).attempt_count;
+            const declineCode = (invoice as any).charge?.outcome?.reason || null;
+            const failureMessage = (invoice as any).charge?.failure_message
+              || lastErr?.message
+              || null;
+
             await subDoc.ref.update({
               'stripeStatus.status': 'past_due',
-              'stripeStatus.lastSyncedAt': new Date().toISOString(),
+              'stripeStatus.lastSyncedAt': nowIso,
+              'paymentFailure.count': newFailureCount,
+              'paymentFailure.lastFailedAt': nowIso,
+              'paymentFailure.firstFailedAt': subData.paymentFailure?.firstFailedAt || nowIso,
+              'paymentFailure.lastInvoiceId': invoice.id || null,
+              'paymentFailure.lastAmount': invoice.amount_due || 0,
+              'paymentFailure.declineCode': declineCode,
+              'paymentFailure.failureMessage': failureMessage,
+              'paymentFailure.nextAttemptAt': invoice.next_payment_attempt
+                ? new Date(invoice.next_payment_attempt * 1000).toISOString()
+                : null,
               updatedAt: Timestamp.now(),
             });
-            log(`[stripeWebhook] invoice.payment_failed: Updated sub ${subDoc.id}`);
+            log(`[stripeWebhook] invoice.payment_failed: sub ${subDoc.id}, failureCount=${newFailureCount}, decline=${declineCode || '-'}`);
 
-            // Notify admin
             const settingsDoc = await db.collection('settings').doc('global').get();
             const adminEmail = settingsDoc.data()?.managerEmail;
+
+            // Build a Stripe Customer Portal URL so the user can update card details
+            const myPageUrl = 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app/mypage/payments';
+            let portalUrl = myPageUrl;
+            try {
+              if (subData.stripeCustomerId) {
+                const portalSession = await stripe.billingPortal.sessions.create({
+                  customer: subData.stripeCustomerId,
+                  return_url: myPageUrl,
+                });
+                portalUrl = portalSession.url;
+              }
+            } catch (portalErr: any) {
+              log(`[stripeWebhook] Could not create Billing Portal session:`, portalErr.message);
+            }
+
+            // Notify the user (NEW — was missing before)
+            if (subData.userId) {
+              const userDoc = await db.collection('users').doc(subData.userId).get();
+              const userData = userDoc.exists ? userDoc.data()! : {};
+              const userEmail = userData?.email;
+              if (userEmail) {
+                const userName = `${userData.familyName || ''} ${userData.givenName || ''}`.trim() || 'お客様';
+                const nextAttemptStr = invoice.next_payment_attempt
+                  ? new Date(invoice.next_payment_attempt * 1000).toLocaleDateString('ja-JP')
+                  : '近日中';
+                await sendTriggeredEmail('payment_failed_user', { name: userName, email: userEmail }, {
+                  deviceType: subData.deviceType || '',
+                  amount: invoice.amount_due,
+                  failureCount: newFailureCount,
+                  nextAttemptAt: nextAttemptStr,
+                  cardUpdateUrl: portalUrl,
+                  myPageUrl,
+                });
+                log(`[stripeWebhook] Notified user ${userEmail} of payment failure.`);
+              }
+            }
+
+            // Notify admin (existing trigger)
             if (adminEmail) {
-              const userData = subDoc.data();
               await sendTriggeredEmail('payment_failed', { name: 'Admin', email: adminEmail }, {
                 subscriptionId: subDoc.id,
-                deviceType: userData.deviceType || '',
+                deviceType: subData.deviceType || '',
                 amount: invoice.amount_due,
+                failureCount: newFailureCount,
+                declineCode: declineCode || '不明',
               });
+            }
+          }
+        }
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        // (recovery path) — existing handler updated above already sets active.
+        // Additionally clear the paymentFailure block so the past_due flag is removed.
+        const invoice = event.data.object;
+        const subId = getInvoiceSubscriptionId(invoice);
+        if (subId) {
+          const subsSnap = await db.collection('subscriptions')
+            .where('stripeSubscriptionId', '==', subId)
+            .limit(1).get();
+          if (!subsSnap.empty) {
+            const subDoc = subsSnap.docs[0];
+            const hadFailures = !!subDoc.data().paymentFailure?.count;
+            if (hadFailures) {
+              await subDoc.ref.update({
+                paymentFailure: FieldValue.delete(),
+                updatedAt: Timestamp.now(),
+              });
+              log(`[stripeWebhook] invoice.payment_succeeded: Cleared paymentFailure on sub ${subDoc.id} (recovered).`);
             }
           }
         }
@@ -1187,9 +1795,10 @@ export const stripeWebhook = onRequest({ cors: false }, async (req, res) => {
           .limit(1).get();
         if (!subsSnap.empty) {
           const subDoc = subsSnap.docs[0];
+          const cpe = getSubscriptionCurrentPeriodEnd(subscription);
           await subDoc.ref.update({
             'stripeStatus.status': subscription.status,
-            'stripeStatus.currentPeriodEnd': new Date(subscription.current_period_end * 1000).toISOString(),
+            'stripeStatus.currentPeriodEnd': cpe ? new Date(cpe * 1000).toISOString() : null,
             'stripeStatus.cancelAt': subscription.cancel_at ? new Date(subscription.cancel_at * 1000).toISOString() : null,
             'stripeStatus.lastSyncedAt': new Date().toISOString(),
             updatedAt: Timestamp.now(),
@@ -1253,6 +1862,104 @@ export const stripeWebhook = onRequest({ cors: false }, async (req, res) => {
             });
             log(`[stripeWebhook] charge.refunded: Recorded on sub ${subDoc.id}`);
           }
+        }
+        break;
+      }
+
+      case 'payment_intent.payment_failed': {
+        // First-time PaymentIntent failure (card declined at initial charge).
+        // The user is on the payment page during this — frontend already surfaces the error,
+        // but we still record + notify so support can follow up if the user abandoned.
+        const pi = event.data.object;
+        const piId = pi.id;
+        const failureMessage = pi.last_payment_error?.message || null;
+        const declineCode = pi.last_payment_error?.decline_code || pi.last_payment_error?.code || null;
+
+        log(`[stripeWebhook] payment_intent.payment_failed: ${piId}, decline=${declineCode || '-'}, msg=${failureMessage || '-'}`);
+
+        // Find linked paymentLink and (if any) Firestore subscription
+        const linkSnap = await db.collection('paymentLinks')
+          .where('stripePaymentIntentId', '==', piId)
+          .limit(1).get();
+        if (!linkSnap.empty) {
+          const linkDoc = linkSnap.docs[0];
+          await linkDoc.ref.update({
+            'paymentFailure.lastFailedAt': new Date().toISOString(),
+            'paymentFailure.declineCode': declineCode,
+            'paymentFailure.failureMessage': failureMessage,
+            'paymentFailure.amount': pi.amount,
+            updatedAt: Timestamp.now(),
+          });
+          log(`[stripeWebhook] Recorded failure on paymentLink ${linkDoc.id}`);
+
+          // Notify admin so they can follow up
+          const settingsDoc = await db.collection('settings').doc('global').get();
+          const adminEmail = settingsDoc.data()?.managerEmail;
+          if (adminEmail) {
+            await sendTriggeredEmail('initial_payment_failed', { name: 'Admin', email: adminEmail }, {
+              paymentLinkId: linkDoc.id,
+              userId: linkDoc.data().userId || '',
+              amount: pi.amount,
+              declineCode: declineCode || '不明',
+              failureMessage: failureMessage || '',
+            });
+          }
+        }
+        break;
+      }
+
+      case 'customer.source.expiring':
+      case 'payment_method.updated': {
+        // Card is expiring within 1 month (Stripe fires this once for the soon-to-expire card).
+        // Send a heads-up to all active subscribers using this customer.
+        const obj = event.data.object;
+        const customerId = obj.customer || (obj as any).id;
+        if (!customerId || typeof customerId !== 'string') break;
+
+        const subsSnap = await db.collection('subscriptions')
+          .where('stripeCustomerId', '==', customerId)
+          .where('status', '==', 'active')
+          .get();
+
+        if (subsSnap.empty) {
+          log(`[stripeWebhook] customer.source.expiring: No active subs for ${customerId}`);
+          break;
+        }
+
+        const expMonth = obj.exp_month || (obj as any).card?.exp_month;
+        const expYear = obj.exp_year || (obj as any).card?.exp_year;
+        const last4 = obj.last4 || (obj as any).card?.last4;
+
+        for (const subDoc of subsSnap.docs) {
+          const subData = subDoc.data();
+          if (!subData.userId) continue;
+          const userDoc = await db.collection('users').doc(subData.userId).get();
+          if (!userDoc.exists) continue;
+          const userData = userDoc.data()!;
+          if (!userData.email) continue;
+
+          // Build a portal URL for this customer
+          const myPageUrl = 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app/mypage/payments';
+          let portalUrl = myPageUrl;
+          try {
+            const portalSession = await stripe.billingPortal.sessions.create({
+              customer: customerId,
+              return_url: myPageUrl,
+            });
+            portalUrl = portalSession.url;
+          } catch (portalErr: any) {
+            log(`[stripeWebhook] Could not create Billing Portal session for expiring card:`, portalErr.message);
+          }
+
+          const userName = `${userData.familyName || ''} ${userData.givenName || ''}`.trim() || 'お客様';
+          await sendTriggeredEmail('card_expiring', { name: userName, email: userData.email }, {
+            deviceType: subData.deviceType || '',
+            last4: last4 || '****',
+            expMonth: expMonth ? String(expMonth).padStart(2, '0') : '--',
+            expYear: expYear || '----',
+            cardUpdateUrl: portalUrl,
+          });
+          log(`[stripeWebhook] Sent card_expiring notice to ${userData.email}`);
         }
         break;
       }

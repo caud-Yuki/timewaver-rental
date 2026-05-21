@@ -9,9 +9,10 @@ import { firebaseApp } from '@/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, CreditCard, Download, ChevronDown, ChevronUp, CheckCircle2, Clock, Calendar, XCircle, ArrowLeft } from 'lucide-react';
+import { Loader2, CreditCard, Download, ChevronDown, ChevronUp, CheckCircle2, Clock, Calendar, XCircle, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { useToast } from '@/hooks/use-toast';
 
 interface UserSubscription {
   id: string;
@@ -30,6 +31,15 @@ interface UserSubscription {
   stripePaymentIntentId?: string;
   stripeCustomerId?: string;
   stripeStatus?: { status?: string; currentPeriodEnd?: string; cancelAt?: string; lastSyncedAt?: string };
+  paymentFailure?: {
+    count?: number;
+    lastFailedAt?: string;
+    firstFailedAt?: string;
+    nextAttemptAt?: string;
+    declineCode?: string;
+    failureMessage?: string;
+    lastAmount?: number;
+  };
   refundHistory?: Array<{ refundId?: string; amount?: number; refundedAt: string }>;
 }
 
@@ -51,6 +61,28 @@ export default function UserPaymentsPage() {
   const { user, loading: authLoading } = useUser();
   const router = useRouter();
   const db = useFirestore();
+  const { toast } = useToast();
+  const [openingPortal, setOpeningPortal] = useState(false);
+
+  const openBillingPortal = async () => {
+    if (openingPortal) return;
+    setOpeningPortal(true);
+    try {
+      const functions = getFunctions(firebaseApp);
+      const fn = httpsCallable(functions, 'createBillingPortalSession');
+      const res: any = await fn({ returnUrl: window.location.href });
+      const url = res?.data?.url;
+      if (!url) throw new Error('ポータルURLを取得できませんでした。');
+      window.location.href = url;
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'カード更新画面を開けませんでした',
+        description: err.message || '時間をおいて再度お試しください。',
+      });
+      setOpeningPortal(false);
+    }
+  };
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -162,6 +194,13 @@ export default function UserPaymentsPage() {
   };
 
   const getSubStatusBadge = (sub: UserSubscription) => {
+    if (sub.stripeStatus?.status === 'past_due') {
+      return (
+        <Badge className="bg-red-500 hover:bg-red-600 text-white text-xs flex items-center gap-0.5">
+          <AlertTriangle className="h-3 w-3" /> 決済失敗
+        </Badge>
+      );
+    }
     if (sub.refundHistory && sub.refundHistory.length > 0) {
       return <Badge className="bg-orange-500 hover:bg-orange-600 text-white text-xs">返金済み</Badge>;
     }
@@ -176,6 +215,11 @@ export default function UserPaymentsPage() {
         return <Badge variant="outline" className="text-xs">{sub.status}</Badge>;
     }
   };
+
+  // Find any subscription that is currently past_due so we can show a top-of-page warning
+  const pastDueSubs = useMemo(() => {
+    return (subscriptions || []).filter(s => s.stripeStatus?.status === 'past_due');
+  }, [subscriptions]);
 
   const getScheduleStatusBadge = (status: string) => {
     switch (status) {
@@ -228,10 +272,61 @@ export default function UserPaymentsPage() {
         <ArrowLeft className="h-4 w-4 mr-1" />
         マイページに戻る
       </Button>
-      <div>
-        <h1 className="text-3xl font-bold font-headline">支払履歴</h1>
-        <p className="text-muted-foreground">過去の決済・契約更新の履歴</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold font-headline">支払履歴</h1>
+          <p className="text-muted-foreground">過去の決済・契約更新の履歴</p>
+        </div>
+        <Button
+          variant="outline"
+          className="rounded-xl"
+          onClick={openBillingPortal}
+          disabled={openingPortal}
+        >
+          {openingPortal
+            ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 開いています...</>
+            : <><CreditCard className="h-4 w-4 mr-2" /> カード情報を更新</>
+          }
+        </Button>
       </div>
+
+      {pastDueSubs.length > 0 && (
+        <Card className="border-red-300 bg-red-50/50 shadow-md rounded-2xl overflow-hidden">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="font-bold text-red-700">月次決済の処理に失敗しています</h3>
+                <p className="text-sm text-red-700/90 mt-1">
+                  {pastDueSubs.length === 1
+                    ? `「${pastDueSubs[0].deviceType || pastDueSubs[0].deviceName || '機器'}」の決済が失敗しました。`
+                    : `${pastDueSubs.length}件のサブスクで決済が失敗しています。`}
+                  <br />
+                  カードの有効期限切れ、利用限度額超過などが原因として考えられます。
+                  <strong className="font-semibold">14日以内</strong>にカード情報を更新してください。期間を過ぎるとご契約が自動キャンセルとなります。
+                </p>
+                {pastDueSubs[0].paymentFailure?.nextAttemptAt && (
+                  <p className="text-xs text-red-600/80 mt-2">
+                    次回自動リトライ: {new Date(pastDueSubs[0].paymentFailure.nextAttemptAt).toLocaleDateString('ja-JP')}
+                    {pastDueSubs[0].paymentFailure?.count && ` ／ 失敗回数: ${pastDueSubs[0].paymentFailure.count}回`}
+                  </p>
+                )}
+                <Button
+                  size="sm"
+                  className="mt-3 rounded-xl bg-red-600 hover:bg-red-700"
+                  onClick={openBillingPortal}
+                  disabled={openingPortal}
+                >
+                  {openingPortal
+                    ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> 開いています...</>
+                    : <><CreditCard className="h-3 w-3 mr-1" /> いますぐカードを更新する</>
+                  }
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-none shadow-xl rounded-[2.5rem] overflow-hidden bg-white">
         <CardHeader className="bg-primary/5 p-8">
