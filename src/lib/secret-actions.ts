@@ -5,6 +5,7 @@
  * These actions run on the server and are safe to call from client components.
  */
 
+import crypto from 'node:crypto';
 import { getSecret, setSecret, deleteSecret, googleChatWebhookSecretName, SECRET_NAMES } from '@/lib/secret-manager';
 
 // --- Types ---
@@ -361,5 +362,269 @@ export async function testGoogleChatTemplatePreview(args: {
   } catch (error: any) {
     console.error('[testGoogleChatTemplatePreview] Error:', error.message);
     return { success: false, error: error.message };
+  }
+}
+
+// --- Stripe Connection Test (Dry Run) ---
+
+/**
+ * One sub-check inside the Stripe connection test result.
+ * `ok: null` means the check was skipped (e.g. webhook secret not configured).
+ */
+export interface StripeCheck {
+  ok: boolean | null;
+  detail?: string;
+}
+
+export interface StripeConnectionTestResult {
+  success: boolean;
+  mode: 'test' | 'production';
+  testedAt: string; // ISO timestamp
+  checks: {
+    /** Secret Key has correct prefix (sk_test_ or sk_live_) */
+    secretKeyFormat: StripeCheck;
+    /** Publishable Key has correct prefix (pk_test_ or pk_live_) */
+    publishableKeyFormat: StripeCheck;
+    /** Secret Key and Publishable Key are both for the same environment */
+    keyPairConsistency: StripeCheck;
+    /** GET /v1/account — verifies Secret Key is valid; returns account info */
+    accountRetrieve: StripeCheck & {
+      accountId?: string;
+      country?: string;
+      displayName?: string;
+      chargesEnabled?: boolean;
+      payoutsEnabled?: boolean;
+      defaultCurrency?: string;
+      livemode?: boolean;
+    };
+    /** GET /v1/balance — verifies Secret Key has balance read permission */
+    balanceRetrieve: StripeCheck & {
+      available?: Array<{ amount: number; currency: string }>;
+    };
+    /** Webhook secret format check (whsec_...) */
+    webhookSecretFormat: StripeCheck;
+    /** HMAC self-test: sign a fake payload with the secret and verify it parses back */
+    webhookSignatureSelfTest: StripeCheck;
+    /** GET /v1/webhook_endpoints — lists endpoints registered on Stripe */
+    webhookEndpointRegistration: StripeCheck & {
+      endpoints?: Array<{ url: string; status: string; eventCount: number }>;
+    };
+  };
+  /** Top-level error (e.g. missing credentials) when checks could not run at all */
+  error?: string;
+}
+
+const STRIPE_API_BASE = 'https://api.stripe.com/v1';
+const STRIPE_API_VERSION = '2024-12-18.acacia';
+
+/**
+ * Call a read-only Stripe REST endpoint with the given secret key.
+ * Returns parsed JSON on success, or throws Error with Stripe-provided message on failure.
+ */
+async function stripeGet(secretKey: string, path: string): Promise<any> {
+  const res = await fetch(`${STRIPE_API_BASE}${path}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      'Stripe-Version': STRIPE_API_VERSION,
+    },
+    // Don't cache — every test should hit Stripe live
+    cache: 'no-store',
+  });
+
+  const body = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg =
+      body?.error?.message ||
+      body?.error?.type ||
+      `HTTP ${res.status} ${res.statusText}`;
+    throw new Error(msg);
+  }
+  return body;
+}
+
+/**
+ * Self-test the webhook secret by signing a fake event payload and verifying
+ * the signature can be reconstructed. Mirrors stripe.webhooks.constructEvent()
+ * verification logic without needing the Stripe SDK.
+ *
+ * Does NOT prove that real webhooks from Stripe will be accepted — only that
+ * the secret has a valid HMAC and our verification code works.
+ */
+function selfTestWebhookSignature(webhookSecret: string): { ok: boolean; detail: string } {
+  try {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const payload = JSON.stringify({ id: 'evt_test_selftest', type: 'ping' });
+    const signedPayload = `${timestamp}.${payload}`;
+
+    const expectedSig = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(signedPayload, 'utf8')
+      .digest('hex');
+
+    // Reconstruct what Stripe sends in the Stripe-Signature header
+    const header = `t=${timestamp},v1=${expectedSig}`;
+
+    // Now verify (mimic what stripe.webhooks.constructEvent does internally)
+    const parts = Object.fromEntries(header.split(',').map((p) => p.split('=', 2) as [string, string]));
+    if (!parts.t || !parts.v1) return { ok: false, detail: '署名ヘッダーの構築に失敗しました。' };
+
+    const verifySig = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(`${parts.t}.${payload}`, 'utf8')
+      .digest('hex');
+
+    const matches = crypto.timingSafeEqual(
+      Buffer.from(parts.v1, 'utf8'),
+      Buffer.from(verifySig, 'utf8'),
+    );
+
+    return matches
+      ? { ok: true, detail: 'HMAC-SHA256 署名生成・検証ロジックが正常に動作しました。' }
+      : { ok: false, detail: '署名再検証に失敗しました（HMAC計算結果が一致しません）。' };
+  } catch (err: any) {
+    return { ok: false, detail: `署名自己テスト中にエラー: ${err?.message || err}` };
+  }
+}
+
+/**
+ * Run a non-destructive, read-only verification of all Stripe credentials
+ * stored in Secret Manager for the given mode.
+ *
+ * Performs the following checks:
+ *   01. Publishable Key + Secret Key
+ *     - Format validation (pk_*, sk_*)
+ *     - Live/Test mode consistency between the two keys
+ *     - GET /v1/account → confirms Secret Key works, returns account info
+ *     - GET /v1/balance → confirms read permission and shows available balance
+ *   02. Webhook Secret
+ *     - Format validation (whsec_*)
+ *     - HMAC self-test (sign fake payload + verify signature)
+ *     - GET /v1/webhook_endpoints → lists endpoints currently registered on Stripe
+ *
+ * NO money is moved. NO customers/subscriptions/charges are created. All
+ * Stripe API calls are GET requests.
+ */
+export async function testStripeConnection(
+  mode: 'test' | 'production',
+): Promise<StripeConnectionTestResult> {
+  const result: StripeConnectionTestResult = {
+    success: false,
+    mode,
+    testedAt: new Date().toISOString(),
+    checks: {
+      secretKeyFormat: { ok: null },
+      publishableKeyFormat: { ok: null },
+      keyPairConsistency: { ok: null },
+      accountRetrieve: { ok: null },
+      balanceRetrieve: { ok: null },
+      webhookSecretFormat: { ok: null },
+      webhookSignatureSelfTest: { ok: null },
+      webhookEndpointRegistration: { ok: null },
+    },
+  };
+
+  try {
+    // ---- Load secrets ----
+    const secrets = await getStripeSecrets(mode);
+    if (!secrets) {
+      result.error = `${mode === 'test' ? 'テスト' : '本番'}環境の Publishable Key / Secret Key が Secret Manager に保存されていません。`;
+      return result;
+    }
+    const webhookSecret = await getStripeWebhookSecret(mode);
+
+    const { publishableKey, secretKey } = secrets;
+    const expectedSecretPrefix = mode === 'test' ? 'sk_test_' : 'sk_live_';
+    const expectedPubPrefix = mode === 'test' ? 'pk_test_' : 'pk_live_';
+
+    // ---- 01-a. Format checks ----
+    result.checks.secretKeyFormat = secretKey.startsWith(expectedSecretPrefix)
+      ? { ok: true, detail: `Secret Key は ${expectedSecretPrefix}... 形式で正常です。` }
+      : { ok: false, detail: `Secret Key は ${expectedSecretPrefix}... で始まる必要があります（実際: ${secretKey.slice(0, 8)}...）` };
+
+    result.checks.publishableKeyFormat = publishableKey.startsWith(expectedPubPrefix)
+      ? { ok: true, detail: `Publishable Key は ${expectedPubPrefix}... 形式で正常です。` }
+      : { ok: false, detail: `Publishable Key は ${expectedPubPrefix}... で始まる必要があります（実際: ${publishableKey.slice(0, 8)}...）` };
+
+    // ---- 01-b. Key-pair mode consistency ----
+    const secretIsLive = secretKey.startsWith('sk_live_');
+    const pubIsLive = publishableKey.startsWith('pk_live_');
+    result.checks.keyPairConsistency = secretIsLive === pubIsLive
+      ? { ok: true, detail: `Publishable Key と Secret Key は両方とも ${secretIsLive ? '本番(Live)' : 'テスト(Test)'} モードです。` }
+      : { ok: false, detail: 'Publishable Key と Secret Key で Live / Test モードが混在しています。' };
+
+    // ---- 01-c. GET /v1/account ----
+    try {
+      const account = await stripeGet(secretKey, '/account');
+      result.checks.accountRetrieve = {
+        ok: true,
+        detail: 'Stripe アカウント情報を取得できました。',
+        accountId: account.id,
+        country: account.country,
+        displayName: account.business_profile?.name || account.settings?.dashboard?.display_name || account.email,
+        chargesEnabled: account.charges_enabled,
+        payoutsEnabled: account.payouts_enabled,
+        defaultCurrency: account.default_currency,
+        livemode: account.livemode,
+      };
+    } catch (err: any) {
+      result.checks.accountRetrieve = { ok: false, detail: `アカウント取得失敗: ${err.message}` };
+    }
+
+    // ---- 01-d. GET /v1/balance ----
+    try {
+      const balance = await stripeGet(secretKey, '/balance');
+      result.checks.balanceRetrieve = {
+        ok: true,
+        detail: '残高情報を取得できました（読み取り権限OK）。',
+        available: (balance.available || []).map((b: any) => ({ amount: b.amount, currency: b.currency })),
+      };
+    } catch (err: any) {
+      result.checks.balanceRetrieve = { ok: false, detail: `残高取得失敗: ${err.message}` };
+    }
+
+    // ---- 02-a. Webhook secret format ----
+    if (!webhookSecret) {
+      result.checks.webhookSecretFormat = { ok: null, detail: 'Webhook Secret が未設定です（スキップ）。' };
+      result.checks.webhookSignatureSelfTest = { ok: null, detail: 'Webhook Secret が未設定のためスキップしました。' };
+    } else {
+      result.checks.webhookSecretFormat = webhookSecret.startsWith('whsec_')
+        ? { ok: true, detail: 'Webhook Secret は whsec_... 形式で正常です。' }
+        : { ok: false, detail: `Webhook Secret は whsec_... で始まる必要があります（実際: ${webhookSecret.slice(0, 8)}...）` };
+
+      // ---- 02-b. Signature self-test ----
+      result.checks.webhookSignatureSelfTest = selfTestWebhookSignature(webhookSecret);
+    }
+
+    // ---- 02-c. List registered webhook endpoints ----
+    try {
+      const list = await stripeGet(secretKey, '/webhook_endpoints?limit=20');
+      const endpoints = (list.data || []).map((e: any) => ({
+        url: e.url,
+        status: e.status,
+        eventCount: Array.isArray(e.enabled_events) ? e.enabled_events.length : 0,
+      }));
+      result.checks.webhookEndpointRegistration = {
+        ok: endpoints.length > 0,
+        detail: endpoints.length > 0
+          ? `${endpoints.length} 件の Webhook エンドポイントが Stripe 側に登録されています。`
+          : 'Stripe 側に Webhook エンドポイントが登録されていません。Stripe Dashboard → Developers → Webhooks から追加してください。',
+        endpoints,
+      };
+    } catch (err: any) {
+      result.checks.webhookEndpointRegistration = { ok: false, detail: `エンドポイント一覧取得失敗: ${err.message}` };
+    }
+
+    // ---- Overall success: all non-null checks must be ok ----
+    const allChecks = Object.values(result.checks);
+    const failedCount = allChecks.filter((c) => c.ok === false).length;
+    result.success = failedCount === 0;
+
+    return result;
+  } catch (error: any) {
+    console.error('[testStripeConnection] Unexpected error:', error);
+    result.error = error?.message || '接続テスト中に予期しないエラーが発生しました。';
+    return result;
   }
 }

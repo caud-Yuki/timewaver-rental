@@ -14,8 +14,9 @@ import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRoun
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { GlobalSettings, UserProfile, GoogleChatDestination } from '@/types';
-import { saveSecrets, getSecretsStatus, type SecretPayload } from '@/lib/secret-actions';
+import { saveSecrets, getSecretsStatus, testStripeConnection, type SecretPayload, type StripeConnectionTestResult } from '@/lib/secret-actions';
 import { GoogleChatDestinationsEditor } from '@/components/admin/google-chat-destinations-editor';
+import { StripeConnectionTestDialog } from '@/components/admin/stripe-connection-test-dialog';
 import { AVAILABLE_GEMINI_MODELS, DEFAULT_GEMINI_MODEL } from '@/ai/models';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConsentFormManager } from '@/components/admin/consent-form-manager';
@@ -40,6 +41,10 @@ export default function SettingsPage() {
   const [secretInputs, setSecretInputs] = useState<SecretPayload>({});
   const [secretsStatus, setSecretsStatus] = useState<Record<string, boolean>>({});
   const [secretsLoading, setSecretsLoading] = useState(true);
+
+  // Stripe connection test dialog state
+  const [stripeTestOpen, setStripeTestOpen] = useState(false);
+  const [stripeTestResult, setStripeTestResult] = useState<StripeConnectionTestResult | null>(null);
 
   useEffect(() => {
     if (initialSettings) {
@@ -82,14 +87,60 @@ export default function SettingsPage() {
 
   const handleConnectionTest = async () => {
     setIsTesting(true);
+    // Open dialog immediately so the loading spinner is visible
+    setStripeTestResult(null);
+    setStripeTestOpen(true);
+
+    // Warn if there are unsaved key inputs — the test reads from Secret Manager,
+    // not from the form, so pending edits won't be tested.
+    const hasUnsavedStripeInputs = !!(
+      secretInputs.stripeTestPublishableKey?.trim() ||
+      secretInputs.stripeTestSecretKey?.trim() ||
+      secretInputs.stripeLivePublishableKey?.trim() ||
+      secretInputs.stripeLiveSecretKey?.trim() ||
+      secretInputs.stripeTestWebhookSecret?.trim() ||
+      secretInputs.stripeLiveWebhookSecret?.trim()
+    );
+    if (hasUnsavedStripeInputs) {
+      toast({
+        variant: 'default',
+        title: '未保存の入力があります',
+        description: '保存前の入力値はテスト対象外です。現在 Secret Manager に保存済みのキーで検証します。',
+      });
+    }
+
     try {
-      const isTestMode = settings.mode === 'test';
-      toast({ title: "接続テスト", description: `${isTestMode ? 'テスト' : '本番'}環境への接続テストを実行中...` });
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast({ title: "成功", description: "接続テストが成功しました。" });
-    } catch (error) {
-      console.error("Connection test error:", error);
-      toast({ variant: "destructive", title: "エラー", description: "接続テストに失敗しました。" });
+      const mode: 'test' | 'production' = settings.mode === 'test' ? 'test' : 'production';
+      const result = await testStripeConnection(mode);
+      setStripeTestResult(result);
+
+      if (result.success) {
+        toast({ title: '接続テスト成功', description: '全てのチェックに合格しました。' });
+      } else if (result.error) {
+        toast({ variant: 'destructive', title: 'テスト実行不可', description: result.error });
+      } else {
+        toast({ variant: 'destructive', title: '一部チェック失敗', description: 'ダイアログで詳細を確認してください。' });
+      }
+    } catch (error: any) {
+      console.error('Connection test error:', error);
+      toast({ variant: 'destructive', title: 'エラー', description: error?.message || '接続テストに失敗しました。' });
+      // Surface the failure in the dialog too
+      setStripeTestResult({
+        success: false,
+        mode: settings.mode === 'test' ? 'test' : 'production',
+        testedAt: new Date().toISOString(),
+        checks: {
+          secretKeyFormat: { ok: null },
+          publishableKeyFormat: { ok: null },
+          keyPairConsistency: { ok: null },
+          accountRetrieve: { ok: null },
+          balanceRetrieve: { ok: null },
+          webhookSecretFormat: { ok: null },
+          webhookSignatureSelfTest: { ok: null },
+          webhookEndpointRegistration: { ok: null },
+        },
+        error: error?.message || '接続テストに失敗しました。',
+      });
     } finally {
       setIsTesting(false);
     }
@@ -629,6 +680,14 @@ export default function SettingsPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Stripe Connection Test Result Dialog */}
+      <StripeConnectionTestDialog
+        open={stripeTestOpen}
+        onOpenChange={setStripeTestOpen}
+        result={stripeTestResult}
+        loading={isTesting}
+      />
     </div>
   );
 }
