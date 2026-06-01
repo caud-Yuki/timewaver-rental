@@ -53,7 +53,7 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     name: '[標準] 審査承認・決済案内',
     subject: '【{{serviceName}}】同意書承認および決済のご案内',
     type: 'application',
-    body: `{{userName}} 様\n\nご提出いただいた同意書を確認し、承認いたしました。\n以下のリンクより決済のお手続きをお願いいたします。\n\n■決済リンク\n{{paymentLink}}`
+    body: `{{userName}} 様\n\nご提出いただいた同意書を確認し、承認いたしました。\n決済のご案内は、準備が整い次第あらためて別途お送りいたしますので、今しばらくお待ちください。\n\nご不明な点がございましたら、本メールへご返信ください。\n\n—\n{{operatorCompanyName}}`
   },
   {
     id: 'sys_application_rejected',
@@ -67,7 +67,7 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     name: '[標準] 決済完了通知',
     subject: '【{{serviceName}}】決済完了および配送のお知らせ',
     type: 'transaction',
-    body: `{{userName}} 様\n\n決済のお手続きありがとうございました。\nデバイスの発送準備を開始いたしました。\n\n対象機器: {{deviceName}}\nシリアル番号: {{serialNumber}}`
+    body: `{{userName}} 様\n\n決済のお手続きありがとうございました。\nデバイスの発送準備を開始いたしました。\n\n対象機器: {{deviceType}}\nシリアル番号: {{deviceSerialNumber}}`
   },
   {
     id: 'sys_payment_failed',
@@ -148,7 +148,7 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     name: '[標準] 同意書承認・決済案内',
     subject: '【{{serviceName}}】同意書承認および決済のご案内',
     type: 'application',
-    body: `{{userName}} 様\n\nご提出いただいた同意書を確認し、承認いたしました。\n以下のリンクより決済のお手続きをお願いいたします。\n\n■決済リンク\n{{paymentLink}}`
+    body: `{{userName}} 様\n\nご提出いただいた同意書を確認し、承認いたしました。\n決済のご案内は、準備が整い次第あらためて別途お送りいたしますので、今しばらくお待ちください。\n\nご不明な点がございましたら、本メールへご返信ください。\n\n—\n{{operatorCompanyName}}`
   },
   {
     id: 'sys_device_prep_required',

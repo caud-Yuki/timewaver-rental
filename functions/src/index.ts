@@ -965,9 +965,11 @@ export const syncPaymentData = onCall(async (request) => {
             const userEmail = userData?.email;
 
             if (userEmail) {
+              const startAtDate = sub.startAt?.toDate ? sub.startAt.toDate() : (sub.startAt?._seconds ? new Date(sub.startAt._seconds * 1000) : null);
               const renewalData = {
                 deviceType: sub.deviceType || '',
                 endDate: endAt.toLocaleDateString('ja-JP'),
+                startAt: startAtDate ? startAtDate.toLocaleDateString('ja-JP') : '',
               };
               await sendTriggeredEmail('contract_renewal_reminder', { name: userName, email: userEmail }, renewalData);
 
@@ -2158,7 +2160,11 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
 
   // 決済リンク送付（paymentLinkIdがセットされたタイミングで決済案内メール）
   if (after.status === 'payment_sent' && after.paymentLinkId) {
-    await sendTriggeredEmail('payment_link_sent', user, applicationData);
+    const paymentBaseUrl = 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app';
+    await sendTriggeredEmail('payment_link_sent', user, {
+      ...applicationData,
+      paymentLinkUrl: `${paymentBaseUrl}/payment/${after.paymentLinkId}`,
+    });
   }
 
   // 決済完了 → ユーザーに決済完了メール + スタッフに発送準備依頼
