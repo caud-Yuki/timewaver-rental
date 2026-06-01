@@ -28,6 +28,7 @@ const TRIGGER_TO_EVENT: Record<string, { eventId: string; audience: 'user' | 'ad
   subscription_canceled_payment_failure_admin: { eventId: 'subscription_canceled_payment_failure', audience: 'admin' },
   early_booking_confirmation: { eventId: 'early_booking', audience: 'user' },
   early_booking_admin_notification: { eventId: 'early_booking', audience: 'admin' },
+  early_booking_launch_notice: { eventId: 'early_booking_launch_notice', audience: 'user' },
   // Audience-singular events — eventId === triggerId, audience inferred from name.
   application_submitted: { eventId: 'application_submitted', audience: 'user' },
   application_approved: { eventId: 'application_approved', audience: 'user' },

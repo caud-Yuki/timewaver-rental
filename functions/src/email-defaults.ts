@@ -218,5 +218,12 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     type: 'general',
     isAdmin: true,
     body: `管理者様\n\n新しい先行予約が登録されました。\n\n━━━━━━━━━━━━━━━━━━━━\nお名前: {{userName}}\n会社名・屋号: {{companyName}}\nメールアドレス: {{userEmail}}\n電話番号: {{phone}}\nご興味のある機器: {{desiredDevice}}\nご質問・ご要望:\n{{message}}\n登録日時: {{submittedAt}}\n━━━━━━━━━━━━━━━━━━━━\n\n管理画面で詳細を確認してください:\n{{linkAdminEarlyBookings}}`
+  },
+  {
+    id: 'sys_early_booking_launch_notice',
+    name: '[標準] 先行予約者へのローンチ案内',
+    subject: '【{{serviceName}}】お申し込み受付を開始しました — 先行予約のご案内',
+    type: 'general',
+    body: `{{userName}} 様\n\nお待たせいたしました。\nこの度、{{serviceName}} の正式なお申し込み受付を開始いたしました。\n\n先行予約にご登録いただいた皆さまへ、優先的にご案内を差し上げております。\n下記より、ご希望の機器のお申し込み手続きにお進みください。\n\n▼ 機器一覧・お申し込みはこちら\n{{linkDeviceList}}\n\nご不明な点がございましたら、このメールへ直接ご返信ください。\n\n改めまして、先行予約にご登録いただき誠にありがとうございました。\n今後ともどうぞよろしくお願いいたします。\n\n—\n{{operatorCompanyName}}`
   }
 ];

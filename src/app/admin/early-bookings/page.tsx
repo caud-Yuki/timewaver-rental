@@ -6,13 +6,14 @@ import { useFirestore, useCollection, useUser, useDoc } from '@/firebase';
 import {
   collection, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy
 } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Rocket, Trash2, Mail, ShieldAlert } from 'lucide-react';
+import { Loader2, Rocket, Trash2, Mail, ShieldAlert, Megaphone, CheckCircle2 } from 'lucide-react';
 import { EarlyBooking, earlyBookingConverter, UserProfile, EarlyBookingStatus } from '@/types';
 
 const STATUS_LABEL: Record<EarlyBookingStatus, { label: string; color: string }> = {
@@ -36,6 +37,12 @@ export default function AdminEarlyBookingsPage() {
   );
   const { data: items, loading } = useCollection<EarlyBooking>(q as any);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [sendingLaunch, setSendingLaunch] = useState(false);
+
+  const pendingLaunchCount = useMemo(
+    () => items.filter((b) => !(b.launchNoticeSentAt && 'seconds' in (b.launchNoticeSentAt as any))).length,
+    [items]
+  );
 
   if (profile && profile.role !== 'admin') {
     return (
@@ -55,6 +62,31 @@ export default function AdminEarlyBookingsPage() {
       toast({ variant: 'destructive', title: 'エラー', description: e.message });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const handleSendLaunchNotice = async () => {
+    if (items.length === 0) return;
+    const remaining = pendingLaunchCount;
+    if (remaining === 0) {
+      if (!confirm('全員に送信済みです。改めて全員へ再送信しますか？')) return;
+    } else if (!confirm(`未送信の先行予約者 ${remaining} 名へ「お申し込み受付開始」の案内メールを送信します。よろしいですか？`)) {
+      return;
+    }
+    setSendingLaunch(true);
+    try {
+      const functions = getFunctions();
+      const fn = httpsCallable(functions, 'sendEarlyBookingLaunchNotice');
+      const res: any = await fn(remaining === 0 ? { resend: true } : {});
+      const { sent = 0, skipped = 0, failed = 0 } = res?.data || {};
+      toast({
+        title: '案内メールを送信しました',
+        description: `送信 ${sent} 件 / スキップ ${skipped} 件${failed ? ` / 失敗 ${failed} 件` : ''}`,
+      });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'エラー', description: e.message || '送信に失敗しました' });
+    } finally {
+      setSendingLaunch(false);
     }
   };
 
@@ -78,7 +110,22 @@ export default function AdminEarlyBookingsPage() {
           </h1>
           <p className="text-muted-foreground text-sm">先行予約モードON時に /early-booking から登録されたリードを管理します。</p>
         </div>
-        <Link href="/admin"><Button variant="outline" className="rounded-xl">ダッシュボードへ</Button></Link>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={handleSendLaunchNotice}
+            disabled={sendingLaunch || items.length === 0}
+            className="rounded-xl gap-2"
+          >
+            {sendingLaunch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Megaphone className="h-4 w-4" />}
+            申込開始の案内を送信{pendingLaunchCount > 0 ? `（未送信 ${pendingLaunchCount} 名）` : ''}
+          </Button>
+          <Link href="/admin"><Button variant="outline" className="rounded-xl">ダッシュボードへ</Button></Link>
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 text-xs text-blue-700 leading-relaxed">
+        先行予約モードを解除（OFF）してお申し込み受付を開始したら、このボタンで先行予約者へ「申込開始」の案内メールを一括送信できます。
+        送信済みの方はスキップされるため、複数回押しても重複送信されません。文面は<Link href="/admin/email-templates" className="underline">メールテンプレート</Link>から編集できます。
       </div>
 
       <Card className="border-none shadow-lg rounded-2xl">
@@ -97,6 +144,7 @@ export default function AdminEarlyBookingsPage() {
                   <TableHead>希望機器</TableHead>
                   <TableHead>メッセージ</TableHead>
                   <TableHead>フォロー送信</TableHead>
+                  <TableHead>申込開始案内</TableHead>
                   <TableHead>ステータス</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
@@ -124,6 +172,15 @@ export default function AdminEarlyBookingsPage() {
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-[10px] text-muted-foreground">未送信</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {b.launchNoticeSentAt && 'seconds' in (b.launchNoticeSentAt as any) ? (
+                        <Badge variant="outline" className="text-[10px] gap-1 border-green-500 text-green-600">
+                          <CheckCircle2 className="h-3 w-3" />案内済
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-muted-foreground">未案内</Badge>
                       )}
                     </TableCell>
                     <TableCell>

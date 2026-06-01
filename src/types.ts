@@ -446,6 +446,7 @@ export interface EarlyBooking {
   status: EarlyBookingStatus;
   followUpSentAt?: Timestamp;
   adminNotifiedAt?: Timestamp;
+  launchNoticeSentAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

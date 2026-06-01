@@ -2444,3 +2444,81 @@ export const resendEarlyBookingFollowUp = onCall(async (request) => {
   await ref.update({ followUpSentAt: Timestamp.now() });
   return { success: true };
 });
+
+/**
+ * Manual bulk send of the "applications are now open" launch notice to
+ * early-booking (先行予約) leads. Intended to be run by an admin from
+ * /admin/early-bookings after turning OFF preBookingMode.
+ *
+ * Uses the same templated pipeline as the other early-booking emails. The
+ * trigger config is auto-seeded on first use so it works without prior setup,
+ * while remaining editable via /admin/email-triggers afterward.
+ *
+ * Request data:
+ *   - bookingIds?: string[]  Restrict to these bookings; otherwise all.
+ *   - resend?: boolean       Re-send to leads already notified (default false).
+ */
+export const sendEarlyBookingLaunchNotice = onCall(async (request) => {
+  await requireAdmin(request);
+  const { bookingIds, resend } = (request.data || {}) as {
+    bookingIds?: string[];
+    resend?: boolean;
+  };
+
+  const db = getFirestore();
+
+  // Ensure a trigger config exists so sendTriggeredEmail can resolve a template.
+  const triggerRef = db.collection('emailTriggers').doc('early_booking_launch_notice');
+  const triggerSnap = await triggerRef.get();
+  if (!triggerSnap.exists) {
+    await triggerRef.set({
+      triggerPoint: 'early_booking_launch_notice',
+      enabled: true,
+      userTemplateId: 'sys_early_booking_launch_notice',
+      adminTemplateId: '',
+      channels: { email: true },
+      updatedAt: Timestamp.now(),
+    }, { merge: true });
+    log('[sendEarlyBookingLaunchNotice] Seeded default trigger config.');
+  }
+
+  // Resolve target bookings.
+  let docs: FirebaseFirestore.DocumentSnapshot[] = [];
+  if (Array.isArray(bookingIds) && bookingIds.length > 0) {
+    const snaps = await Promise.all(
+      bookingIds.map((id) => db.collection('earlyBookings').doc(id).get())
+    );
+    docs = snaps.filter((s) => s.exists);
+  } else {
+    const all = await db.collection('earlyBookings').get();
+    docs = all.docs;
+  }
+
+  let sent = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const docSnap of docs) {
+    const b = docSnap.data() as any;
+    if (!b?.email) { skipped++; continue; }
+    if (b.launchNoticeSentAt && !resend) { skipped++; continue; }
+    try {
+      await sendTriggeredEmail(
+        'early_booking_launch_notice',
+        { name: b.name || 'お客様', email: b.email },
+        {
+          companyName: b.companyName || '',
+          desiredDevice: b.desiredDevice || '',
+        },
+      );
+      await docSnap.ref.update({ launchNoticeSentAt: Timestamp.now() });
+      sent++;
+    } catch (err: any) {
+      failed++;
+      log(`[sendEarlyBookingLaunchNotice] Failed for ${b.email}:`, err?.message || err);
+    }
+  }
+
+  log(`[sendEarlyBookingLaunchNotice] Done. total=${docs.length} sent=${sent} skipped=${skipped} failed=${failed}`);
+  return { success: true, total: docs.length, sent, skipped, failed };
+});

@@ -57,6 +57,7 @@ const EVENT_POINTS: Array<{
   { id: 'waitlist_device_available', name: '在庫確保時',             desc: 'キャンセル待ち対象に空きが出た時',                                        sysUser: 'sys_waitlist_available' },
   { id: 'welcome_registration',   name: '会員登録時',                desc: '新規ユーザーが登録した時',                                                sysUser: 'sys_welcome_registration' },
   { id: 'early_booking',          name: '先行予約受付時',            desc: '先行予約フォーム送信時',                                                  sysUser: 'sys_early_booking_confirmation', sysAdmin: 'sys_early_booking_admin_notification' },
+  { id: 'early_booking_launch_notice', name: '先行予約者へのローンチ案内', desc: '先行予約モード解除後、申込開始を先行予約者へ一括案内（手動送信）',          sysUser: 'sys_early_booking_launch_notice' },
 ];
 
 /** Map of legacy per-audience trigger doc ids to the new event id + audience. */
