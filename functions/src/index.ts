@@ -107,6 +107,7 @@ async function onDeviceReleased(deviceId: string, deviceType: string, reason: 'c
 
     log(`[onDeviceReleased] Found ${waitlistSnapshot.size} waiting users for device ${deviceId}.`);
 
+    let notifiedCount = 0;
     for (const waitDoc of waitlistSnapshot.docs) {
       const waitData = waitDoc.data();
       const user = {
@@ -134,8 +135,22 @@ async function onDeviceReleased(deviceId: string, deviceType: string, reason: 'c
         });
 
         log(`[onDeviceReleased] Notified ${user.email} for device ${deviceType}.`);
+        notifiedCount++;
       } catch (emailErr) {
         log(`[onDeviceReleased] Failed to notify ${user.email}:`, emailErr);
+      }
+    }
+
+    // Notify staff once that stock was secured for waitlisted users.
+    if (notifiedCount > 0) {
+      const settingsDoc = await db.collection('settings').doc('global').get();
+      const adminEmail = settingsDoc.data()?.managerEmail || settingsDoc.data()?.adminEmail || null;
+      if (adminEmail) {
+        await sendTriggeredEmail('waitlist_device_available_admin', { name: 'スタッフ', email: adminEmail }, {
+          deviceType,
+          deviceId,
+          notifiedCount,
+        });
       }
     }
   } catch (err) {
@@ -925,6 +940,8 @@ export const syncPaymentData = onCall(async (request) => {
     }
 
     // --- Send renewal reminder 1 month before expiry ---
+    const renewalSettings = (await db.collection('settings').doc('global').get()).data() || {};
+    const renewalAdminEmail = renewalSettings.managerEmail || renewalSettings.adminEmail || null;
     let reminders = 0;
     for (const subDoc of subscriptionsSnapshot.docs) {
       const sub = subDoc.data();
@@ -948,10 +965,20 @@ export const syncPaymentData = onCall(async (request) => {
             const userEmail = userData?.email;
 
             if (userEmail) {
-              await sendTriggeredEmail('contract_renewal_reminder', { name: userName, email: userEmail }, {
+              const renewalData = {
                 deviceType: sub.deviceType || '',
                 endDate: endAt.toLocaleDateString('ja-JP'),
-              });
+              };
+              await sendTriggeredEmail('contract_renewal_reminder', { name: userName, email: userEmail }, renewalData);
+
+              // Notify staff so return/renewal logistics can be prepared.
+              if (renewalAdminEmail) {
+                await sendTriggeredEmail('contract_renewal_reminder_admin', { name: 'スタッフ', email: renewalAdminEmail }, {
+                  ...renewalData,
+                  userName,
+                  userEmail,
+                });
+              }
 
               // Mark as sent to avoid duplicates
               await db.collection('subscriptions').doc(subDoc.id).update({
@@ -2041,6 +2068,46 @@ export const sendAdHocEmail = onCall(async (request) => {
   }
 });
 
+export const onApplicationCreate = onDocumentCreated("applications/{applicationId}", async (event) => {
+  const snap = event.data;
+  if (!snap) {
+    log("[onApplicationCreate] No snapshot; exiting.");
+    return;
+  }
+  const data = snap.data();
+  const applicationId = event.params.applicationId;
+
+  // Only notify on a fresh user submission (created in 'pending'). Applications
+  // created/seeded in other states should not re-trigger the submission flow.
+  if (data.status && data.status !== 'pending') {
+    return;
+  }
+
+  const db = getFirestore();
+  const payload = {
+    applicationId,
+    deviceType: data.deviceType || '',
+    deviceName: data.deviceType || '',
+    deviceSerialNumber: data.deviceSerialNumber || '',
+    userName: data.userName || '',
+    userEmail: data.userEmail || '',
+  };
+
+  // 1. Receipt to the applicant
+  if (data.userEmail) {
+    await sendTriggeredEmail('application_submitted', { name: data.userName || '', email: data.userEmail }, payload);
+  }
+
+  // 2. Notify admin/staff to start the review
+  const settingsDoc = await db.collection('settings').doc('global').get();
+  const adminEmail = settingsDoc.data()?.managerEmail || settingsDoc.data()?.adminEmail || null;
+  if (adminEmail) {
+    await sendTriggeredEmail('application_submitted_admin', { name: 'Admin', email: adminEmail }, payload);
+  }
+
+  log(`[onApplicationCreate] Dispatched submission notifications for ${applicationId}.`);
+});
+
 export const onApplicationUpdate = onDocumentUpdated("applications/{applicationId}", async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
@@ -2197,6 +2264,12 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
 
     await sendTriggeredEmail('contract_expired', user, applicationData);
     await sendTriggeredEmail('device_return_guide', user, applicationData);
+    // Notify staff: contract ended + device coming back for inspection
+    const expiredAdminEmail = await getAdminEmail();
+    if (expiredAdminEmail) {
+      await sendTriggeredEmail('contract_expired_admin', { name: 'スタッフ', email: expiredAdminEmail }, applicationData);
+      await sendTriggeredEmail('device_return_guide_admin', { name: 'スタッフ', email: expiredAdminEmail }, applicationData);
+    }
     // Auto-transition to returning
     await appRef.update({ status: 'returning', updatedAt: Timestamp.now() });
     log(`[onApplicationUpdate] Auto-transitioned ${applicationId} from 'expired' to 'returning'.`);
@@ -2206,6 +2279,11 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
   if (after.status === 'canceled' && before.status !== 'pending' && before.status !== 'rejected') {
     await sendTriggeredEmail('subscription_canceled', user, applicationData);
     await sendTriggeredEmail('device_return_guide', user, applicationData);
+    // Notify staff: device coming back for inspection
+    const canceledAdminEmail = await getAdminEmail();
+    if (canceledAdminEmail) {
+      await sendTriggeredEmail('device_return_guide_admin', { name: 'スタッフ', email: canceledAdminEmail }, applicationData);
+    }
     // Auto-transition to returning
     await appRef.update({ status: 'returning', updatedAt: Timestamp.now() });
     log(`[onApplicationUpdate] Auto-transitioned ${applicationId} from 'canceled' to 'returning'.`);
@@ -2267,9 +2345,13 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
     }
   }
 
-  // 破損・不具合あり → notify user about deposit
+  // 破損・不具合あり → notify user about deposit + alert staff for claim/replacement
   if (after.status === 'damaged') {
     await sendTriggeredEmail('device_damaged', user, applicationData);
+    const damagedAdminEmail = await getAdminEmail();
+    if (damagedAdminEmail) {
+      await sendTriggeredEmail('device_damaged_admin', { name: 'スタッフ', email: damagedAdminEmail }, applicationData);
+    }
   }
 
   // --- Cleanup for Canceled/Rejected Applications ---

@@ -51,6 +51,13 @@ const TRIGGER_TO_EVENT: Record<string, { eventId: string; audience: 'user' | 'ad
   news_published: { eventId: 'news_published', audience: 'user' },
   waitlist_device_available: { eventId: 'waitlist_device_available', audience: 'user' },
   welcome_registration: { eventId: 'welcome_registration', audience: 'user' },
+  // Admin/staff counterparts for events that also notify the operations team.
+  application_submitted_admin: { eventId: 'application_submitted', audience: 'admin' },
+  device_damaged_admin: { eventId: 'device_damaged', audience: 'admin' },
+  contract_renewal_reminder_admin: { eventId: 'contract_renewal_reminder', audience: 'admin' },
+  contract_expired_admin: { eventId: 'contract_expired', audience: 'admin' },
+  device_return_guide_admin: { eventId: 'device_return_guide', audience: 'admin' },
+  waitlist_device_available_admin: { eventId: 'waitlist_device_available', audience: 'admin' },
 };
 
 /**
@@ -59,9 +66,9 @@ const TRIGGER_TO_EVENT: Record<string, { eventId: string; audience: 'user' | 'ad
  * the `emailTemplates` Firestore collection. Sourced from the same data the
  * admin UI uses so the dropdown options match runtime behavior.
  */
-const SYSTEM_TEMPLATE_FALLBACK: Record<string, { subject: string; body: string; isAdmin?: boolean }> =
+const SYSTEM_TEMPLATE_FALLBACK: Record<string, { subject: string; body: string; isAdmin?: boolean; chatSubject?: string; chatBody?: string }> =
   Object.fromEntries(
-    SYSTEM_TEMPLATES.map((t) => [t.id, { subject: t.subject, body: t.body, isAdmin: t.isAdmin }])
+    SYSTEM_TEMPLATES.map((t) => [t.id, { subject: t.subject, body: t.body, isAdmin: t.isAdmin, chatSubject: t.chatSubject, chatBody: t.chatBody }])
   );
 
 const secretClient = new SecretManagerServiceClient();
@@ -166,6 +173,8 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       subject = fallback.subject;
       body = fallback.body;
       isAdmin = fallback.isAdmin;
+      chatSubject = fallback.chatSubject;
+      chatBody = fallback.chatBody;
       log(`[sendTriggeredEmail] Using built-in fallback for '${templateId}' (not in Firestore).`);
     } else {
       log(`[sendTriggeredEmail] Template '${templateId}' not found and no fallback. Aborting.`);

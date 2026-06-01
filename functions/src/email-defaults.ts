@@ -12,6 +12,10 @@ export interface SystemTemplate {
   type: "application" | "transaction" | "news" | "waiting" | "general";
   /** When true, the email is wrapped in the admin/staff design (gray header). */
   isAdmin?: boolean;
+  /** Optional Google Chat-specific title; falls back to the email subject. */
+  chatSubject?: string;
+  /** Optional Google Chat-specific body; falls back to the stripped email body. */
+  chatBody?: string;
 }
 
 export const SYSTEM_TEMPLATES: SystemTemplate[] = [
@@ -225,5 +229,66 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     subject: '【{{serviceName}}】お申し込み受付を開始しました — 先行予約のご案内',
     type: 'general',
     body: `{{userName}} 様\n\nお待たせいたしました。\nこの度、{{serviceName}} の正式なお申し込み受付を開始いたしました。\n\n先行予約にご登録いただいた皆さまへ、優先的にご案内を差し上げております。\n下記より、ご希望の機器のお申し込み手続きにお進みください。\n\n▼ 機器一覧・お申し込みはこちら\n{{linkDeviceList}}\n\nご不明な点がございましたら、このメールへ直接ご返信ください。\n\n改めまして、先行予約にご登録いただき誠にありがとうございました。\n今後ともどうぞよろしくお願いいたします。\n\n—\n{{operatorCompanyName}}`
+  },
+  // --- Admin/staff notifications (added for events that previously had no admin template) ---
+  {
+    id: 'sys_application_submitted_admin',
+    name: '[標準] 新規申込通知（管理者宛）',
+    subject: '【{{serviceName}}管理者】新規レンタル申込が届きました',
+    type: 'application',
+    isAdmin: true,
+    body: `管理者様\n\n新しいレンタル申込が届きました。内容をご確認のうえ、審査・承認処理を行ってください。\n\n■申込者\n{{userName}}（{{userEmail}}）\n\n■申請ID\n{{applicationId}}\n\n■対象機器\n{{deviceType}}\n\n管理画面の申請管理より審査を進めてください。`,
+    chatSubject: '【新規申込】{{serviceName}}',
+    chatBody: `申込者: {{userName}}\n申請ID: {{applicationId}}\n対象機器: {{deviceType}}\n→ 管理画面の申請管理より審査してください`
+  },
+  {
+    id: 'sys_device_damaged_admin',
+    name: '[標準] 破損・不具合通知（管理者宛）',
+    subject: '【{{serviceName}}管理者】返却機器に破損・不具合が確認されました',
+    type: 'transaction',
+    isAdmin: true,
+    body: `管理者様\n\n点検の結果、返却された機器に破損・不具合が確認されました。\n損害賠償・代替機の手配など、対応方針をご判断ください。\n\n■対象機器\n{{deviceType}}\n\n■シリアル番号\n{{deviceSerialNumber}}\n\n■利用者\n{{userName}}（{{userEmail}}）\n\n■申請ID\n{{applicationId}}\n\n管理画面の申請管理より詳細をご確認ください。`,
+    chatSubject: '【破損・不具合】{{serviceName}}',
+    chatBody: `対象機器: {{deviceType}}（{{deviceSerialNumber}}）\n利用者: {{userName}}\n申請ID: {{applicationId}}\n→ 賠償・代替機手配の判断が必要です`
+  },
+  {
+    id: 'sys_contract_renewal_reminder_admin',
+    name: '[標準] 契約終了1ヶ月前通知（スタッフ宛）',
+    subject: '【{{serviceName}}管理者】契約終了1ヶ月前のお知らせ',
+    type: 'transaction',
+    isAdmin: true,
+    body: `スタッフ各位\n\n以下の契約が約1ヶ月後に終了します。更新案内のフォローや返却受け入れの準備をお願いいたします。\n\n■利用者\n{{userName}}（{{userEmail}}）\n\n■対象機器\n{{deviceType}}\n\n■契約終了日\n{{endDate}}`,
+    chatSubject: '【契約終了1ヶ月前】{{serviceName}}',
+    chatBody: `利用者: {{userName}}\n対象機器: {{deviceType}}\n契約終了日: {{endDate}}\n→ 更新フォロー / 返却受け入れ準備を`
+  },
+  {
+    id: 'sys_contract_expired_admin',
+    name: '[標準] 契約終了通知（スタッフ宛）',
+    subject: '【{{serviceName}}管理者】契約が終了しました',
+    type: 'transaction',
+    isAdmin: true,
+    body: `スタッフ各位\n\n以下の契約が終了しました。返却対応の進捗をご確認ください。\n\n■利用者\n{{userName}}（{{userEmail}}）\n\n■対象機器\n{{deviceType}}\n\n■申請ID\n{{applicationId}}\n\n返却が完了するまで管理画面でステータスを追跡してください。`,
+    chatSubject: '【契約終了】{{serviceName}}',
+    chatBody: `利用者: {{userName}}\n対象機器: {{deviceType}}\n申請ID: {{applicationId}}\n→ 返却対応の追跡をお願いします`
+  },
+  {
+    id: 'sys_device_return_guide_admin',
+    name: '[標準] 返却案内通知（スタッフ宛）',
+    subject: '【{{serviceName}}管理者】返却案内を送付しました（受け入れ準備）',
+    type: 'transaction',
+    isAdmin: true,
+    body: `スタッフ各位\n\n以下の利用者へ返却案内を送付しました。機器の返却受け入れと点検の準備をお願いいたします。\n\n■利用者\n{{userName}}（{{userEmail}}）\n\n■対象機器\n{{deviceType}}\n\n■申請ID\n{{applicationId}}\n\n機器到着後、点検を実施してください。`,
+    chatSubject: '【返却案内】{{serviceName}}',
+    chatBody: `利用者: {{userName}}\n対象機器: {{deviceType}}\n申請ID: {{applicationId}}\n→ 返却受け入れ・点検の準備を`
+  },
+  {
+    id: 'sys_waitlist_available_admin',
+    name: '[標準] 在庫確保通知（スタッフ宛）',
+    subject: '【{{serviceName}}管理者】キャンセル待ちへ在庫を確保しました',
+    type: 'waiting',
+    isAdmin: true,
+    body: `スタッフ各位\n\nキャンセル待ち対象の機器に空きが出たため、登録ユーザーへ在庫確保の通知を送信しました。\n申込・決済の進捗にあわせて在庫の引き当て状況をご確認ください。\n\n■対象機器\n{{deviceType}}\n\n■通知送信数\n{{notifiedCount}}件`,
+    chatSubject: '【在庫確保】{{serviceName}}',
+    chatBody: `対象機器: {{deviceType}}\n通知送信: {{notifiedCount}}件\n→ 在庫引き当て状況をご確認ください`
   }
 ];
