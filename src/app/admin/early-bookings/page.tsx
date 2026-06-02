@@ -38,6 +38,7 @@ export default function AdminEarlyBookingsPage() {
   const { data: items, loading } = useCollection<EarlyBooking>(q as any);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [sendingLaunch, setSendingLaunch] = useState(false);
+  const [launchBusyId, setLaunchBusyId] = useState<string | null>(null);
 
   const pendingLaunchCount = useMemo(
     () => items.filter((b) => !(b.launchNoticeSentAt && 'seconds' in (b.launchNoticeSentAt as any))).length,
@@ -87,6 +88,34 @@ export default function AdminEarlyBookingsPage() {
       toast({ variant: 'destructive', title: 'エラー', description: e.message || '送信に失敗しました' });
     } finally {
       setSendingLaunch(false);
+    }
+  };
+
+  const handleSendSingleLaunch = async (b: EarlyBooking) => {
+    if (!b.email) {
+      toast({ variant: 'destructive', title: 'メールアドレスがありません', description: 'この予約にはメールアドレスが登録されていません。' });
+      return;
+    }
+    const alreadySent = !!(b.launchNoticeSentAt && 'seconds' in (b.launchNoticeSentAt as any));
+    const msg = alreadySent
+      ? `${b.name} 様へ「申込開始」の案内メールを再送信しますか？`
+      : `${b.name} 様へ「申込開始」の案内メールを送信しますか？`;
+    if (!confirm(msg)) return;
+    setLaunchBusyId(b.id);
+    try {
+      const functions = getFunctions();
+      const fn = httpsCallable(functions, 'sendEarlyBookingLaunchNotice');
+      const res: any = await fn({ bookingIds: [b.id], resend: true });
+      const { sent = 0, failed = 0 } = res?.data || {};
+      if (sent > 0) {
+        toast({ title: '案内メールを送信しました', description: `${b.email} に送信しました。` });
+      } else {
+        toast({ variant: 'destructive', title: '送信できませんでした', description: failed ? '送信に失敗しました。' : '対象がスキップされました。' });
+      }
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'エラー', description: e.message || '送信に失敗しました' });
+    } finally {
+      setLaunchBusyId(null);
     }
   };
 
@@ -150,7 +179,9 @@ export default function AdminEarlyBookingsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((b) => (
+                {items.map((b) => {
+                  const launchSent = !!(b.launchNoticeSentAt && 'seconds' in (b.launchNoticeSentAt as any));
+                  return (
                   <TableRow key={b.id}>
                     <TableCell className="text-xs">
                       {b.createdAt && 'seconds' in b.createdAt ? new Date(b.createdAt.seconds * 1000).toLocaleString('ja-JP') : '-'}
@@ -204,12 +235,25 @@ export default function AdminEarlyBookingsPage() {
                       </Select>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(b.id)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant={launchSent ? 'outline' : 'default'}
+                          size="sm"
+                          className="rounded-lg gap-1.5 h-8"
+                          disabled={launchBusyId === b.id}
+                          onClick={() => handleSendSingleLaunch(b)}
+                        >
+                          {launchBusyId === b.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Megaphone className="h-3.5 w-3.5" />}
+                          {launchSent ? '再送信' : '案内送信'}
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(b.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
