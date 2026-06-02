@@ -28,6 +28,7 @@ export interface UserProfile {
   prefectureCode?: string;
   address1?: string;
   address2?: string;
+  applicantType?: ApplicantType;
   companyName?: string;
   invoiceNumber?: string;
   stripeCustomerId?: string;
@@ -237,6 +238,7 @@ export interface Waitlist {
   // Used for prioritized offer dispatch (see GlobalSettings.waitlistPriorityMode).
   applicantType?: ApplicantType;
   companyName?: string;
+  corporateNumber?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   scheduledNotifyAt?: Timestamp;

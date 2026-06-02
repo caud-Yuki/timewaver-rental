@@ -571,6 +571,20 @@ function ApplyForm() {
               </CardHeader>
               <CardContent className="p-8">
                 <form onSubmit={handleSubmit} className="space-y-8">
+                  {/* B2B-priority screening notice */}
+                  <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-5 space-y-2">
+                    <div className="flex items-center gap-2 text-indigo-900 font-bold text-sm">
+                      <AlertCircle className="h-4 w-4" /> お申し込みにあたってのご案内
+                    </div>
+                    <div className="text-xs text-slate-700 leading-relaxed space-y-1.5">
+                      <p>本サービスは、法人のお客様のお申込みを優先してご案内しております。</p>
+                      <p>お申し込み受付後、弊社にて所定の審査を行います。</p>
+                      <p>▶︎審査の過程で、弊社より内容確認のご連絡を差し上げる場合がございます。</p>
+                      <p>▶︎審査の結果、ご期待に添えない場合もございます。誠に恐れ入りますが、あらかじめご了承ください。</p>
+                      <p>なお、審査結果の理由や経緯等につきましては、一切お答えいたしかねますので予めご了承ください。</p>
+                    </div>
+                  </div>
+
                   {/* Applicant Type Toggle */}
                   <div className="space-y-3">
                     <Label className="text-base font-bold flex items-center gap-2">

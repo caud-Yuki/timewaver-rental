@@ -6,9 +6,12 @@ import { useUser, useFirestore, useDoc } from '@/firebase';
 import { doc, addDoc, collection, serverTimestamp, where, query, getDocs } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, AlertTriangle } from 'lucide-react';
-import { Device, deviceConverter, UserProfile, userProfileConverter } from '@/types';
+import { Loader2, AlertTriangle, Briefcase, Building2, User as UserIcon } from 'lucide-react';
+import { Device, deviceConverter, UserProfile, userProfileConverter, ApplicantType } from '@/types';
+import { cn } from '@/lib/utils';
 
 export default function WaitlistPage() {
   return (
@@ -28,14 +31,24 @@ function WaitlistForm() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [alreadyOnWaitlist, setAlreadyOnWaitlist] = useState(false);
+  const [applicantType, setApplicantType] = useState<ApplicantType>('individual');
+  const [corporateNumber, setCorporateNumber] = useState('');
+  const [companyName, setCompanyName] = useState('');
 
-  const deviceRef = useMemo(() => 
+  const deviceRef = useMemo(() =>
     deviceId ? doc(db, 'devices', deviceId).withConverter(deviceConverter) : null
   , [db, deviceId]);
   const { data: device, loading: deviceLoading } = useDoc<Device>(deviceRef);
 
   const profileRef = user ? doc(db, 'users', user.uid).withConverter(userProfileConverter) : null;
   const { data: profile } = useDoc<UserProfile>(profileRef);
+
+  // Prefill applicant type / company from the user's saved profile when available.
+  useEffect(() => {
+    if (!profile) return;
+    if (profile.applicantType) setApplicantType(profile.applicantType);
+    if (profile.companyName) setCompanyName(profile.companyName);
+  }, [profile]);
 
   useEffect(() => {
     if (user && device) {
@@ -55,6 +68,11 @@ function WaitlistForm() {
   const handleWaitlistSubmit = async () => {
     if (!user || !device) return;
 
+    if (applicantType === 'corporate' && !companyName.trim()) {
+      toast({ variant: "destructive", title: "会社名を入力してください", description: "法人として登録する場合、会社名は必須です。" });
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -65,6 +83,9 @@ function WaitlistForm() {
         deviceId: device.id,
         deviceType: device.type, // Correctly use device.type
         status: 'waiting',
+        applicantType,
+        companyName: applicantType === 'corporate' ? companyName.trim() : '',
+        corporateNumber: applicantType === 'corporate' ? corporateNumber.trim() : '',
         createdAt: serverTimestamp(), // Correctly use serverTimestamp
       });
 
@@ -113,6 +134,61 @@ function WaitlistForm() {
               <p className="font-semibold">{user?.email}</p>
             </div>
           </div>
+
+          {!alreadyOnWaitlist && (
+            <>
+              {/* Applicant type — used for B2B-priority offer dispatch */}
+              <div className="space-y-3">
+                <Label className="text-sm font-bold flex items-center gap-2">
+                  <Briefcase className="h-4 w-4" /> 申込タイプ
+                </Label>
+                <div className="inline-flex w-full rounded-2xl border-2 border-muted bg-slate-50 p-1">
+                  {([
+                    { key: 'individual' as ApplicantType, label: '個人', icon: UserIcon },
+                    { key: 'corporate' as ApplicantType, label: '法人', icon: Building2 },
+                  ]).map(({ key, label, icon: Icon }) => {
+                    const selected = applicantType === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setApplicantType(key)}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all",
+                          selected
+                            ? "bg-primary text-primary-foreground shadow-md"
+                            : "text-slate-500 hover:text-slate-700 hover:bg-white"
+                        )}
+                        aria-pressed={selected}
+                      >
+                        <Icon className="h-4 w-4" /> {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  本サービスは法人のお客様のお申込みを優先してご案内しております。
+                </p>
+              </div>
+
+              {applicantType === 'corporate' && (
+                <div className="space-y-4 rounded-2xl border border-indigo-100 bg-indigo-50/30 p-5">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-indigo-600" />
+                    <Label className="text-sm font-bold text-indigo-900">法人情報</Label>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="wl-companyName" className="text-xs">法人名 / 会社名 <span className="text-red-500">*</span></Label>
+                    <Input id="wl-companyName" placeholder="株式会社〇〇" className="rounded-xl bg-white" value={companyName} onChange={e => setCompanyName(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="wl-corporateNumber" className="text-xs">法人番号</Label>
+                    <Input id="wl-corporateNumber" placeholder="13桁の法人番号" className="rounded-xl bg-white" value={corporateNumber} onChange={e => setCorporateNumber(e.target.value)} />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           {alreadyOnWaitlist ? (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
