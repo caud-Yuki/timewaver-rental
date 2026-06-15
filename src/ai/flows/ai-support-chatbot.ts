@@ -16,7 +16,7 @@ import {z} from 'genkit';
 import { initializeFirebase } from '@/firebase';
 import { collection, getDocs, doc, getDoc, query, where, limit, orderBy } from 'firebase/firestore';
 import { getGeminiSecret } from '@/lib/secret-actions';
-import { generateConsentFormText } from '@/lib/consent-form-html';
+import { generateConsentFormText, DEFAULT_CONSENT_SECTIONS } from '@/lib/consent-form-html';
 import type { ConsentFormSection } from '@/types';
 
 const ChatbotInputSchema = z.object({
@@ -158,9 +158,10 @@ function getTools(currentAi: ReturnType<typeof createAi>) {
     async () => {
       const { firestore } = initializeFirebase();
       const snap = await getDoc(doc(firestore, 'consentForm', 'current'));
-      if (!snap.exists()) return '同意書はまだ登録されていません。';
-      const sections = (snap.data()?.sections || []) as ConsentFormSection[];
-      if (sections.length === 0) return '同意書の内容がまだ設定されていません。';
+      let sections = (snap.exists() ? snap.data()?.sections : null) as ConsentFormSection[] | null;
+      // Fall back to the same default terms the user-facing consent form shows
+      // when an admin has not yet saved a custom version to Firestore.
+      if (!sections || sections.length === 0) sections = DEFAULT_CONSENT_SECTIONS;
       return generateConsentFormText(sections, 'TimeWaverHub');
     }
   );
