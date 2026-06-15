@@ -42,7 +42,8 @@ import {
   Hourglass,
   Puzzle,
   Layers,
-  Rocket
+  Rocket,
+  BookOpen
 } from 'lucide-react';
 import { 
   Application, 
@@ -263,6 +264,7 @@ export default function AdminDashboardPage() {
     { title: 'クーポン', desc: '割引コードの設定', icon: Ticket, href: '/admin/coupons', color: 'text-rose-500', bg: 'bg-rose-50' },
     { title: 'ニュース', desc: 'お知らせの公開', icon: Newspaper, href: '/admin/news', color: 'text-indigo-500', bg: 'bg-indigo-50' },
     { title: 'メール', desc: 'テンプレート編集', icon: Mail, href: '/admin/email-templates', color: 'text-slate-500', bg: 'bg-slate-50' },
+    { title: 'AIナレッジ', desc: 'AIが参照するQ&Aリスト', icon: BookOpen, href: '/admin/qa-list', color: 'text-cyan-500', bg: 'bg-cyan-50' },
     { title: 'トリガー設定', desc: '自動送信の紐付け', icon: Zap, href: '/admin/email-triggers', color: 'text-orange-500', bg: 'bg-orange-50' },
     { title: 'ランディング', desc: '利用者の声 / FAQ / 導入事例', icon: Layers, href: '/admin/landing', color: 'text-fuchsia-500', bg: 'bg-fuchsia-50' },
     { title: '先行予約', desc: '予約申込の管理', icon: Rocket, href: '/admin/early-bookings', color: 'text-rose-500', bg: 'bg-rose-50' },

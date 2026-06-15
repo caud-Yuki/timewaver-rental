@@ -135,6 +135,17 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // QA Knowledge Base: Public read (server actions / AI chatbot read without
+    // auth context). Admins manage. Categories and items are separate collections.
+    match /qaCategories/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /qaItems/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Testimonials: Public read. Admins manage.
     match /testimonials/{docId} {
       allow read: if true;

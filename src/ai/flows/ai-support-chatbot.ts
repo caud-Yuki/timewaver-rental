@@ -14,8 +14,10 @@
 import {ai, createAi} from '@/ai/genkit';
 import {z} from 'genkit';
 import { initializeFirebase } from '@/firebase';
-import { collection, getDocs, doc, getDoc, query, where, limit } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, limit, orderBy } from 'firebase/firestore';
 import { getGeminiSecret } from '@/lib/secret-actions';
+import { generateConsentFormText } from '@/lib/consent-form-html';
+import type { ConsentFormSection } from '@/types';
 
 const ChatbotInputSchema = z.object({
   query: z.string().describe('The user\'s question about the TimeWaver rental platform.'),
@@ -106,7 +108,64 @@ function getTools(currentAi: ReturnType<typeof createAi>) {
     }
   );
 
-  cachedTools = [getAvailableDevices];
+  // Knowledge base lookup — reads admin-curated Q&A for a given category.
+  // Used to answer free-form questions not covered by the other tools.
+  const getQaByCategory = currentAi.defineTool(
+    {
+      name: 'getQaByCategory',
+      description: 'Returns the curated Q&A pairs registered under a specific knowledge-base category. Use this to answer free-form questions that the other tools do not cover. Pass the categoryId taken from the category list provided in the system prompt.',
+      inputSchema: z.object({
+        categoryId: z.string().describe('The ID of the QA category to read, from the system prompt category list.'),
+      }),
+      outputSchema: z.array(z.object({
+        question: z.string(),
+        answer: z.string(),
+      })),
+    },
+    async ({ categoryId }) => {
+      const { firestore } = initializeFirebase();
+      const toPairs = (docs: any[]) => docs
+        .map(d => { const data = d.data(); return { question: data.question, answer: data.answer, order: data.order ?? 0, isPublic: data.isPublic }; })
+        .filter(x => x.question && x.answer && x.isPublic !== false);
+      try {
+        const q = query(
+          collection(firestore, 'qaItems'),
+          where('categoryId', '==', categoryId),
+          orderBy('order', 'asc'),
+          limit(50)
+        );
+        const snapshot = await getDocs(q);
+        return toPairs(snapshot.docs).map(({ question, answer }) => ({ question, answer }));
+      } catch {
+        // Composite index not ready yet — fall back to an unordered query + JS sort.
+        const q2 = query(collection(firestore, 'qaItems'), where('categoryId', '==', categoryId), limit(50));
+        const snapshot = await getDocs(q2);
+        return toPairs(snapshot.docs)
+          .sort((a, b) => a.order - b.order)
+          .map(({ question, answer }) => ({ question, answer }));
+      }
+    }
+  );
+
+  // Consent form lookup — returns the full text of the rental agreement.
+  const getConsentFormContent = currentAi.defineTool(
+    {
+      name: 'getConsentFormContent',
+      description: 'Returns the full text of the rental consent form (利用同意書): terms of use, consent items, and signature section. Use when the user asks about contract terms, the consent form, rules of use, liability, damages, cancellation, prohibited acts, or what they are agreeing to.',
+      inputSchema: z.object({}),
+      outputSchema: z.string(),
+    },
+    async () => {
+      const { firestore } = initializeFirebase();
+      const snap = await getDoc(doc(firestore, 'consentForm', 'current'));
+      if (!snap.exists()) return '同意書はまだ登録されていません。';
+      const sections = (snap.data()?.sections || []) as ConsentFormSection[];
+      if (sections.length === 0) return '同意書の内容がまだ設定されていません。';
+      return generateConsentFormText(sections, 'TimeWaverHub');
+    }
+  );
+
+  cachedTools = [getAvailableDevices, getQaByCategory, getConsentFormContent];
   return cachedTools;
 }
 
@@ -137,6 +196,23 @@ export async function askChatbot(input: ChatbotInput): Promise<ChatbotOutput> {
       }
     } catch { /* non-critical */ }
 
+    // Fetch knowledge-base categories so the AI can route free-form questions.
+    let qaCategoryContext = '';
+    try {
+      const catSnap = await getDocs(query(collection(fsInstance, 'qaCategories'), limit(50)));
+      if (!catSnap.empty) {
+        const catLines = catSnap.docs
+          .map(d => { const data = d.data(); return { id: d.id, name: data.name, description: data.description, order: data.order ?? 0 }; })
+          .filter(c => c.name)
+          .sort((a, b) => a.order - b.order)
+          .map(c => `- ${c.name} (categoryId: ${c.id})${c.description ? ` — ${c.description}` : ''}`)
+          .join('\n');
+        if (catLines) {
+          qaCategoryContext = `\n\n# ナレッジベースのカテゴリー一覧\n${catLines}`;
+        }
+      }
+    } catch { /* non-critical */ }
+
     // Build application context from client-provided data
     let applicationContext = '';
     if (input.userApplications && input.userApplications.length > 0) {
@@ -157,16 +233,24 @@ export async function askChatbot(input: ChatbotInput): Promise<ChatbotOutput> {
 Your role is to provide helpful, accurate, and professional information to users.
 
 If a user asks about what devices are available or for recommendations, use the 'getAvailableDevices' tool.
-${adminContext}${deviceContext}
+${adminContext}${deviceContext}${qaCategoryContext}
 
 # ステータス一覧
 pending=審査待ち, awaiting_consent_form=同意書待ち, consent_form_review=同意書審査中, consent_form_approved=同意書承認, payment_sent=決済リンク送付済み, completed=決済完了, shipped=発送済み, in_use=利用中, expired=契約満了, returning=返却手続中, inspection=点検中, returned=返却完了, closed=終了, rejected=却下, canceled=キャンセル${applicationContext}
+
+# ナレッジベース参照ロジック（自由記述の質問への対応）
+ツール（getAvailableDevices 等）で直接回答できない自由記述の質問を受けた場合は、必ず次の手順で対応してください:
+1. 質問内容を理解し、上記「ナレッジベースのカテゴリー一覧」から、答えを格納していそうな最も関連するカテゴリーを1つ（必要なら複数）特定する。
+2. 'getQaByCategory' ツールに、そのカテゴリーの categoryId を渡して、登録済みのQ&Aを読み取る。
+3. 取得したQ&Aの中から、ユーザーの質問に最も合致する回答を参照し、その内容に基づいて自然な文章で回答を生成する。
+4. 同意書・契約条件・利用規約・賠償・解約・禁止事項など「同意書」に関する質問は、'getConsentFormContent' ツールで同意書本文を取得して回答する。
+5. 関連カテゴリーが無い、またはQ&Aに答えが見つからない場合は、推測で答えず、サポート窓口への問い合わせを案内する。
 
 # ガイドライン
 - ユーザーの申請状況が上記に記載されている場合は、その情報を元に回答してください。
 - ログインしていないユーザーが申請状況を聞いた場合は、ログインを案内してください。
 - レンタルの流れについて聞かれた場合は、ガイドページの手順を案内してください。
-- 回答できない質問には、サポート窓口への問い合わせを案内してください。
+- ナレッジベースや同意書にも答えが無い質問には、サポート窓口への問い合わせを案内してください。
 - 常に丁寧で親しみやすいトーンで応対してください。
 - ユーザーが使用する言語で回答してください（デフォルト: 日本語）。
 

@@ -435,6 +435,33 @@ export interface CaseStudy {
 }
 export const caseStudyConverter = createConverter<CaseStudy>();
 
+// =============================================================================
+// AI Knowledge Base (QA list referenced by the support chatbot)
+// =============================================================================
+export interface QaCategory {
+  id: string;
+  name: string;
+  // Short hint that helps the AI decide whether a question belongs here.
+  description?: string;
+  order?: number;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+export const qaCategoryConverter = createConverter<QaCategory>();
+
+export interface QaItem {
+  id: string;
+  categoryId: string;
+  question: string;
+  answer: string;
+  order?: number;
+  // When false, the AI ignores this entry. Defaults to true.
+  isPublic?: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+export const qaItemConverter = createConverter<QaItem>();
+
 export type EarlyBookingStatus = 'new' | 'contacted' | 'converted' | 'closed';
 
 export interface EarlyBooking {
