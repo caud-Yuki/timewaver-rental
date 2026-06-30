@@ -40,7 +40,7 @@ export const userProfileConverter = createConverter<UserProfile>();
 // =============================================================================
 // Application
 // =============================================================================
-export type ApplicationStatus = 'pending' | 'awaiting_consent_form' | 'consent_form_review' | 'consent_form_approved' | 'approved' | 'rejected' | 'canceled' | 'payment_sent' | 'completed' | 'shipped' | 'in_use' | 'expired' | 'returning' | 'inspection' | 'returned' | 'damaged' | 'closed';
+export type ApplicationStatus = 'pending' | 'awaiting_consent_form' | 'consent_form_review' | 'consent_form_approved' | 'approved' | 'rejected' | 'canceled' | 'payment_sent' | 'awaiting_bank_transfer' | 'completed' | 'shipped' | 'in_use' | 'expired' | 'returning' | 'inspection' | 'returned' | 'damaged' | 'closed';
 
 export type ApplicantType = 'individual' | 'corporate';
 
@@ -72,6 +72,16 @@ export interface Application {
   deviceSerialNumber?: string;
   deviceId?: string;
   paymentLinkId?: string;
+  // 決済手段。未設定はカード（Stripe）として扱う。'bank_transfer' は銀行振込（一括のみ）。
+  paymentMethod?: 'card' | 'bank_transfer';
+  // 銀行振込の進行情報（paymentMethod === 'bank_transfer' のとき使用）
+  bankTransfer?: {
+    amount?: number;            // 請求金額（円）
+    deadline?: string;          // 振込期限（ISO文字列）
+    instructionsSentAt?: string; // 振込案内メール送信日時
+    confirmedAt?: string;       // 入金確認日時
+    confirmedBy?: string;       // 入金確認した管理者のUID/名前
+  };
   // Applicant classification & corporate info
   applicantType?: ApplicantType;
   corporateInfo?: CorporateInfo;
@@ -193,6 +203,17 @@ export interface GlobalSettings {
   aiContext?: string;
   shippingBufferDays?: number;
   moduleBasePrice?: number;
+  // 銀行振込の振込先口座情報（メール差し込みに使用）
+  bankTransfer?: {
+    bankName?: string;      // 銀行名
+    branch?: string;        // 支店名
+    accountType?: string;   // 預金種別（普通/当座）
+    accountNumber?: string; // 口座番号
+    accountHolder?: string; // 口座名義
+    note?: string;          // 補足（振込手数料の負担など）
+  };
+  // 振込期限（営業日数）。未設定時は 7。
+  bankTransferDeadlineDays?: number;
   staff?: Array<{ name: string; email: string; role: 'operations' | 'support' | 'admin' }>;
   // Pre-booking mode — when true, /devices disables apply buttons and /about-twrental final CTA routes to the pre-booking form.
   preBookingMode?: boolean;

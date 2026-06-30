@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Mail } from 'lucide-react';
+import { Loader2, Globe, Clock, CreditCard, Settings, Save, ShieldCheck, KeyRound, Sparkles, Lock, CheckCircle2, XCircle, Users, Plus, Trash2, MessageSquare, FileText, Rocket, Mail, Landmark } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { GlobalSettings, UserProfile, GoogleChatDestination } from '@/types';
@@ -387,6 +387,55 @@ export default function SettingsPage() {
                   <span className="text-sm text-muted-foreground">× モジュールポイント</span>
                 </div>
                 <p className="text-xs text-blue-500">各モジュールのポイントにこの単価を掛けた金額が、デバイスの月額料金に加算されます。例: 単価500円 × ポイント2 = 月額 +1,000円</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Bank Transfer — 振込先口座情報 */}
+          <Card className="border-none shadow-lg rounded-2xl bg-white">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
+                <Landmark className="h-5 w-5" />
+                銀行振込 設定
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <p className="text-xs text-blue-500">
+                ここに登録した口座情報が「銀行振込のご案内」メールに差し込まれます。銀行振込は<strong>一括払いのみ</strong>対応です。
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">金融機関名</Label>
+                  <Input value={settings.bankTransfer?.bankName || ''} onChange={(e) => handleInputChange('bankTransfer.bankName', e.target.value)} placeholder="〇〇銀行" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">支店名</Label>
+                  <Input value={settings.bankTransfer?.branch || ''} onChange={(e) => handleInputChange('bankTransfer.branch', e.target.value)} placeholder="〇〇支店" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">預金種別</Label>
+                  <Input value={settings.bankTransfer?.accountType || ''} onChange={(e) => handleInputChange('bankTransfer.accountType', e.target.value)} placeholder="普通 / 当座" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">口座番号</Label>
+                  <Input value={settings.bankTransfer?.accountNumber || ''} onChange={(e) => handleInputChange('bankTransfer.accountNumber', e.target.value)} placeholder="1234567" />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-sm font-semibold">口座名義</Label>
+                  <Input value={settings.bankTransfer?.accountHolder || ''} onChange={(e) => handleInputChange('bankTransfer.accountHolder', e.target.value)} placeholder="カ）〇〇" />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-sm font-semibold">補足メモ（任意）</Label>
+                  <Input value={settings.bankTransfer?.note || ''} onChange={(e) => handleInputChange('bankTransfer.note', e.target.value)} placeholder="例：振込手数料はお客様負担にてお願いいたします。" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold flex items-center gap-2"><span className="text-sky-500">⏳</span>振込期限（営業日）</Label>
+                <div className="flex items-center gap-3">
+                  <Input type="number" className="w-24" value={settings.bankTransferDeadlineDays || 7} onChange={(e) => handleInputChange('bankTransferDeadlineDays', Number(e.target.value) || 7)} />
+                  <span className="text-sm text-muted-foreground">営業日（土日除く）以内に振込を依頼</span>
+                </div>
+                <p className="text-xs text-blue-500">「銀行振込案内」送付時点から起算した振込期限です。案内メールに差し込まれます。</p>
               </div>
             </CardContent>
           </Card>

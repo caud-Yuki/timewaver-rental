@@ -37,6 +37,8 @@ const TRIGGER_TO_EVENT: Record<string, { eventId: string; audience: 'user' | 'ad
   consent_form_approved: { eventId: 'consent_form_approved', audience: 'user' },
   payment_link_sent: { eventId: 'payment_link_sent', audience: 'user' },
   payment_completed: { eventId: 'payment_completed', audience: 'user' },
+  bank_transfer_instructions: { eventId: 'bank_transfer_instructions', audience: 'user' },
+  bank_transfer_pending_admin: { eventId: 'bank_transfer_instructions', audience: 'admin' },
   card_expiring: { eventId: 'card_expiring', audience: 'user' },
   initial_payment_failed: { eventId: 'initial_payment_failed', audience: 'admin' },
   device_prep_required: { eventId: 'device_prep_required', audience: 'admin' },
@@ -215,6 +217,13 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       companyAddress: settings.companyAddress || '',
       companyBuilding: settings.companyBuilding || '',
       companyFullAddress,
+      // Bank transfer account info (銀行振込案内メール用)
+      bankName: settings.bankTransfer?.bankName || '',
+      bankBranch: settings.bankTransfer?.branch || '',
+      bankAccountType: settings.bankTransfer?.accountType || '',
+      bankAccountNumber: settings.bankTransfer?.accountNumber || '',
+      bankAccountHolder: settings.bankTransfer?.accountHolder || '',
+      bankTransferNote: settings.bankTransfer?.note || '',
       // Page links
       linkMypage: `${baseUrl}/mypage`,
       linkApplications: `${baseUrl}/mypage/applications`,

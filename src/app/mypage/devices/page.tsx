@@ -68,7 +68,7 @@ export default function MyDevicesPage() {
     return query(
       collection(db, 'applications'),
       where('userId', '==', user.uid),
-      where('status', 'in', ['pending', 'approved', 'payment_sent'])
+      where('status', 'in', ['pending', 'approved', 'payment_sent', 'awaiting_bank_transfer'])
     );
   }, [db, user]);
   const { data: applications, loading: appsLoading } = useCollection<Application>(appsQuery as any);

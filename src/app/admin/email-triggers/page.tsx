@@ -40,6 +40,7 @@ const EVENT_POINTS: Array<{
   { id: 'consent_form_approved',  name: '同意書承認時',              desc: '管理者が同意書を承認した時',                                              sysUser: 'sys_consent_form_approved' },
   { id: 'payment_link_sent',      name: '決済リンク送付時',          desc: '管理者が決済リンクを作成・送信した時',                                    sysUser: 'sys_payment_link_sent' },
   { id: 'payment_completed',      name: '決済完了時',                desc: '支払いが正常に完了した時',                                                sysUser: 'sys_payment_completed' },
+  { id: 'bank_transfer_instructions', name: '銀行振込案内時',        desc: '管理者が「銀行振込案内」を送付した時（一括払いのみ）',                     sysUser: 'sys_bank_transfer_instructions', sysAdmin: 'sys_bank_transfer_pending_admin' },
   { id: 'payment_failed',         name: '月次決済失敗時',            desc: '月次決済（サブスク）の請求が失敗した時',                                  sysUser: 'sys_payment_failed_user', sysAdmin: 'sys_payment_failed' },
   { id: 'card_expiring',          name: 'カード期限切れ予告',        desc: 'カードの有効期限切れ1ヶ月前',                                            sysUser: 'sys_card_expiring' },
   { id: 'initial_payment_failed', name: '初回決済失敗時',            desc: '初回決済（PaymentIntent）が失敗した時',                                   sysAdmin: 'sys_initial_payment_failed' },

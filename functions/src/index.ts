@@ -1,6 +1,6 @@
 
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentUpdated, onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentUpdated, onDocumentCreated, onDocumentDeleted } from "firebase-functions/v2/firestore";
 import { log } from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getStorage } from "firebase-admin/storage";
@@ -2167,8 +2167,86 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
     });
   }
 
+  // 銀行振込案内 → 振込先・金額・期限を案内メールで送付（一括払いのみ）
+  if (after.status === 'awaiting_bank_transfer' && before.status !== 'awaiting_bank_transfer') {
+    const settingsDoc = await db.collection('settings').doc('global').get();
+    const settingsData = settingsDoc.data() || {};
+    const deadlineDays = settingsData.bankTransferDeadlineDays || 7;
+    const deadline = addBusinessDays(new Date(), deadlineDays);
+    const deadlineStr = `${deadline.getFullYear()}/${deadline.getMonth() + 1}/${deadline.getDate()}`;
+    const amount = after.payAmount ?? 0;
+
+    // Persist the transfer details on the application for admin reference.
+    await appRef.update({
+      paymentMethod: 'bank_transfer',
+      'bankTransfer.amount': amount,
+      'bankTransfer.deadline': deadline.toISOString(),
+      'bankTransfer.instructionsSentAt': new Date().toISOString(),
+      updatedAt: Timestamp.now(),
+    });
+
+    const transferData = {
+      ...applicationData,
+      transferAmount: amount.toLocaleString(),
+      transferDeadline: deadlineStr,
+      applicationId,
+    };
+
+    // 1. Instructions to the applicant
+    await sendTriggeredEmail('bank_transfer_instructions', user, transferData);
+
+    // 2. Notify admin/staff to watch for the incoming transfer
+    const btAdminEmail = await getAdminEmail();
+    if (btAdminEmail) {
+      await sendTriggeredEmail('bank_transfer_pending_admin', { name: 'スタッフ', email: btAdminEmail }, transferData);
+    }
+    log(`[onApplicationUpdate] Bank transfer instructions sent for ${applicationId} (deadline ${deadlineStr}).`);
+  }
+
   // 決済完了 → ユーザーに決済完了メール + スタッフに発送準備依頼
   if (after.status === 'completed' && before.status !== 'completed') {
+    // 銀行振込など、決済ページ(handlePaymentSuccess)を経由しないルートでは
+    // サブスク（契約期間レコード）が未作成。存在しなければサーバー側で作成する。
+    const existingSub = await db.collection('subscriptions')
+      .where('applicationId', '==', applicationId)
+      .limit(1).get();
+    if (existingSub.empty) {
+      const settingsDoc = await db.collection('settings').doc('global').get();
+      const bufferDays = settingsDoc.data()?.shippingBufferDays ?? 3;
+      const isRenewal = !!after.isRenewal && !!after.previousEndAt;
+      const startDate = isRenewal ? new Date(after.previousEndAt) : addBusinessDays(new Date(), bufferDays);
+      const rentalMonths = after.rentalType || after.rentalPeriod || 12;
+      const endDate = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + Number(rentalMonths));
+
+      await db.collection('subscriptions').add({
+        userId: after.userId || null,
+        deviceId: after.deviceId || null,
+        deviceType: after.deviceType || '',
+        payType: after.payType || 'full',
+        paymentMethod: after.paymentMethod || 'bank_transfer',
+        rentalMonths: Number(rentalMonths),
+        startAt: Timestamp.fromDate(startDate),
+        endAt: Timestamp.fromDate(endDate),
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        stripePaymentIntentId: null,
+        payAmount: after.payAmount ?? 0,
+        status: 'active',
+        applicationId,
+        previousSubscriptionId: after.previousSubscriptionId || null,
+        isRenewal,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      log(`[onApplicationUpdate] Created server-side subscription for ${applicationId} (no Stripe — bank transfer path).`);
+
+      // Record confirmation metadata for bank transfers.
+      if (after.paymentMethod === 'bank_transfer') {
+        await appRef.update({ 'bankTransfer.confirmedAt': new Date().toISOString(), updatedAt: Timestamp.now() });
+      }
+    }
+
     const settingsDoc = await db.collection('settings').doc('global').get();
     const settingsData = settingsDoc.data();
     const bufferDays = settingsData?.shippingBufferDays || 3;
@@ -2426,6 +2504,82 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
       }
     }
   }
+});
+
+/**
+ * Hard-delete cleanup. When an admin deletes an application document outright
+ * (申請管理画面の削除ボタン), the onApplicationUpdate cleanup never runs because
+ * there is no "after" state. This trigger mirrors the canceled/rejected cleanup:
+ * release the linked device, cancel any active subscription (+ Stripe), and
+ * delete the uploaded documents from Storage so nothing is orphaned.
+ */
+export const onApplicationDeleted = onDocumentDeleted("applications/{applicationId}", async (event) => {
+  const data = event.data?.data();
+  const applicationId = event.params.applicationId;
+  if (!data) {
+    log("[onApplicationDeleted] No snapshot data; exiting.");
+    return;
+  }
+
+  const db = getFirestore();
+  log(`[onApplicationDeleted] Cleanup initiated for deleted application ${applicationId}.`);
+
+  // 1. Cancel linked active subscriptions (+ Stripe)
+  const subs = await db.collection('subscriptions')
+    .where('applicationId', '==', applicationId)
+    .where('status', '==', 'active')
+    .get();
+  for (const subDoc of subs.docs) {
+    await subDoc.ref.update({ status: 'canceled', updatedAt: Timestamp.now() });
+    const stripeSubId = subDoc.data().stripeSubscriptionId;
+    if (stripeSubId) {
+      try {
+        const stripe = await getStripeClient();
+        await stripe.subscriptions.cancel(stripeSubId);
+        await subDoc.ref.update({ 'stripeStatus.status': 'canceled' });
+        log(`[onApplicationDeleted] Stripe subscription ${stripeSubId} canceled.`);
+      } catch (stripeErr: any) {
+        log(`[onApplicationDeleted] Failed to cancel Stripe sub:`, stripeErr.message);
+      }
+    }
+  }
+
+  // 2. Release the linked device if it is locked
+  if (data.deviceId) {
+    const deviceDoc = await db.collection('devices').doc(data.deviceId).get();
+    if (deviceDoc.exists) {
+      const currentStatus = deviceDoc.data()?.status;
+      if (currentStatus && currentStatus !== 'available') {
+        const deviceType = deviceDoc.data()?.type || data.deviceType || 'Unknown Device';
+        await db.collection('devices').doc(data.deviceId).update({
+          status: 'available',
+          currentUserId: null,
+          updatedAt: Timestamp.now(),
+        });
+        log(`[onApplicationDeleted] Device ${data.deviceId} released to available.`);
+        await onDeviceReleased(data.deviceId, deviceType, 'canceled');
+      }
+    }
+  }
+
+  // 3. Delete uploaded documents from Storage
+  const bucket = getStorage().bucket();
+  const filesToDelete = [data.identificationImageUrl, data.agreementPdfUrl, ...(data.agreementImageUrls || [])].filter(Boolean);
+  for (const url of filesToDelete) {
+    try {
+      const decodedUrl = decodeURIComponent(url.split('/o/')[1].split('?')[0]);
+      const file = bucket.file(decodedUrl);
+      const [exists] = await file.exists();
+      if (exists) {
+        await file.delete();
+        log(`[onApplicationDeleted] Deleted file: ${decodedUrl}`);
+      }
+    } catch (err) {
+      log(`[onApplicationDeleted] Failed to delete file at ${url}:`, err);
+    }
+  }
+
+  log(`[onApplicationDeleted] Cleanup completed for ${applicationId}.`);
 });
 
 /**

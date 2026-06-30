@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useCollection, useDoc } from '@/firebase';
-import { collection, query, orderBy, updateDoc, doc, serverTimestamp, addDoc } from 'firebase/firestore';
+import { collection, query, orderBy, updateDoc, doc, serverTimestamp, addDoc, deleteDoc } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +22,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
@@ -40,7 +51,9 @@ import {
   ExternalLink,
   ShieldCheck,
   AlertTriangle,
-  UserCheck
+  UserCheck,
+  Trash2,
+  Landmark
 } from 'lucide-react';
 import { Application, UserProfile, EmailTemplate, applicationConverter, userProfileConverter, emailTemplateConverter } from '@/types';
 import Link from 'next/link';
@@ -481,6 +494,66 @@ export default function AdminApplicationsPage() {
       });
   };
 
+  // 銀行振込案内（一括払いのみ）→ status を awaiting_bank_transfer に。
+  // 振込先・金額・期限の案内メールはバックエンド(onApplicationUpdate)が送付する。
+  const handleSendBankTransfer = async (application: Application) => {
+    if (!db) return;
+    if (application.payType !== 'full') {
+      toast({ variant: 'destructive', title: '銀行振込は一括払いのみ対応しています' });
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'applications', application.id), {
+        status: 'awaiting_bank_transfer',
+        paymentMethod: 'bank_transfer',
+        updatedAt: serverTimestamp(),
+      });
+      toast({ title: '銀行振込のご案内を送信しました', description: '振込先・金額・期限をユーザーへメールで案内しました。' });
+    } catch (error) {
+      console.error('Bank transfer guide error:', error);
+      toast({ variant: 'destructive', title: '送信に失敗しました', description: '通信状態を確認してください。' });
+    }
+  };
+
+  // 入金確認 → status を completed に。サブスク作成・発送依頼はバックエンドが処理。
+  const handleConfirmBankTransfer = async (application: Application) => {
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, 'applications', application.id), {
+        status: 'completed',
+        'bankTransfer.confirmedBy': user?.uid || 'admin',
+        updatedAt: serverTimestamp(),
+      });
+      toast({ title: '入金を確認しました', description: '決済完了として処理し、発送準備フローを開始しました。' });
+    } catch (error) {
+      console.error('Confirm transfer error:', error);
+      toast({ variant: 'destructive', title: '更新に失敗しました', description: '通信状態を確認してください。' });
+    }
+  };
+
+  // 申請の完全削除（書類・デバイス解放はバックエンドの onApplicationDeleted が処理）
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const handleDeleteApplication = async (application: Application) => {
+    if (!db) return;
+    setDeletingId(application.id);
+    try {
+      await deleteDoc(doc(db, 'applications', application.id));
+      toast({
+        title: "申請を削除しました",
+        description: "提出書類の削除とデバイスの解放はバックエンドで自動処理されます。",
+      });
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast({
+        variant: "destructive",
+        title: "削除に失敗しました",
+        description: "通信状態を確認してください。",
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   if (authLoading || profileLoading || !user || adminProfile?.role !== 'admin') {
     return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   }
@@ -559,6 +632,7 @@ export default function AdminApplicationsPage() {
                         <SelectItem value="consent_form_approved">同意書承認</SelectItem>
                         <SelectItem value="rejected">却下</SelectItem>
                         <SelectItem value="payment_sent">決済リンク送信済</SelectItem>
+                        <SelectItem value="awaiting_bank_transfer">銀行振込待ち</SelectItem>
                         <SelectItem value="completed">決済完了</SelectItem>
                         <SelectItem value="shipped">発送済み</SelectItem>
                         <SelectItem value="in_use">利用中</SelectItem>
@@ -597,6 +671,54 @@ export default function AdminApplicationsPage() {
                         <Send className="h-3.5 w-3.5 mr-1" /> 決済リンク
                       </Button>
                     )}
+
+                    {app.status === 'consent_form_approved' && app.payType === 'full' && (
+                      <Button size="sm" variant="outline" className="h-8 rounded-lg border-sky-300 text-sky-600 hover:bg-sky-50" onClick={() => handleSendBankTransfer(app)} title="一括払いのみ。振込先・金額・期限を案内します">
+                        <Landmark className="h-3.5 w-3.5 mr-1" /> 銀行振込案内
+                      </Button>
+                    )}
+
+                    {app.status === 'awaiting_bank_transfer' && (
+                      <Button size="sm" className="h-8 rounded-lg bg-sky-500 hover:bg-sky-600" onClick={() => handleConfirmBankTransfer(app)} title="入金を確認したら押してください">
+                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> 入金確認
+                      </Button>
+                    )}
+
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          title="申請を削除"
+                          disabled={deletingId === app.id}
+                        >
+                          {deletingId === app.id
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <Trash2 className="h-4 w-4" />}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>この申請を削除しますか？</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            <span className="font-medium text-foreground">{app.userName}</span>（{app.deviceType}）の申請を完全に削除します。
+                            この操作は取り消せません。提出書類はストレージから削除され、関連デバイスは解放されます。
+                            <br /><br />
+                            ※ 契約を解約・返却処理したい場合は、削除ではなくステータスを「取り消し済み」に変更してください。
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive hover:bg-destructive/90"
+                            onClick={() => handleDeleteApplication(app)}
+                          >
+                            削除する
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </TableCell>
                 </TableRow>
               ))}

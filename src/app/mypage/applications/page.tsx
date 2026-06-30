@@ -318,6 +318,7 @@ export default function MyApplicationsPage() {
       case 'consent_form_approved': return <Badge variant="secondary" className="bg-teal-100 text-teal-800">同意書承認</Badge>;
       case 'rejected': return <Badge variant="destructive" className="bg-red-100">却下</Badge>;
       case 'payment_sent': return <Badge variant="secondary" className="bg-purple-100 text-purple-800">決済待ち</Badge>;
+      case 'awaiting_bank_transfer': return <Badge variant="secondary" className="bg-sky-100 text-sky-800">銀行振込待ち</Badge>;
       case 'completed': return <Badge variant="default" className="bg-green-600">契約完了</Badge>;
       case 'shipped': return <Badge variant="secondary" className="bg-indigo-100 text-indigo-800">発送済み</Badge>;
       case 'in_use': return <Badge variant="default" className="bg-emerald-500">利用中</Badge>;

@@ -70,6 +70,21 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     body: `{{userName}} 様\n\n決済のお手続きありがとうございました。\nデバイスの発送準備を開始いたしました。\n\n対象機器: {{deviceType}}\nシリアル番号: {{deviceSerialNumber}}`
   },
   {
+    id: 'sys_bank_transfer_instructions',
+    name: '[標準] 銀行振込のご案内',
+    subject: '【{{serviceName}}】お振込先のご案内（一括払い）',
+    type: 'transaction',
+    body: `{{userName}} 様\n\nこの度はお申し込みいただきありがとうございます。\nお支払い方法に「銀行振込（一括払い）」をご選択いただきましたので、下記の通りお振込先をご案内いたします。\n\n■ご請求金額: ¥{{transferAmount}}\n■お振込期限: {{transferDeadline}}\n■対象機器: {{deviceType}}\n\n──────────────────\n【お振込先】\n金融機関: {{bankName}} {{bankBranch}}\n預金種別: {{bankAccountType}}\n口座番号: {{bankAccountNumber}}\n口座名義: {{bankAccountHolder}}\n──────────────────\n\n【お振込時のお願い】\n・お振込名義の前に申請番号（{{applicationId}}）をご入力ください（例: {{applicationId}} ヤマダタロウ）。入金確認がスムーズになります。\n・振込手数料はお客様のご負担にてお願いいたします。\n{{bankTransferNote}}\n\nご入金を確認次第、あらためて決済完了のご連絡と発送のご案内をお送りいたします。\nお振込期限までにご入金が確認できない場合、お申し込みが無効となる場合がございますのでご了承ください。\n\nご不明な点がございましたら、本メールへご返信ください。\n\n—\n{{operatorCompanyName}}`
+  },
+  {
+    id: 'sys_bank_transfer_pending_admin',
+    name: '[標準] 銀行振込案内 送付通知（管理者宛）',
+    subject: '【{{serviceName}}管理者】銀行振込の案内を送付しました（入金確認待ち）',
+    type: 'transaction',
+    isAdmin: true,
+    body: `管理者様\n\n以下の申請について、銀行振込のご案内をユーザーへ送付しました。\n入金の確認後、申請管理画面の「入金確認」ボタンでステータスを更新してください。\n\n申請ID: {{applicationId}}\nユーザー名: {{userName}}\n対象機器: {{deviceType}}\n請求金額: ¥{{transferAmount}}\n振込期限: {{transferDeadline}}`
+  },
+  {
     id: 'sys_payment_failed',
     name: '[標準] 決済失敗通知（管理者宛）',
     subject: '【{{serviceName}}管理者】月次決済が失敗しました',
