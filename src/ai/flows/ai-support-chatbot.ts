@@ -259,18 +259,33 @@ pending=審査待ち, awaiting_consent_form=同意書待ち, consent_form_review
 - Markdown形式で回答。**太字**で強調、番号付きリストで手順、箇条書きで選択肢。
 - 簡潔かつ読みやすく。セクション間は改行を入れる。`;
 
-    const { output } = await currentAi.generate({
-      system: systemPrompt,
-      prompt: input.query,
-      tools,
-      output: { schema: ChatbotOutputSchema },
-    });
+    // Plain-text generation (no forced output schema). Forcing a JSON output
+    // schema together with tool calls makes Gemini intermittently return null and
+    // throw a schema-validation error, which surfaced to users as a connection
+    // error. Retry once to absorb transient model hiccups.
+    let answer = '';
+    let lastErr: any = null;
+    for (let attempt = 0; attempt < 2 && !answer; attempt++) {
+      try {
+        const response = await currentAi.generate({
+          system: systemPrompt,
+          prompt: input.query,
+          tools,
+          maxTurns: 8,
+        });
+        answer = (response.text || '').trim();
+      } catch (e: any) {
+        lastErr = e;
+        console.error(`[AI Chatbot] generate attempt ${attempt + 1} failed:`, e?.message || e);
+      }
+    }
 
-    if (!output) {
+    if (!answer) {
+      if (lastErr) throw lastErr; // fall through to the outer catch's user-facing message
       return { answer: '申し訳ありません。回答を生成できませんでした。もう一度お試しください。' };
     }
 
-    return output;
+    return { answer };
   } catch (error: any) {
     console.error('[AI Chatbot] Error in askChatbot:', error?.message || error);
     console.error('[AI Chatbot] Stack:', error?.stack);
