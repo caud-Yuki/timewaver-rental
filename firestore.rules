@@ -44,7 +44,11 @@ service cloud.firestore {
 
     // Applications: Users can read and write only their own applications. Admins can do everything.
     match /applications/{applicationId} {
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      // 本人のみ作成可。新規作成時のステータスは 'pending' 固定（審査前の段階を飛ばした直接作成を防ぐ軽い検証）。
+      // 重複申請の制御はクライアント側の保存時ガードで行う（ステータス連動で自己回復するためロック方式は使わない）。
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending';
       allow read: if request.auth != null && (isAdmin() || (resource != null && resource.data.userId == request.auth.uid));
       allow update, delete: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
     }

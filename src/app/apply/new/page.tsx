@@ -392,6 +392,34 @@ function ApplyForm() {
       }
     }
 
+    // 重複申請ガード（B案）: 同一ユーザーが同じ機種で「進行中」の申請を既に持っていればブロック。
+    // ステータス連動のため、却下・取消・契約終了になれば自動的に再申請可能になる（永久ブロックは発生しない）。
+    const ACTIVE_STATUSES = [
+      'pending', 'awaiting_consent_form', 'consent_form_review', 'consent_form_approved',
+      'approved', 'payment_sent', 'awaiting_bank_transfer', 'completed', 'shipped', 'in_use',
+    ];
+    try {
+      const myAppsSnap = await getDocs(query(collection(db, 'applications'), where('userId', '==', user.uid)));
+      const hasActiveDuplicate = myAppsSnap.docs.some((d) => {
+        const a = d.data() as any;
+        return a.deviceType === device.type && ACTIVE_STATUSES.includes(a.status);
+      });
+      if (hasActiveDuplicate) {
+        toast({
+          variant: "destructive",
+          title: "既に進行中の申請があります",
+          description: `「${device.type}」は現在お申し込み手続き中です。完了・終了後に再度お申し込みください。`,
+        });
+        isSubmittedRef.current = false; // セッションロックを通常どおり解放できるよう戻す
+        setIsSubmitting(false);
+        router.push('/mypage/applications');
+        return;
+      }
+    } catch (guardErr) {
+      // ガード判定の失敗で正規の申請まで止めないよう、ここでは握りつぶして続行する。
+      console.warn('[APPLY] duplicate guard check skipped:', guardErr);
+    }
+
     const corporateInfo = formData.applicantType === 'corporate' ? {
       corporateNumber: formData.corporateNumber.trim() || null,
       invoiceNumber: formData.invoiceNumber.trim() || null,
