@@ -166,7 +166,37 @@ function getTools(currentAi: ReturnType<typeof createAi>) {
     }
   );
 
-  cachedTools = [getAvailableDevices, getQaByCategory, getConsentFormContent];
+  // Module catalog lookup — returns the authoritative list of add-on modules
+  // (name, point cost, description) so the AI never invents module names/features.
+  const getModules = currentAi.defineTool(
+    {
+      name: 'getModules',
+      description: 'Returns the full catalog of optional add-on modules (オプションモジュール) available for TimeWaver devices, with each module\'s name, point cost, and description. Use whenever the user asks what modules/options exist, or about a specific module\'s features.',
+      inputSchema: z.object({}),
+      outputSchema: z.array(z.object({
+        name: z.string(),
+        point: z.number().optional(),
+        description: z.string().optional(),
+      })),
+    },
+    async () => {
+      const { firestore } = initializeFirebase();
+      const snapshot = await getDocs(collection(firestore, 'modules'));
+      const stripHtml = (s: string) => (s || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 400);
+      return snapshot.docs
+        .map(d => { const data = d.data(); return { name: data.name, point: typeof data.point === 'number' ? data.point : undefined, description: stripHtml(data.description) }; })
+        .filter(m => m.name)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ja'));
+    }
+  );
+
+  cachedTools = [getAvailableDevices, getQaByCategory, getConsentFormContent, getModules];
   return cachedTools;
 }
 
@@ -234,6 +264,7 @@ export async function askChatbot(input: ChatbotInput): Promise<ChatbotOutput> {
 Your role is to provide helpful, accurate, and professional information to users.
 
 If a user asks about what devices are available or for recommendations, use the 'getAvailableDevices' tool.
+モジュール（オプション機能／add-on）の種類・特徴・ポイント数について聞かれたら、必ず 'getModules' ツールを使い、その情報のみで回答してください。モジュール名・特徴・ポイント数を推測で作らないでください。
 ${adminContext}${deviceContext}${qaCategoryContext}
 
 # ステータス一覧
