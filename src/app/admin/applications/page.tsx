@@ -222,7 +222,7 @@ function ApplicationDetailModal({ application }: { application: Application }) {
                 <p className="text-[10px] text-muted-foreground">対象機器</p>
                 <p className="text-sm font-bold">{application.deviceType}</p>
                 <p className="text-[10px] text-muted-foreground font-mono break-all">
-                  ID: {application.deviceId ?? '未割当'}
+                  S/N: {application.deviceSerialNumber ?? '未割当'}
                 </p>
               </div>
               <div className="space-y-1">
