@@ -1,12 +1,33 @@
 'use server';
 
 /**
- * @fileOverview Server actions for reading/writing secrets via Google Cloud Secret Manager.
- * These actions run on the server and are safe to call from client components.
+ * @fileOverview Admin-only Server Actions for managing secrets and running
+ * connection tests.
+ *
+ * SECURITY CONTRACT FOR THIS FILE
+ * -------------------------------
+ * Every exported async function in a `'use server'` module is compiled into a
+ * public HTTP endpoint. Next.js does not authenticate it, and the endpoint is
+ * reachable from any page — including unauthenticated ones — regardless of
+ * which component imports it. "Only the admin screen calls it" is not an access
+ * control.
+ *
+ * Therefore:
+ *   1. Every exported action here MUST take an `idToken` as its first argument
+ *      and MUST call `requireAdmin(idToken)` before doing any work.
+ *   2. No action here may return a raw credential. Actions report *whether* a
+ *      secret is set, never its value. Internal readers that do return raw
+ *      credentials live in `src/lib/secret-server.ts`, which is intentionally
+ *      not a `'use server'` module.
+ *
+ * Clients obtain the token with `getAdminIdToken()` from
+ * `src/lib/admin-id-token.ts`.
  */
 
 import crypto from 'node:crypto';
 import { getSecret, setSecret, deleteSecret, googleChatWebhookSecretName, SECRET_NAMES } from '@/lib/secret-manager';
+import { getStripeSecrets, getStripeWebhookSecret } from '@/lib/secret-server';
+import { requireAdmin } from '@/lib/admin-auth';
 
 // --- Types ---
 
@@ -27,19 +48,22 @@ export interface SecretPayload {
   gmailOAuthClientSecret?: string;
 }
 
-export interface StripeSecretsResult {
-  publishableKey: string;
-  secretKey: string;
-  mode: 'test' | 'production';
-}
-
 // --- Write Secrets ---
 
 /**
- * Save multiple secrets to Google Cloud Secret Manager.
+ * Save multiple secrets to Google Cloud Secret Manager. Admin only.
  * Only non-empty values are written (skips blank fields to avoid overwriting existing secrets).
  */
-export async function saveSecrets(payload: SecretPayload): Promise<{ success: boolean; error?: string }> {
+export async function saveSecrets(
+  idToken: string,
+  payload: SecretPayload,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin(idToken);
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+
   try {
     const entries: [string, string | undefined][] = [
       [SECRET_NAMES.STRIPE_TEST_PUBLISHABLE_KEY, payload.stripeTestPublishableKey],
@@ -70,72 +94,39 @@ export async function saveSecrets(payload: SecretPayload): Promise<{ success: bo
   }
 }
 
-// --- Read Secrets ---
+// --- Public Stripe config (publishable key only) ---
 
 /**
- * Get Stripe API credentials from Secret Manager.
- * Reads the appropriate test/live credentials based on the mode parameter.
+ * Return the Stripe **publishable** key for the given mode.
+ *
+ * Intentionally unauthenticated: publishable keys (pk_test_ / pk_live_) are
+ * designed to be public and are embedded in client-side JS by every Stripe
+ * integration. The payment page is reachable before sign-in, so this must work
+ * without a token.
+ *
+ * This exists so the browser never has to call an action that also returns the
+ * SECRET key. Do not widen its return value — `getStripeSecrets()` in
+ * src/lib/secret-server.ts is the server-only reader for full credentials.
  */
-export async function getStripeSecrets(mode: 'test' | 'production'): Promise<StripeSecretsResult | null> {
-  try {
-    const isTest = mode === 'test';
-    const publishableKey = await getSecret(
-      isTest ? SECRET_NAMES.STRIPE_TEST_PUBLISHABLE_KEY : SECRET_NAMES.STRIPE_LIVE_PUBLISHABLE_KEY
-    );
-    const secretKey = await getSecret(
-      isTest ? SECRET_NAMES.STRIPE_TEST_SECRET_KEY : SECRET_NAMES.STRIPE_LIVE_SECRET_KEY
-    );
-
-    if (!publishableKey || !secretKey) return null;
-
-    return { publishableKey, secretKey, mode };
-  } catch (error: any) {
-    console.error('[getStripeSecrets] Error:', error.message);
-    return null;
-  }
+export async function getStripePublishableKey(
+  mode: 'test' | 'production',
+): Promise<string | null> {
+  const secrets = await getStripeSecrets(mode);
+  return secrets?.publishableKey ?? null;
 }
 
-/**
- * Get the Stripe webhook signing secret for the given mode.
- * Tries the mode-specific secret first, then falls back to the legacy single secret
- * for backward compatibility with existing deployments.
- */
-export async function getStripeWebhookSecret(mode: 'test' | 'production' = 'test'): Promise<string | null> {
-  try {
-    const modeSpecific = mode === 'test'
-      ? SECRET_NAMES.STRIPE_TEST_WEBHOOK_SECRET
-      : SECRET_NAMES.STRIPE_LIVE_WEBHOOK_SECRET;
-    const value = await getSecret(modeSpecific);
-    if (value) return value;
-    // Fallback to legacy
-    return await getSecret(SECRET_NAMES.STRIPE_WEBHOOK_SECRET);
-  } catch (error: any) {
-    console.error('[getStripeWebhookSecret] Error:', error.message);
-    return null;
-  }
-}
+// --- Read Secret Status ---
 
 /**
- * Get the Gemini API key from Secret Manager.
- * Falls back to environment variable GOOGLE_GENAI_API_KEY if not found.
+ * Check which secrets are currently configured. Admin only.
+ * Returns booleans only — never a raw secret value.
+ *
+ * Throws AuthorizationError when the caller is not an admin, so the admin UI
+ * can surface a sign-in prompt rather than silently rendering "not configured".
  */
-export async function getGeminiSecret(): Promise<string | null> {
-  try {
-    const key = await getSecret(SECRET_NAMES.GEMINI_API_KEY);
-    if (key) return key;
-  } catch (error: any) {
-    console.warn('[getGeminiSecret] Secret Manager read failed, falling back to env var:', error.message);
-  }
+export async function getSecretsStatus(idToken: string): Promise<Record<string, boolean>> {
+  await requireAdmin(idToken);
 
-  // Fallback to environment variables for local development
-  return process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY || null;
-}
-
-/**
- * Check which secrets are currently configured (returns masked status, never raw values).
- * Used by the admin settings page to show which fields are set.
- */
-export async function getSecretsStatus(): Promise<Record<string, boolean>> {
   try {
     const results = await Promise.all([
       getSecret(SECRET_NAMES.STRIPE_TEST_PUBLISHABLE_KEY),
@@ -190,13 +181,20 @@ export async function getSecretsStatus(): Promise<Record<string, boolean>> {
 // --- Google Chat Destinations (multi-destination) ---
 
 /**
- * Save a Google Chat destination's webhook URL to Secret Manager.
+ * Save a Google Chat destination's webhook URL to Secret Manager. Admin only.
  * Returns { success, error } so the caller can surface failure to the user.
  */
 export async function saveGoogleChatDestinationUrl(
+  idToken: string,
   destinationId: string,
   webhookUrl: string,
 ): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin(idToken);
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+
   try {
     if (!destinationId || !destinationId.match(/^[a-zA-Z0-9_-]{1,40}$/)) {
       return { success: false, error: 'Invalid destination id.' };
@@ -213,12 +211,19 @@ export async function saveGoogleChatDestinationUrl(
 }
 
 /**
- * Remove a destination's webhook URL from Secret Manager. Idempotent — calling
- * on an unknown destinationId still resolves successfully.
+ * Remove a destination's webhook URL from Secret Manager. Admin only. Idempotent —
+ * calling on an unknown destinationId still resolves successfully.
  */
 export async function deleteGoogleChatDestinationUrl(
+  idToken: string,
   destinationId: string,
 ): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin(idToken);
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+
   try {
     await deleteSecret(googleChatWebhookSecretName(destinationId));
     return { success: true };
@@ -229,15 +234,24 @@ export async function deleteGoogleChatDestinationUrl(
 }
 
 /**
- * Send a test message to a Google Chat destination. The caller can pass an
- * explicit `webhookUrl` to test before saving, or omit it to use the URL
+ * Send a test message to a Google Chat destination. Admin only. The caller can
+ * pass an explicit `webhookUrl` to test before saving, or omit it to use the URL
  * stored for `destinationId`. Returns plain status (no leaked details).
  */
-export async function testGoogleChatDestination(args: {
-  destinationId?: string;
-  webhookUrl?: string;
-  message?: string;
-}): Promise<{ success: boolean; error?: string }> {
+export async function testGoogleChatDestination(
+  idToken: string,
+  args: {
+    destinationId?: string;
+    webhookUrl?: string;
+    message?: string;
+  },
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin(idToken);
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+
   try {
     let url = args.webhookUrl?.trim() || '';
     if (!url && args.destinationId) {
@@ -288,17 +302,26 @@ function chatMarkdownToCardHtmlLocal(input: string): string {
 /**
  * Send a fully-composed template preview to one Google Chat destination so
  * admins can verify formatting before wiring the template up to a live trigger.
- * Placeholders ({{userName}} etc.) are sent verbatim — this is intentional so
- * admins can spot any unfilled slots.
+ * Admin only. Placeholders ({{userName}} etc.) are sent verbatim — this is
+ * intentional so admins can spot any unfilled slots.
  */
-export async function testGoogleChatTemplatePreview(args: {
-  destinationId: string;
-  format: 'text' | 'card';
-  subject: string;
-  body: string;
-  cardButtons?: Array<{ label: string; url: string }>;
-  serviceName?: string;
-}): Promise<{ success: boolean; error?: string }> {
+export async function testGoogleChatTemplatePreview(
+  idToken: string,
+  args: {
+    destinationId: string;
+    format: 'text' | 'card';
+    subject: string;
+    body: string;
+    cardButtons?: Array<{ label: string; url: string }>;
+    serviceName?: string;
+  },
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin(idToken);
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+
   try {
     if (!args.destinationId) return { success: false, error: '送信先を選択してください。' };
     const url = await getSecret(googleChatWebhookSecretName(args.destinationId));
@@ -490,7 +513,7 @@ function selfTestWebhookSignature(webhookSecret: string): { ok: boolean; detail:
 
 /**
  * Run a non-destructive, read-only verification of all Stripe credentials
- * stored in Secret Manager for the given mode.
+ * stored in Secret Manager for the given mode. Admin only.
  *
  * Performs the following checks:
  *   01. Publishable Key + Secret Key
@@ -504,9 +527,11 @@ function selfTestWebhookSignature(webhookSecret: string): { ok: boolean; detail:
  *     - GET /v1/webhook_endpoints → lists endpoints currently registered on Stripe
  *
  * NO money is moved. NO customers/subscriptions/charges are created. All
- * Stripe API calls are GET requests.
+ * Stripe API calls are GET requests. Only masked key prefixes are ever
+ * returned to the caller — never a full key.
  */
 export async function testStripeConnection(
+  idToken: string,
   mode: 'test' | 'production',
 ): Promise<StripeConnectionTestResult> {
   const result: StripeConnectionTestResult = {
@@ -524,6 +549,13 @@ export async function testStripeConnection(
       webhookEndpointRegistration: { ok: null },
     },
   };
+
+  try {
+    await requireAdmin(idToken);
+  } catch (error: any) {
+    result.error = error.message;
+    return result;
+  }
 
   try {
     // ---- Load secrets ----

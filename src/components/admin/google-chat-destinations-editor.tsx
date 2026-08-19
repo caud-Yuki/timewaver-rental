@@ -16,6 +16,7 @@ import {
   deleteGoogleChatDestinationUrl,
   testGoogleChatDestination,
 } from '@/lib/secret-actions';
+import { getAdminIdToken } from '@/lib/admin-id-token';
 
 function generateDestinationId(): string {
   const ts = Date.now().toString(36);
@@ -79,7 +80,7 @@ export function GoogleChatDestinationsEditor({ destinations, onChange }: Props) 
       // If admin typed a URL, push it to Secret Manager.
       let hasUrl = dest.hasUrl;
       if (draftUrl.trim()) {
-        const result = await saveGoogleChatDestinationUrl(dest.id, draftUrl.trim());
+        const result = await saveGoogleChatDestinationUrl(await getAdminIdToken(), dest.id, draftUrl.trim());
         if (!result.success) {
           toast({ variant: 'destructive', title: 'URL保存エラー', description: result.error });
           setSavingId(null);
@@ -114,7 +115,7 @@ export function GoogleChatDestinationsEditor({ destinations, onChange }: Props) 
     if (!window.confirm(`通知先「${dest.label || '(未設定)'}」を削除しますか？\nSecret Manager 上の Webhook URL も削除されます。`)) return;
     try {
       if (dest.hasUrl) {
-        await deleteGoogleChatDestinationUrl(dest.id);
+        await deleteGoogleChatDestinationUrl(await getAdminIdToken(), dest.id);
       }
       const next = destinations.filter((d) => d.id !== dest.id);
       await persistMetadata(next);
@@ -127,7 +128,7 @@ export function GoogleChatDestinationsEditor({ destinations, onChange }: Props) 
   const handleTest = async (dest: GoogleChatDestination, overrideUrl?: string) => {
     setTestingId(dest.id);
     try {
-      const result = await testGoogleChatDestination({
+      const result = await testGoogleChatDestination(await getAdminIdToken(), {
         destinationId: overrideUrl ? undefined : dest.id,
         webhookUrl: overrideUrl,
         message: `✅ TimeWaverHub テスト送信: ${dest.label || '(未保存)'}`,

@@ -18,6 +18,7 @@ import { PlusCircle, Edit, Trash2, Mail, Loader2, Palette, Eye, ShieldAlert, Mes
 import { EmailTemplate, emailTemplateConverter, GlobalSettings } from '@/types';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { testGoogleChatTemplatePreview } from '@/lib/secret-actions';
+import { getAdminIdToken } from '@/lib/admin-id-token';
 import { SYSTEM_TEMPLATES } from '@/lib/email-defaults';
 
 type DisplayTemplate = EmailTemplate & { isSystemDefault?: boolean };
@@ -186,7 +187,7 @@ export default function EmailTemplatesPage() {
     }
     setTestSending(true);
     try {
-      const result = await testGoogleChatTemplatePreview({
+      const result = await testGoogleChatTemplatePreview(await getAdminIdToken(), {
         destinationId: testDestinationId,
         format: formChatFormat,
         subject: (formChatSubject || formSubject).trim(),

@@ -4,7 +4,7 @@ import { ai, createAi } from '@/ai/genkit';
 import { z } from 'genkit';
 import { initializeFirebase } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { getGeminiSecret } from '@/lib/secret-actions';
+import { getGeminiSecret } from '@/lib/secret-server';
 
 async function getAiInstance() {
   const { firestore } = initializeFirebase();

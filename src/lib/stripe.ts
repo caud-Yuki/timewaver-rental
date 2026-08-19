@@ -9,7 +9,7 @@
  */
 
 import { doc, getDoc, Firestore } from 'firebase/firestore';
-import { getStripeSecrets } from '@/lib/secret-actions';
+import { getStripePublishableKey } from '@/lib/secret-actions';
 import { loadStripe, Stripe } from '@stripe/stripe-js';
 
 // --- Types ---
@@ -39,11 +39,14 @@ export async function getStripeConfig(db: Firestore): Promise<StripeConfig | nul
   const data = snap.data();
   const mode = (data.mode || 'test') as 'test' | 'production';
 
-  const secrets = await getStripeSecrets(mode);
-  if (!secrets) return null;
+  // Publishable key only. This deliberately does NOT go through
+  // getStripeSecrets(), which also returns the Stripe SECRET key — calling that
+  // from this ('use client') module shipped the live secret key to the browser.
+  const publishableKey = await getStripePublishableKey(mode);
+  if (!publishableKey) return null;
 
   return {
-    publishableKey: secrets.publishableKey,
+    publishableKey,
     mode,
   };
 }

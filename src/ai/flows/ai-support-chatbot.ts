@@ -15,7 +15,7 @@ import {ai, createAi} from '@/ai/genkit';
 import {z} from 'genkit';
 import { initializeFirebase } from '@/firebase';
 import { collection, getDocs, doc, getDoc, query, where, limit, orderBy } from 'firebase/firestore';
-import { getGeminiSecret } from '@/lib/secret-actions';
+import { getGeminiSecret } from '@/lib/secret-server';
 import { generateConsentFormText, DEFAULT_CONSENT_SECTIONS } from '@/lib/consent-form-html';
 import type { ConsentFormSection } from '@/types';
 

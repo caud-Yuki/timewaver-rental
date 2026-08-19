@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { GlobalSettings, UserProfile, GoogleChatDestination } from '@/types';
 import { saveSecrets, getSecretsStatus, testStripeConnection, type SecretPayload, type StripeConnectionTestResult } from '@/lib/secret-actions';
+import { getAdminIdToken } from '@/lib/admin-id-token';
 import { GoogleChatDestinationsEditor } from '@/components/admin/google-chat-destinations-editor';
 import { StripeConnectionTestDialog } from '@/components/admin/stripe-connection-test-dialog';
 import { AVAILABLE_GEMINI_MODELS, DEFAULT_GEMINI_MODEL } from '@/ai/models';
@@ -52,13 +53,27 @@ export default function SettingsPage() {
     }
   }, [initialSettings]);
 
-  // Load secrets status on mount (which ones are configured)
+  // Load secrets status (which ones are configured). This is an admin-only
+  // action now, so it must wait until Firebase Auth has restored the session —
+  // otherwise there is no ID token to send.
   useEffect(() => {
-    getSecretsStatus().then((status) => {
-      setSecretsStatus(status);
+    if (!user) {
       setSecretsLoading(false);
-    }).catch(() => setSecretsLoading(false));
-  }, []);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await getSecretsStatus(await getAdminIdToken());
+        if (!cancelled) setSecretsStatus(status);
+      } catch {
+        if (!cancelled) setSecretsStatus({});
+      } finally {
+        if (!cancelled) setSecretsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
 
   const handleInputChange = (path: string, value: any) => {
     const keys = path.split('.');
@@ -111,7 +126,7 @@ export default function SettingsPage() {
 
     try {
       const mode: 'test' | 'production' = settings.mode === 'test' ? 'test' : 'production';
-      const result = await testStripeConnection(mode);
+      const result = await testStripeConnection(await getAdminIdToken(), mode);
       setStripeTestResult(result);
 
       if (result.success) {
@@ -156,14 +171,15 @@ export default function SettingsPage() {
       // 2. Save sensitive secrets to Secret Manager (only non-empty values)
       const hasSecrets = Object.values(secretInputs).some(v => v && v.trim());
       if (hasSecrets) {
-        const result = await saveSecrets(secretInputs);
+        const idToken = await getAdminIdToken();
+        const result = await saveSecrets(idToken, secretInputs);
         if (!result.success) {
           toast({ variant: "destructive", title: "シークレット保存エラー", description: result.error || "Secret Managerへの保存に失敗しました。" });
           setIsSaving(false);
           return;
         }
         // Refresh secrets status after saving
-        const newStatus = await getSecretsStatus();
+        const newStatus = await getSecretsStatus(idToken);
         setSecretsStatus(newStatus);
         // Clear inputs after successful save
         setSecretInputs({});

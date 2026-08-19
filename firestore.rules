@@ -2,16 +2,47 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper to check if user is an admin
-    function isAdmin() {
-      return request.auth != null && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    // --- 管理者判定 ---
+    //
+    // 1) Custom Claim (request.auth.token.admin) を最優先で見る。
+    //    Claim は Admin SDK からしか付与できずクライアントからは書き換え不能なため、
+    //    Firestore 側が書き換えられても昇格されない。ドキュメント読み取りも発生しない。
+    // 2) users/{uid}.role == 'admin' は移行期間中のフォールバック。
+    //    全管理者へ Claim を付与し終えたら、この分岐を削除すること。
+    //    付与は Cloud Functions の setUserRole（Admin SDK）で行う。
+    function hasAdminClaim() {
+      return request.auth != null && request.auth.token.get('admin', false) == true;
     }
 
-    // User Profiles: Owners can read and write their own profiles. Admins can read all.
+    function isAdmin() {
+      return hasAdminClaim() || (request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin');
+    }
+
+    // User Profiles: 本人のみ読み書き可。管理者は全件読み取り可。
+    //
+    // role は本人から書き換え不能にすること。以前は `allow write` 一本で
+    // フィールド制限が無かったため、任意のログインユーザーが自分のドキュメントに
+    // role:'admin' を書き込むだけで管理者に昇格できた（3層すべての管理者判定が
+    // このフィールドを参照しているため、実質フルアクセスを取得できた）。
+    //
+    // 昇格・降格は Cloud Functions の setUserRole 経由のみ（Admin SDK は
+    // ルールを迂回するため、ここで管理者に write を許可する必要はない）。
     match /users/{userId} {
       allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
-      allow write: if request.auth != null && request.auth.uid == userId;
+
+      // 新規登録時。role は 'user' 固定。
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.get('role', 'user') == 'user';
+
+      // プロフィール更新時。role は現在値から変更できない。
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.get('role', 'user') == resource.data.get('role', 'user');
+
+      // 退会は Auth ユーザーとの整合が必要なため Cloud Functions 経由。
+      allow delete: if false;
     }
 
     // Devices: Public read access for the catalog. Admins can write.
@@ -25,7 +56,11 @@ service cloud.firestore {
           // 2. User releases a processing device (timeout or back button)
           (resource.data.status == 'processing' && resource.data.currentUserId == request.auth.uid && request.resource.data.status == 'available') ||
           // 3. User completes payment and activates device
-          (resource.data.status == 'processing' && resource.data.currentUserId == request.auth.uid && request.resource.data.status == 'active')
+          (resource.data.status == 'processing' && resource.data.currentUserId == request.auth.uid && request.resource.data.status == 'active') ||
+          // 4. User submits an application: the device the user already holds moves to admin review.
+          //    Only the lock holder can do this, and only from 'processing'.
+          //    'under_review' -> * は管理者のみ（審査中の機器を利用者が勝手に戻せない）。
+          (resource.data.status == 'processing' && resource.data.currentUserId == request.auth.uid && request.resource.data.status == 'under_review')
         )
       );
     }

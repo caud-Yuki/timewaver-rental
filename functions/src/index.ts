@@ -5,6 +5,7 @@ import { log } from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getStorage } from "firebase-admin/storage";
 import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const StripeSDK = require("stripe") as typeof import("stripe");
 import { sendTriggeredEmail } from "./triggers";
@@ -180,6 +181,89 @@ async function requireAdmin(request: any): Promise<string> {
   }
   return uid;
 }
+
+/**
+ * Validate an ad-hoc email recipient list.
+ *
+ * Accepts a single address or a comma-separated list of plain addresses.
+ * Display-name forms ("Taro <taro@example.com>") are rejected on purpose —
+ * they are an easy way to smuggle a second recipient or spoof a name, and the
+ * admin UI only ever sends a bare address.
+ *
+ * This is defence in depth behind requireAdmin: it bounds the blast radius if
+ * an admin account is ever taken over, and keeps the sending domain's
+ * reputation from being burned by a bulk blast.
+ */
+const ADHOC_EMAIL_PATTERN = /^[^\s@,<>"]+@[^\s@,<>"]+\.[^\s@,<>"]+$/;
+const MAX_ADHOC_RECIPIENTS = 20;
+
+function assertValidRecipients(to: string): string[] {
+  const list = to.split(',').map((a) => a.trim()).filter(Boolean);
+  if (list.length === 0) {
+    throw new HttpsError("invalid-argument", "A valid recipient address is required.");
+  }
+  if (list.length > MAX_ADHOC_RECIPIENTS) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Too many recipients (${list.length}). Maximum is ${MAX_ADHOC_RECIPIENTS}.`,
+    );
+  }
+  for (const address of list) {
+    if (address.length > 254 || !ADHOC_EMAIL_PATTERN.test(address)) {
+      throw new HttpsError("invalid-argument", `Invalid recipient address: ${address}`);
+    }
+  }
+  return list;
+}
+
+/**
+ * Grant or revoke admin rights. Admin only.
+ *
+ * This is the sanctioned path for changing a role now that clients can no
+ * longer write users/{uid}.role (see firestore.rules). It writes BOTH the
+ * Firebase Auth custom claim and the Firestore field so all three
+ * authorization layers agree during the migration to claims:
+ *   - firestore.rules  -> hasAdminClaim() / role fallback
+ *   - Cloud Functions  -> requireAdmin() below
+ *   - Next.js          -> src/lib/admin-auth.ts
+ *
+ * Once every admin carries the claim, drop the Firestore fallback in all three.
+ */
+export const setUserRole = onCall(async (request) => {
+  const callerUid = await requireAdmin(request);
+  const { uid, role } = (request.data || {}) as { uid?: string; role?: 'user' | 'admin' };
+
+  if (!uid || (role !== 'user' && role !== 'admin')) {
+    throw new HttpsError("invalid-argument", "uid and role ('user' | 'admin') are required.");
+  }
+  // Prevent an admin from locking everyone out by demoting themselves.
+  if (uid === callerUid && role !== 'admin') {
+    throw new HttpsError(
+      "failed-precondition",
+      "自分自身の管理者権限は解除できません。他の管理者に依頼してください。",
+    );
+  }
+
+  const auth = getAuth();
+  try {
+    await auth.getUser(uid);
+  } catch {
+    throw new HttpsError("not-found", "対象ユーザーが見つかりません。");
+  }
+
+  const isAdminRole = role === 'admin';
+  await auth.setCustomUserClaims(uid, { admin: isAdminRole, role });
+  await getFirestore().collection('users').doc(uid).set(
+    { role, updatedAt: Timestamp.now() },
+    { merge: true },
+  );
+  // Force a fresh token so the change takes effect immediately rather than
+  // whenever the existing ID token happens to expire.
+  await auth.revokeRefreshTokens(uid);
+
+  log(`[setUserRole] ${callerUid} set role of ${uid} to '${role}'`);
+  return { success: true, uid, role };
+});
 
 // --- Stripe Helper ---
 
@@ -2009,6 +2093,11 @@ export const stripeWebhook = onRequest({ cors: false }, async (req, res) => {
  * Wraps body in the HTML email template with company branding.
  */
 export const sendAdHocEmail = onCall(async (request) => {
+  // MUST come first. Without it this callable is an open relay: any third party
+  // could send arbitrary HTML from the operator's own Gmail/SMTP account, with
+  // TimeWaverHub's real header and footer, to any address they chose.
+  const callerUid = await requireAdmin(request);
+
   const { to, subject, body, fromAccountId } = request.data as {
     to?: string;
     subject?: string;
@@ -2019,8 +2108,9 @@ export const sendAdHocEmail = onCall(async (request) => {
   if (!to || !subject || !body) {
     throw new HttpsError("invalid-argument", "to, subject, and body are required.");
   }
+  const recipients = assertValidRecipients(to);
 
-  log(`[sendAdHocEmail] Sending email to: ${to}, subject: ${subject}, fromAccountId: ${fromAccountId || "(default)"}`);
+  log(`[sendAdHocEmail] by ${callerUid} to ${recipients.length} recipient(s), subject: ${subject}, fromAccountId: ${fromAccountId || "(default)"}`);
 
   try {
     // Fetch email design settings
@@ -2060,8 +2150,8 @@ export const sendAdHocEmail = onCall(async (request) => {
 </table>
 </body></html>`;
 
-    await sendViaAccount({ accountId: fromAccountId, to, subject, body: htmlBody });
-    log(`[sendAdHocEmail] Email sent successfully to ${to}`);
+    await sendViaAccount({ accountId: fromAccountId, to: recipients.join(', '), subject, body: htmlBody });
+    log(`[sendAdHocEmail] Email sent successfully to ${recipients.length} recipient(s)`);
     return { success: true };
   } catch (error: any) {
     log(`[sendAdHocEmail] Error:`, error);
@@ -2658,6 +2748,10 @@ export const onEarlyBookingCreated = onDocumentCreated("earlyBookings/{bookingId
  * Uses the same templated pipeline as the onCreate trigger.
  */
 export const resendEarlyBookingFollowUp = onCall(async (request) => {
+  // Same open-relay exposure as sendAdHocEmail: without this, anyone could
+  // trigger mail to any address stored in earlyBookings.
+  await requireAdmin(request);
+
   const { bookingId } = request.data;
   if (!bookingId) throw new HttpsError("invalid-argument", "bookingId is required.");
 

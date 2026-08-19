@@ -32,6 +32,7 @@ import { AddMailAccountDialog } from './add-mail-account-dialog';
 import { TestMailSendDialog } from './test-mail-send-dialog';
 import { GmailOAuthSetupWizard } from './gmail-oauth-setup-wizard';
 import { getSecretsStatus } from '@/lib/secret-actions';
+import { getAdminIdToken } from '@/lib/admin-id-token';
 
 function StatusBadge({ status }: { status: MailAccountRecord['status'] }) {
   const map: Record<MailAccountRecord['status'], { label: string; className: string }> = {
@@ -75,7 +76,7 @@ export function MailSettings() {
 
   const refreshOAuthStatus = useCallback(async () => {
     try {
-      const status = await getSecretsStatus();
+      const status = await getSecretsStatus(await getAdminIdToken());
       setOauthConfigured(!!status.gmailOAuthClientId && !!status.gmailOAuthClientSecret);
     } catch {
       setOauthConfigured(false);

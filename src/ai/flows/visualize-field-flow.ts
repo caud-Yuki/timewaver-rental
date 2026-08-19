@@ -9,7 +9,7 @@ import {ai, createAi} from '@/ai/genkit';
 import {z} from 'genkit';
 import { initializeFirebase } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { getGeminiSecret } from '@/lib/secret-actions';
+import { getGeminiSecret } from '@/lib/secret-server';
 
 const VisualizeFieldInputSchema = z.object({
   intent: z.string().describe('The user\'s intent or focus for the visualization (e.g., "Health and Vitality", "Business Success").')

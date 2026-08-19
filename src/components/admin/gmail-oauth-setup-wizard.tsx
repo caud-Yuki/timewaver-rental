@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { firebaseConfig } from '@/firebase/config';
 import { saveSecrets, getSecretsStatus } from '@/lib/secret-actions';
+import { getAdminIdToken } from '@/lib/admin-id-token';
 import {
   CheckCircle2,
   Copy,
@@ -82,7 +83,8 @@ export function GmailOAuthSetupWizard({ open, onOpenChange, onSuccess }: Props) 
   const handleSave = async () => {
     setBusy(true);
     try {
-      const result = await saveSecrets({
+      const idToken = await getAdminIdToken();
+      const result = await saveSecrets(idToken, {
         gmailOAuthClientId: clientId.trim(),
         gmailOAuthClientSecret: clientSecret.trim(),
       });
@@ -95,7 +97,7 @@ export function GmailOAuthSetupWizard({ open, onOpenChange, onSuccess }: Props) 
         return;
       }
 
-      const status = await getSecretsStatus();
+      const status = await getSecretsStatus(idToken);
       if (!status.gmailOAuthClientId || !status.gmailOAuthClientSecret) {
         toast({
           variant: 'destructive',
