@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit",
     "test:rules": "firebase emulators:exec --only firestore --project twrental-rules-test 'node tests/firestore-rules.test.mjs'",
     "test:pricing": "cd functions && npm run build && cd .. && firebase emulators:exec --only firestore --project twrental-pricing-test 'node tests/pricing.test.mjs'",
-    "test:renewal": "node --experimental-strip-types tests/renewal.test.mjs"
+    "test:bank-transfer": "cd functions && npm run build && cd .. && firebase emulators:exec --only firestore,functions --project twrental-bank-test 'node tests/bank-transfer.test.mjs'",
+    "test:renewal": "node --experimental-strip-types tests/renewal.test.mjs",
+    "test:email-placeholders": "cd functions && npm run build && cd .. && node tests/email-placeholders.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

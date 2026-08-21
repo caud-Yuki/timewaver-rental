@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -23,13 +23,23 @@ export default function LoginPage() {
   const db = useFirestore();
   const { toast } = useToast();
 
+  // ログイン後の戻り先。決済リンク（本人しか読めない）を未ログインで開いた場合など、
+  // 元のページへ戻す。オープンリダイレクトを避けるため同一サイトの絶対パスのみ許可する。
+  // useSearchParams ではなく window から読むのは、この画面に Suspense 境界を
+  // 足さずに済ませるため。
+  const redirectTo = useMemo(() => {
+    if (typeof window === 'undefined') return '/';
+    const raw = new URLSearchParams(window.location.search).get('redirect');
+    return raw && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auth) return;
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      router.push('/');
+      router.push(redirectTo);
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -86,7 +96,7 @@ export default function LoginPage() {
         description: `${user.displayName || user.email} としてログインしました。`,
       });
       
-      router.push('/');
+      router.push(redirectTo);
     } catch (error: any) {
       console.error("Google Auth Error:", error);
       

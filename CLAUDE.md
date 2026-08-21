@@ -272,6 +272,7 @@ pending → awaiting_consent_form → consent_form_review → consent_form_appro
 rejected      canceled
 
 consent_form_approved → payment_sent → completed → shipped → in_use
+                     ↘ awaiting_bank_transfer ↗   (銀行振込・一括払いのみ)
 
 in_use → expired → returning → inspection → returned → closed
                                     ↓
@@ -379,5 +380,6 @@ Detailed architecture docs are in `docs/`:
 | `docs/firestore-rules.md` | Security rules reference, collection access levels, server action compatibility |
 | `docs/collections-reference.md` | Firestore collection field definitions |
 | `docs/workflow.md` | End-to-end user and admin workflow |
+| `docs/FLOW-bank-transfer.md` | 銀行振込フロー（案内→入金確認→契約作成）の設定・実装・検証 |
 | `docs/FLOW-renewal.md` | 契約更新フロー（受付条件・重複ガード・法人情報・クーポン）の整合 |
 | `docs/blueprint.md` | Full app specification and style guide |

@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useCollection, useDoc } from '@/firebase';
-import { collection, query, orderBy, updateDoc, doc, serverTimestamp, addDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, updateDoc, doc, getDoc, serverTimestamp, addDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -58,13 +58,33 @@ import {
   RefreshCw,
   Tag
 } from 'lucide-react';
-import { Application, UserProfile, EmailTemplate, applicationConverter, userProfileConverter, emailTemplateConverter } from '@/types';
+import { Application, UserProfile, EmailTemplate, GlobalSettings, PaymentLinkStatus, applicationConverter, userProfileConverter, emailTemplateConverter } from '@/types';
+import { DEFAULT_PAYMENT_LINK_VALIDITY_DAYS, computePaymentLinkExpiry } from '@/lib/payment-link-status';
+import { formatDateJP } from '@/lib/business-days';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { ScrollArea } from '@/components/ui/scroll-area';
+
+/**
+ * 銀行振込の期限表示。期限は onApplicationUpdate が ISO 文字列で刻む
+ * （application.bankTransfer.deadline）。案内前は未設定なので '-' を返す。
+ */
+function formatTransferDate(iso?: string): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '-' : formatDateJP(d);
+}
+
+/** 振込期限を過ぎても入金確認されていない申請かどうか（督促の目印）。 */
+function isTransferOverdue(application: Application): boolean {
+  const iso = application.bankTransfer?.deadline;
+  if (!iso || application.status !== 'awaiting_bank_transfer') return false;
+  const d = new Date(iso);
+  return !Number.isNaN(d.getTime()) && d.getTime() < Date.now();
+}
 
 function ApplicationDetailModal({ application }: { application: Application }) {
   const isDeleted = application.status === 'canceled';
@@ -332,7 +352,7 @@ function EmailComposeModal({ application, open, onOpenChange }: { application: A
       linkMypage: `${baseUrl}/mypage`,
       linkApplications: `${baseUrl}/mypage/applications`,
       linkDevices: `${baseUrl}/mypage/devices`,
-      linkPaymentHistory: `${baseUrl}/mypage/payment-history`,
+      linkPaymentHistory: `${baseUrl}/mypage/payments`,
       linkProfile: `${baseUrl}/mypage/profile`,
       linkDeviceList: `${baseUrl}/devices`,
     };
@@ -495,8 +515,15 @@ export default function AdminApplicationsPage() {
   const { data: applications, loading: appsLoading } = useCollection<Application>(applicationsQuery);
 
   // 1. Add this helper to handle the confirmation toast
-  const handleUpdateStatus = async (appId: string, status: Application['status']) => {
+  const handleUpdateStatus = async (appId: string, status: Application['status'], application?: Application) => {
     if (!db) return;
+
+    // 銀行振込は一括払いのみ。月々払いを振込にすると継続課金の相手（Stripe）が居ない
+    // 契約ができてしまうので、ボタン経路と同じ条件をここでも守る。
+    if (status === 'awaiting_bank_transfer' && application && application.payType !== 'full') {
+      toast({ variant: 'destructive', title: '銀行振込は一括払いのみ対応しています' });
+      return;
+    }
 
     // Optional: Visual confirmation for destructive actions
     const isDestructive = status === 'canceled';
@@ -523,30 +550,60 @@ export default function AdminApplicationsPage() {
     }
   };
 
+  // 決済リンクの発行。
+  //
+  // 旧実装には2つの欠陥があった:
+  //   1. status に 'open' を書いていたが、Firestore ルールが許可する遷移は
+  //      'pending' → 'used' だけだったため、決済完了時の更新が必ず弾かれ、
+  //      支払い済みのリンクが未使用のまま残り続けた（＝再利用できた）。
+  //   2. expiresAt に serverTimestamp() をそのまま入れていたため、
+  //      「作成時刻＝有効期限」＝発行した瞬間に期限切れ、という値になっていた。
+  // 語彙は payment-link-status.ts に統一し、期限は実際の日数で持たせる。
   const handleCreatePaymentLink = async (application: Application) => {
     if (!db) return;
-    
-    const paymentLinkData = {
-      applicationId: application.id,
-      userId: application.userId,
-      deviceId: application.deviceId,
-      deviceName: application.deviceType,
-      payType: application.payType,
-      payAmount: application.payAmount,
-      status: 'open',
-      createdAt: serverTimestamp(),
-      expiresAt: serverTimestamp(),
-    };
 
-    addDoc(collection(db, 'paymentLinks'), paymentLinkData)
-      .then((docRef) => {
-        updateDoc(doc(db, 'applications', application.id), {
-          status: 'payment_sent',
-          paymentLinkId: docRef.id,
-          updatedAt: serverTimestamp(),
-        });
-        toast({ title: "決済リンクを送信しました" });
+    try {
+      const settingsSnap = await getDoc(doc(db, 'settings', 'global'));
+      const validityDays = (settingsSnap.data() as GlobalSettings | undefined)?.paymentLinkValidityDays
+        ?? DEFAULT_PAYMENT_LINK_VALIDITY_DAYS;
+
+      // createdAt と expiresAt は同じ時刻から算出する。片方を serverTimestamp() に
+      // すると端末時計のずれで expiresAt <= createdAt になり得て、その場合は
+      // 「期限なし」と解釈されてしまう（resolvePaymentLinkExpiry 参照）。
+      const now = new Date();
+      const expiresAt = computePaymentLinkExpiry(now, validityDays);
+
+      const paymentLinkData = {
+        applicationId: application.id,
+        userId: application.userId,
+        deviceId: application.deviceId,
+        deviceName: application.deviceType,
+        payType: application.payType,
+        payAmount: application.payAmount,
+        status: 'pending' satisfies PaymentLinkStatus,
+        createdAt: Timestamp.fromDate(now),
+        updatedAt: Timestamp.fromDate(now),
+        expiresAt: Timestamp.fromDate(expiresAt),
+      };
+
+      const docRef = await addDoc(collection(db, 'paymentLinks'), paymentLinkData);
+      await updateDoc(doc(db, 'applications', application.id), {
+        status: 'payment_sent',
+        paymentLinkId: docRef.id,
+        updatedAt: serverTimestamp(),
       });
+      toast({
+        title: "決済リンクを送信しました",
+        description: `有効期限: ${formatDateJP(expiresAt)}（${validityDays}日間）`,
+      });
+    } catch (error) {
+      console.error("Payment link creation failed:", error);
+      toast({
+        variant: "destructive",
+        title: "決済リンクの発行に失敗しました",
+        description: "通信状態を確認のうえ、再度お試しください。",
+      });
+    }
   };
 
   // 銀行振込案内（一括払いのみ）→ status を awaiting_bank_transfer に。
@@ -675,7 +732,7 @@ export default function AdminApplicationsPage() {
                   <TableCell>
                     <Select 
                       value={app.status} 
-                      onValueChange={(v: any) => handleUpdateStatus(app.id, v)}
+                      onValueChange={(v: any) => handleUpdateStatus(app.id, v, app)}
                     >
                       <SelectTrigger className={`w-[130px] h-8 text-[10px] rounded-lg ${app.status === 'canceled' ? 'border-destructive text-destructive' : ''}`}>
                         <SelectValue />
@@ -700,6 +757,15 @@ export default function AdminApplicationsPage() {
                         <SelectItem value="canceled" className="text-destructive font-bold">取り消し済み</SelectItem>
                       </SelectContent>
                     </Select>
+                    {app.status === 'awaiting_bank_transfer' && (
+                      <div className="mt-1 text-[10px] leading-tight text-sky-700">
+                        <div>請求 ¥{(app.bankTransfer?.amount ?? app.payAmount ?? 0).toLocaleString()}</div>
+                        <div className={isTransferOverdue(app) ? 'font-bold text-destructive' : ''}>
+                          期限 {formatTransferDate(app.bankTransfer?.deadline)}
+                          {isTransferOverdue(app) && '（超過）'}
+                        </div>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right pr-8 space-x-1">
                     <Dialog>
@@ -734,9 +800,39 @@ export default function AdminApplicationsPage() {
                     )}
 
                     {app.status === 'awaiting_bank_transfer' && (
-                      <Button size="sm" className="h-8 rounded-lg bg-sky-500 hover:bg-sky-600" onClick={() => handleConfirmBankTransfer(app)} title="入金を確認したら押してください">
-                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> 入金確認
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" className="h-8 rounded-lg bg-sky-500 hover:bg-sky-600" title="入金を確認したら押してください">
+                            <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> 入金確認
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="rounded-2xl">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>入金を確認しましたか？</AlertDialogTitle>
+                            <AlertDialogDescription asChild>
+                              <div className="space-y-2 text-sm">
+                                <div>
+                                  通帳・入出金明細で <strong className="text-foreground">¥{(app.bankTransfer?.amount ?? app.payAmount ?? 0).toLocaleString()}</strong> の入金を確認してから実行してください。
+                                </div>
+                                <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-0.5">
+                                  <div>申請者: {app.userName}（{app.userEmail}）</div>
+                                  <div>対象機器: {app.deviceType}</div>
+                                  <div>振込期限: {formatTransferDate(app.bankTransfer?.deadline)}</div>
+                                </div>
+                                <div className="text-xs">
+                                  実行すると<strong className="text-foreground">決済完了</strong>として契約（レンタル期間）が作成され、発送準備の依頼メールがスタッフへ送信されます。
+                                </div>
+                              </div>
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel className="rounded-xl">キャンセル</AlertDialogCancel>
+                            <AlertDialogAction className="rounded-xl bg-sky-500 hover:bg-sky-600" onClick={() => handleConfirmBankTransfer(app)}>
+                              入金確認として処理
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
 
                     <AlertDialog>

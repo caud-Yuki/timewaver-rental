@@ -72,7 +72,7 @@ curl -s "$BASE/apply/new" | grep -o '/_next/static/chunks/app/apply/new/page-[a-
 | `deviceModules/*` | **Public** | Admin | |
 | `modules/*` | **Public** | Admin | |
 | `waitlist/*` | Authenticated | Auth (owner create), Admin (update) | |
-| `paymentLinks/*` | **Public** | Admin (create/delete), conditional (update) | |
+| `paymentLinks/*` | Auth (owner or admin) | Admin (create/delete), owner (`pending` → `paid` のみ) | 期限切れは更新不可 |
 | `settings/global` | **Public** | Admin | Non-sensitive config |
 | `consentForm/*` | **Public** | Admin | |
 
@@ -82,12 +82,13 @@ Server actions use the client SDK **without authentication**. Only collections w
 
 Collections accessible from server actions:
 - `devices`, `deviceTypeCodes`, `modules`, `deviceModules`
-- `news`, `coupons`, `paymentLinks`, `consentForm`
+- `news`, `coupons`, `consentForm`
 - `settings/global`
 
 Collections NOT accessible from server actions:
 - `users`, `applications`, `subscriptions`, `supportRequests`
 - `emailTemplates`, `emailTriggers`
+- `paymentLinks`（2026-08-21 に公開読み取りを廃止。本人と管理者のみ）
 
 ## Field-Level Considerations
 

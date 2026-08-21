@@ -1,6 +1,12 @@
 
 import { FieldValue, Timestamp, DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, SnapshotOptions, WithFieldValue, PartialWithFieldValue } from 'firebase/firestore';
 
+/**
+ * 決済リンクの状態。語彙と判定ロジックの定義元は
+ * functions/src/payment-link-status.ts（src/lib/payment-link-status.ts 経由で参照）。
+ */
+import type { PaymentLinkStatus } from '@/lib/payment-link-status';
+
 const createConverter = <T extends { id: string }>(): FirestoreDataConverter<T> => ({
   toFirestore(data: WithFieldValue<T> | PartialWithFieldValue<T>): DocumentData {
     const { id, ...rest } = data as any; 
@@ -260,6 +266,8 @@ export interface GlobalSettings {
   };
   // 振込期限（営業日数）。未設定時は 7。
   bankTransferDeadlineDays?: number;
+  // 決済リンクの有効期限（日数）。未設定時は 7（DEFAULT_PAYMENT_LINK_VALIDITY_DAYS）。
+  paymentLinkValidityDays?: number;
   staff?: Array<{ name: string; email: string; role: 'operations' | 'support' | 'admin' }>;
   // Pre-booking mode — when true, /devices disables apply buttons and /about-twrental final CTA routes to the pre-booking form.
   preBookingMode?: boolean;
@@ -419,13 +427,23 @@ export interface Subscription {
 }
 export const subscriptionConverter = createConverter<Subscription>();
 
+export type { PaymentLinkStatus };
+
 export interface PaymentLink {
   id: string;
   applicationId: string;
   url: string;
+  /**
+   * 実効的な有効期限。発行時に createdAt + settings/global.paymentLinkValidityDays（既定7日）。
+   * 判定は isPaymentLinkUsable() / paymentLinkUnusableReason() を通すこと
+   * （旧データは expiresAt == createdAt が入っており、そのまま比較すると全滅する）。
+   */
   expiresAt: Timestamp;
-  isPaid: boolean;
-  status?: 'open' | 'paid' | 'expired';
+  /** @deprecated status === 'paid' を使う。書き込み箇所が無く、常に undefined。 */
+  isPaid?: boolean;
+  status: PaymentLinkStatus;
+  /** 決済完了時刻。status が 'paid' になったときだけセットされる。 */
+  paidAt?: Timestamp;
   payType?: 'monthly' | 'full';
   payAmount?: number;
   deviceName?: string;

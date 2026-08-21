@@ -21,6 +21,11 @@ const db = admin.firestore();
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
+  // 有効期限は本番の発行処理と同じ既定値（7日）。
+  const now = new Date();
+  const expiresAt = new Date(now.getTime());
+  expiresAt.setDate(expiresAt.getDate() + 7);
+
   const linkRef = await db.collection('paymentLinks').add({
     userId,
     deviceId,
@@ -30,8 +35,9 @@ const db = admin.firestore();
     payAmount: 150,
     status: 'pending',
     _verification: 'live-prod-test',
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: admin.firestore.Timestamp.fromDate(now),
+    updatedAt: admin.firestore.Timestamp.fromDate(now),
+    expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
   });
 
   const paymentUrl = `https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app/payment/${linkRef.id}`;

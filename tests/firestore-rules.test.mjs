@@ -478,34 +478,103 @@ await it('管理者は金額を修正できる（返金・特例対応）', asyn
   await assertSucceeds(updateDoc(doc(asAdmin(), 'applications', 'app_1'), { payAmount: 40000 }));
 });
 
-/** 決済リンクを1件用意する */
-async function seedPaymentLink(status = 'pending') {
+/**
+ * 決済リンクを1件用意する。
+ * expiresAt は既定で「作成の1日後」＝有効。extra で個別に上書きできる。
+ */
+async function seedPaymentLink(status = 'pending', extra = {}) {
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + 24 * 60 * 60 * 1000);
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await setDoc(doc(ctx.firestore(), 'paymentLinks', 'link_1'), {
       applicationId: 'app_1', userId: USER, deviceId: DEVICE,
       payType: 'monthly', payAmount: 50000, status,
+      createdAt, expiresAt,
+      ...extra,
     });
   });
 }
 
 await seed();
-await it('★ 決済リンクの payAmount を一般ユーザーが書き換えられない（今回の修正点）', async () => {
+await it('★ 決済リンクの payAmount を一般ユーザーが書き換えられない', async () => {
   await seedPaymentLink();
   await assertFails(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { payAmount: 50 }));
 });
 
 await seed();
-await it('★ status を used にする更新に金額改ざんを混ぜられない', async () => {
+await it('★ status を paid にする更新に金額改ざんを混ぜられない', async () => {
   await seedPaymentLink();
   await assertFails(
-    updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'used', payAmount: 50 })
+    updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'paid', payAmount: 50 })
   );
 });
 
 await seed();
-await it('決済完了時に status を used へ変更するのは引き続き可能', async () => {
+await it('決済完了時に status を paid へ変更できる', async () => {
   await seedPaymentLink();
-  await assertSucceeds(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'used' }));
+  await assertSucceeds(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'paid' }));
+});
+
+await seed();
+await it('★ 旧語彙 open で発行されたリンクも paid で閉じられる（決済後 open のまま残らない）', async () => {
+  await seedPaymentLink('open');
+  await assertSucceeds(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'paid' }));
+});
+
+await seed();
+await it('★ 旧語彙 used への更新はもう通らない（語彙は paid に統一）', async () => {
+  await seedPaymentLink();
+  await assertFails(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'used' }));
+});
+
+await seed();
+await it('★ 支払い済みリンクを pending に戻して再利用できない', async () => {
+  await seedPaymentLink('paid');
+  await assertFails(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'pending' }));
+});
+
+await seed();
+await it('★ 期限切れのリンクは paid にできない', async () => {
+  const createdAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  await seedPaymentLink('pending', { createdAt, expiresAt });
+  await assertFails(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'paid' }));
+});
+
+await seed();
+await it('移行前のリンク（expiresAt == createdAt）は期限なし扱いで決済できる', async () => {
+  const sameMoment = new Date();
+  await seedPaymentLink('open', { createdAt: sameMoment, expiresAt: sameMoment });
+  await assertSucceeds(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'paid' }));
+});
+
+await seed();
+await it('★ 他人の決済リンクを閉じられない', async () => {
+  await seedPaymentLink();
+  await assertFails(updateDoc(doc(asOther(), 'paymentLinks', 'link_1'), { status: 'paid' }));
+});
+
+await seed();
+await it('★ 決済リンクは本人しか読めない（全世界公開の廃止）', async () => {
+  await seedPaymentLink();
+  await assertSucceeds(getDoc(doc(asUser(), 'paymentLinks', 'link_1')));
+  await assertFails(getDoc(doc(asOther(), 'paymentLinks', 'link_1')));
+  await assertFails(getDoc(doc(testEnv.unauthenticatedContext().firestore(), 'paymentLinks', 'link_1')));
+});
+
+await seed();
+await it('管理者は決済リンクを読める', async () => {
+  await seedPaymentLink();
+  await assertSucceeds(getDoc(doc(asAdmin(), 'paymentLinks', 'link_1')));
+});
+
+await seed();
+await it('一般ユーザーは決済リンクを発行・削除できない', async () => {
+  await seedPaymentLink();
+  await assertFails(
+    addDoc(collection(asUser(), 'paymentLinks'), { applicationId: 'app_1', userId: USER, payAmount: 1 })
+  );
+  await assertFails(deleteDoc(doc(asUser(), 'paymentLinks', 'link_1')));
 });
 
 await testEnv.cleanup();

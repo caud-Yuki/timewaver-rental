@@ -21,6 +21,8 @@ interface UserSubscription {
   deviceName?: string;
   payAmount?: number;
   payType?: string;
+  /** 'bank_transfer' は銀行振込。未設定はカード（Stripe）決済。 */
+  paymentMethod?: string;
   rentalMonths?: number;
   status: string;
   startAt?: any;
@@ -362,9 +364,16 @@ export default function UserPaymentsPage() {
                           <TableCell className="font-medium text-sm">{sub.deviceType || sub.deviceName || '-'}</TableCell>
                           <TableCell className="font-bold">¥{sub.payAmount?.toLocaleString() || '-'}</TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="text-[10px]">
-                              {sub.payType === 'monthly' ? '月々払い' : '一括払い'}
-                            </Badge>
+                            <div className="flex flex-wrap gap-1">
+                              <Badge variant="outline" className="text-[10px]">
+                                {sub.payType === 'monthly' ? '月々払い' : '一括払い'}
+                              </Badge>
+                              {sub.paymentMethod === 'bank_transfer' && (
+                                <Badge variant="outline" className="text-[10px] border-sky-200 bg-sky-50 text-sky-700">
+                                  銀行振込
+                                </Badge>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell>{getSubStatusBadge(sub)}</TableCell>
                           <TableCell className="text-right pr-8">

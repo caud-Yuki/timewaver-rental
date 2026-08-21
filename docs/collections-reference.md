@@ -116,12 +116,24 @@ Payment URLs sent to users
 | Field | Type | Description |
 |---|---|---|
 | `applicationId` | string | Linked application |
+| `userId` | string | Owner. 読み取り／更新の認可に使う（firestore.rules） |
 | `deviceId` | string | Device ID |
 | `deviceName` | string | Device name |
 | `payType` | string | 'monthly' \| 'full' |
 | `payAmount` | number | Amount |
-| `status` | string | 'active' \| 'used' |
+| `status` | PaymentLinkStatus | 'pending' \| 'paid' \| 'expired' \| 'canceled' |
+| `expiresAt` | Timestamp | 有効期限。発行時に `createdAt` + `settings/global.paymentLinkValidityDays`（既定7日） |
+| `paidAt` | Timestamp? | 決済完了時刻（`status === 'paid'` のときのみ） |
+| `stripePaymentIntentId` | string? | 紐づく PaymentIntent |
 | `createdAt` | Timestamp | |
+| `updatedAt` | Timestamp | |
+
+**状態語彙は `functions/src/payment-link-status.ts` が定義元**（フロントは
+`src/lib/payment-link-status.ts` 経由で同じ実装を使う）。旧語彙 'open' / 'active' /
+'used' は読み取り時に正規化され、`scripts/migrate-payment-link-status.cjs` で
+保存値も変換する。有効期限の判定は `paymentLinkUnusableReason()` を通すこと —
+移行前のリンクは `expiresAt` に作成時刻がそのまま入っており（発行と同時に期限切れ）、
+素朴に比較すると全滅する。
 
 ### `waitlist`
 Waitlist entries

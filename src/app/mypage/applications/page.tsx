@@ -18,7 +18,7 @@ import {
   DialogClose 
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, FileText, ShoppingCart, RefreshCw, AlertTriangle, ExternalLink, Upload, ArrowLeft, Download, Pen, Camera, Mail, X } from 'lucide-react';
+import { Loader2, FileText, ShoppingCart, RefreshCw, AlertTriangle, ExternalLink, Upload, ArrowLeft, Download, Pen, Camera, Mail, X, Landmark } from 'lucide-react';
 import { Application, applicationConverter, GlobalSettings } from '@/types';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
@@ -49,6 +49,80 @@ const CancelApplicationModal = ({ application, onConfirm }: { application: Appli
           <Button variant="outline" className="rounded-lg">閉じる</Button>
         </DialogClose>
         <Button variant="destructive" className="rounded-lg" onClick={onConfirm}>キャンセルを実行</Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+};
+
+/**
+ * 銀行振込の案内（振込先・金額・期限）をマイページからも確認できるようにする。
+ * 同じ内容は案内メール（sys_bank_transfer_instructions）でも届くが、メールを
+ * 見失ってもここで確認できるようにしている。口座情報は settings/global、
+ * 金額と期限は onApplicationUpdate が申請に刻んだ bankTransfer から読む。
+ */
+const BankTransferModal = ({ application }: { application: Application }) => {
+  const db = useFirestore();
+  const settingsRef = useMemo(() => doc(db, 'settings', 'global'), [db]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
+  const bank = settings?.bankTransfer;
+  const amount = application.bankTransfer?.amount ?? application.payAmount ?? 0;
+  const deadlineISO = application.bankTransfer?.deadline;
+  const deadline = deadlineISO ? new Date(deadlineISO) : null;
+  const deadlineText = deadline && !Number.isNaN(deadline.getTime())
+    ? deadline.toLocaleDateString('ja-JP')
+    : '-';
+
+  const Row = ({ label, value }: { label: string; value?: string }) => (
+    <div className="flex justify-between gap-4 py-1.5 border-b border-dashed last:border-0">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      <span className="font-medium text-right break-all">{value || '-'}</span>
+    </div>
+  );
+
+  return (
+    <DialogContent className="rounded-2xl">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Landmark className="h-5 w-5 text-sky-600" />
+          お振込先のご案内
+        </DialogTitle>
+        <DialogDescription>
+          下記の口座へお振込ください。ご入金の確認後、契約開始・発送のご案内をお送りします。
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="space-y-4 py-2">
+        <div className="rounded-xl bg-sky-50 border border-sky-100 p-4 space-y-1">
+          <div className="flex justify-between items-baseline">
+            <span className="text-xs text-sky-700">ご請求金額</span>
+            <span className="text-2xl font-bold text-sky-900">¥{amount.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between items-baseline">
+            <span className="text-xs text-sky-700">お振込期限</span>
+            <span className="text-sm font-semibold text-sky-900">{deadlineText}</span>
+          </div>
+        </div>
+
+        <div className="text-sm">
+          <Row label="金融機関" value={[bank?.bankName, bank?.branch].filter(Boolean).join(' ')} />
+          <Row label="預金種別" value={bank?.accountType} />
+          <Row label="口座番号" value={bank?.accountNumber} />
+          <Row label="口座名義" value={bank?.accountHolder} />
+        </div>
+
+        <div className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+          <p>
+            お振込名義の前に申請番号（<strong className="text-foreground">{application.id}</strong>）をご入力ください。入金確認がスムーズになります。
+          </p>
+          <p>振込手数料はお客様のご負担にてお願いいたします。</p>
+          {bank?.note && <p>{bank.note}</p>}
+        </div>
+      </div>
+
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button variant="outline" className="rounded-lg">閉じる</Button>
+        </DialogClose>
       </DialogFooter>
     </DialogContent>
   );
@@ -383,6 +457,16 @@ export default function MyApplicationsPage() {
                            <Button size="sm" className="rounded-lg h-9 bg-emerald-500 hover:bg-emerald-600" asChild>
                             <Link href={`/payment/${app.paymentLinkId}`}>支払いへ</Link>
                           </Button>
+                        )}
+                        {app.status === 'awaiting_bank_transfer' && (
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button size="sm" className="rounded-lg h-9 bg-sky-500 hover:bg-sky-600">
+                                <Landmark className="h-4 w-4 mr-1" /> 振込先を表示
+                              </Button>
+                            </DialogTrigger>
+                            <BankTransferModal application={app} />
+                          </Dialog>
                         )}
                         {canCancel && (
                           <Dialog>

@@ -110,6 +110,90 @@ async function getSecretValueLocal(secretName: string): Promise<string | null> {
   }
 }
 
+/** Public base URL of the app — used to build the link placeholders. */
+export const APP_BASE_URL = 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app';
+
+/**
+ * Builds the placeholder table a template is rendered against: service/company
+ * info and bank account details from `settings/global`, the recipient, the
+ * page links, and finally the per-event data from the trigger call site (which
+ * wins on key collision).
+ *
+ * Exported so the notification flows can be regression-tested without a mail
+ * account — see `tests/bank-transfer.test.mjs`, which asserts that the 銀行振込
+ * templates leave no `{{placeholder}}` unresolved.
+ */
+export function buildTemplateData(
+  settings: Record<string, any>,
+  recipient: EmailRecipient,
+  data: Record<string, any>
+): Record<string, any> {
+  const baseUrl = APP_BASE_URL;
+
+  // Build full company address
+  const companyFullAddress = [
+    settings.companyPostalCode ? `〒${settings.companyPostalCode}` : '',
+    settings.companyPrefecture || '',
+    settings.companyCity || '',
+    settings.companyAddress || '',
+    settings.companyBuilding || '',
+  ].filter(Boolean).join(' ');
+
+  const merged: Record<string, any> = {
+    // Service info
+    serviceName: settings.serviceName || 'TimeWaverHub',
+    operatorCompanyName: settings.companyName || settings.serviceName || 'TimeWaverHub',
+    // User info
+    userName: recipient.name,
+    userEmail: recipient.email,
+    // Company info from admin settings
+    companyName: settings.companyName || '',
+    managerName: settings.managerName || '',
+    managerEmail: settings.managerEmail || '',
+    companyPhone: settings.companyPhone || '',
+    companyPostalCode: settings.companyPostalCode || '',
+    companyPrefecture: settings.companyPrefecture || '',
+    companyCity: settings.companyCity || '',
+    companyAddress: settings.companyAddress || '',
+    companyBuilding: settings.companyBuilding || '',
+    companyFullAddress,
+    // Bank transfer account info (銀行振込案内メール用)
+    bankName: settings.bankTransfer?.bankName || '',
+    bankBranch: settings.bankTransfer?.branch || '',
+    bankAccountType: settings.bankTransfer?.accountType || '',
+    bankAccountNumber: settings.bankTransfer?.accountNumber || '',
+    bankAccountHolder: settings.bankTransfer?.accountHolder || '',
+    bankTransferNote: settings.bankTransfer?.note || '',
+    // Page links
+    linkMypage: `${baseUrl}/mypage`,
+    linkApplications: `${baseUrl}/mypage/applications`,
+    linkDevices: `${baseUrl}/mypage/devices`,
+    linkPaymentHistory: `${baseUrl}/mypage/payments`,
+    linkProfile: `${baseUrl}/mypage/profile`,
+    linkDeviceList: `${baseUrl}/devices`,
+    linkAdminEarlyBookings: `${baseUrl}/admin/early-bookings`,
+    linkAdminSupportRequests: `${baseUrl}/admin/support-requests`,
+    // Dynamic data (from the trigger caller)
+    ...data,
+  };
+
+  // 表示用の正規化。テンプレートは申込ドキュメントの生値をそのまま埋め込むので、
+  // ここで整えないと利用者向けメールに「¥125500 / monthly」と出てしまう。
+  // 呼び出し側が整形済みの文字列を渡している場合（銀行振込の transferAmount など）は
+  // Number() が NaN になるので touch しない。
+  // null/undefined を通すと Number(null) === 0 になり「¥0」と表示されてしまうので弾く。
+  // （値が無いときは差し込みループが null/undefined を飛ばし、{{payAmount}} が残る＝
+  //   誤った金額を出すよりは気付ける）
+  if (merged.payAmount !== undefined && merged.payAmount !== null && merged.payAmount !== '') {
+    const amount = Number(merged.payAmount);
+    if (Number.isFinite(amount)) merged.payAmount = amount.toLocaleString('ja-JP');
+  }
+  if (merged.payType === 'monthly') merged.payType = '月々払い';
+  else if (merged.payType === 'full') merged.payType = '一括払い';
+
+  return merged;
+}
+
 /**
  * Sends a transactional email based on a system trigger event using the Gmail API.
  *
@@ -221,68 +305,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
     const settingsDoc = await db.collection('settings').doc('global').get();
     const settings = settingsDoc.exists ? settingsDoc.data() || {} : {};
 
-    // Base URL for links
-    const baseUrl = 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app';
-
-    // Build full company address
-    const companyFullAddress = [
-      settings.companyPostalCode ? `〒${settings.companyPostalCode}` : '',
-      settings.companyPrefecture || '',
-      settings.companyCity || '',
-      settings.companyAddress || '',
-      settings.companyBuilding || '',
-    ].filter(Boolean).join(' ');
-
-    const templateData: Record<string, any> = {
-      // Service info
-      serviceName: settings.serviceName || 'TimeWaverHub',
-      operatorCompanyName: settings.companyName || settings.serviceName || 'TimeWaverHub',
-      // User info
-      userName: recipient.name,
-      userEmail: recipient.email,
-      // Company info from admin settings
-      companyName: settings.companyName || '',
-      managerName: settings.managerName || '',
-      managerEmail: settings.managerEmail || '',
-      companyPhone: settings.companyPhone || '',
-      companyPostalCode: settings.companyPostalCode || '',
-      companyPrefecture: settings.companyPrefecture || '',
-      companyCity: settings.companyCity || '',
-      companyAddress: settings.companyAddress || '',
-      companyBuilding: settings.companyBuilding || '',
-      companyFullAddress,
-      // Bank transfer account info (銀行振込案内メール用)
-      bankName: settings.bankTransfer?.bankName || '',
-      bankBranch: settings.bankTransfer?.branch || '',
-      bankAccountType: settings.bankTransfer?.accountType || '',
-      bankAccountNumber: settings.bankTransfer?.accountNumber || '',
-      bankAccountHolder: settings.bankTransfer?.accountHolder || '',
-      bankTransferNote: settings.bankTransfer?.note || '',
-      // Page links
-      linkMypage: `${baseUrl}/mypage`,
-      linkApplications: `${baseUrl}/mypage/applications`,
-      linkDevices: `${baseUrl}/mypage/devices`,
-      linkPaymentHistory: `${baseUrl}/mypage/payment-history`,
-      linkProfile: `${baseUrl}/mypage/profile`,
-      linkDeviceList: `${baseUrl}/devices`,
-      linkAdminEarlyBookings: `${baseUrl}/admin/early-bookings`,
-      linkAdminSupportRequests: `${baseUrl}/admin/support-requests`,
-      // Dynamic data (from the trigger caller)
-      ...data,
-    };
-
-    // 表示用の正規化。テンプレートは申込ドキュメントの生値をそのまま埋め込むので、
-    // ここで整えないと利用者向けメールに「¥125500 / monthly」と出てしまう。
-    // 呼び出し側が整形済みの文字列を渡している場合（銀行振込の transferAmount など）は
-    // Number() が NaN になるので touch しない。
-    // null/undefined を通すと Number(null) === 0 になり「¥0」と請求額を偽ってしまうので弾く
-    // （値が無いときは下のループが null/undefined を飛ばし {{payAmount}} が残る＝気付ける）。
-    if (templateData.payAmount !== undefined && templateData.payAmount !== null && templateData.payAmount !== '') {
-      const amount = Number(templateData.payAmount);
-      if (Number.isFinite(amount)) templateData.payAmount = amount.toLocaleString('ja-JP');
-    }
-    if (templateData.payType === 'monthly') templateData.payType = '月々払い';
-    else if (templateData.payType === 'full') templateData.payType = '一括払い';
+    const templateData = buildTemplateData(settings, recipient, data);
 
     for (const [key, value] of Object.entries(templateData)) {
       if (value === undefined || value === null) continue;

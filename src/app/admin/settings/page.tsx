@@ -19,6 +19,7 @@ import { getAdminIdToken } from '@/lib/admin-id-token';
 import { GoogleChatDestinationsEditor } from '@/components/admin/google-chat-destinations-editor';
 import { StripeConnectionTestDialog } from '@/components/admin/stripe-connection-test-dialog';
 import { AVAILABLE_GEMINI_MODELS, DEFAULT_GEMINI_MODEL } from '@/ai/models';
+import { DEFAULT_PAYMENT_LINK_VALIDITY_DAYS } from '@/lib/payment-link-status';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConsentFormManager } from '@/components/admin/consent-form-manager';
 import { MailSettings } from '@/components/admin/mail-settings';
@@ -452,6 +453,14 @@ export default function SettingsPage() {
                   <span className="text-sm text-muted-foreground">営業日（土日除く）以内に振込を依頼</span>
                 </div>
                 <p className="text-xs text-blue-500">「銀行振込案内」送付時点から起算した振込期限です。案内メールに差し込まれます。</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold flex items-center gap-2"><span className="text-sky-500">🔗</span>決済リンクの有効期限（日）</Label>
+                <div className="flex items-center gap-3">
+                  <Input type="number" className="w-24" value={settings.paymentLinkValidityDays || DEFAULT_PAYMENT_LINK_VALIDITY_DAYS} onChange={(e) => handleInputChange('paymentLinkValidityDays', Number(e.target.value) || DEFAULT_PAYMENT_LINK_VALIDITY_DAYS)} />
+                  <span className="text-sm text-muted-foreground">日以内にお支払い（カード決済リンク）</span>
+                </div>
+                <p className="text-xs text-blue-500">決済リンク発行時から起算します。期限を過ぎたリンクは決済ページ・サーバー側の双方で無効になり、案内メールにも期限日が差し込まれます。</p>
               </div>
             </CardContent>
           </Card>

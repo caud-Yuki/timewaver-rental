@@ -10,8 +10,11 @@ TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Fireba
 ```
 [User Registration] → pending → awaiting_consent_form → consent_form_review → consent_form_approved
 → payment_sent → completed → shipped → in_use → expired → returning → inspection → returned → closed
-                                                                                   → damaged → closed
+   ↘ awaiting_bank_transfer ↗                                                      → damaged → closed
                                      ↘ canceled → returning → inspection → returned/damaged → closed
+
+(consent_form_approved からの分岐: カード決済 = payment_sent / 銀行振込 = awaiting_bank_transfer。
+ どちらも入金が確定した時点で completed に合流する)
 ```
 
 ---
@@ -68,14 +71,38 @@ TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Fireba
   - **Email**: `consent_form_approved` → user (with payment link)
 
 ### 5. 決済 (Payment)
+- 決済リンクは `status: 'pending'` + `expiresAt`（既定7日／`settings/global.paymentLinkValidityDays`）で発行される
+- リンクは本人と管理者しか読めない。未ログインなら `/auth/login?redirect=...` へ誘導
 - User completes payment at `/payment/{paymentLinkId}`
 - Stripe API called (charge or recurring)
 - For new subscriptions: `startAt = today + N business days` (buffer for shipping)
 - For renewals: `startAt = previous endAt`
 - Subscription created in `subscriptions` collection
 - Application → `status: completed`
+- 決済リンク → `status: 'paid'` + `paidAt`（Webhook `payment_intent.succeeded` でも確定させる）
 - **Email**: `payment_completed` → user
 - **Email**: `device_prep_required` → operations staff (with shipping address + deadline)
+
+### 5b. 銀行振込 (Bank Transfer — 一括払いのみ)
+カードを使わない支払い経路。決済ページ (`/payment/{id}`) を通らないぶん、契約レコードの作成を
+サーバー (`onApplicationUpdate`) が肩代わりする。
+
+- 前提: `/admin/settings` の「銀行振込 設定」に振込先口座と振込期限（営業日）が登録されていること。
+  未登録だと案内メールの口座欄が空で届く。
+- Admin が `consent_form_approved` の申請で 銀行振込案内 を押す → `status: awaiting_bank_transfer`,
+  `paymentMethod: 'bank_transfer'`（月々払いの申請にはボタンを出さない）
+- `onApplicationUpdate` が請求額（**サーバー再計算値**）・振込期限・案内送付日時を
+  `application.bankTransfer` に刻む
+- **Email**: `bank_transfer_instructions` → user（振込先・金額・期限・申請番号）
+- **Email**: `bank_transfer_pending_admin` → admin（入金確認待ちの通知）
+- User は マイページ → 申請履歴 の 振込先を表示 でも同じ内容を確認できる
+- 入金を確認した Admin が 入金確認 を押す → `status: completed`
+  （申請一覧に請求額と期限、期限超過の目印が出る。誤操作防止に確認ダイアログを挟む）
+- `onApplicationUpdate` が Stripe を経由しない契約レコードを作成し、
+  デバイスを `active` + 契約開始日を刻む → 以降はカード決済と同じ導線
+- マイページの決済履歴には Stripe の明細が無いので、契約レコードから「一括 / 決済完了」の
+  1 行を組み立てて表示する（`getPaymentHistory`）
+- 回帰テスト: `npm run test:bank-transfer`（詳細は [FLOW-bank-transfer.md](./FLOW-bank-transfer.md)）
 
 ### 6. 発送 (Shipping)
 - Admin changes status to `shipped` in 申請管理
@@ -130,6 +157,8 @@ TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Fireba
 | Review application | `/admin/applications` | approve/reject emails |
 | Review consent form | `/admin/applications` | consent email to user |
 | Create payment link | `/admin/applications` | payment link email |
+| Send bank transfer info | `/admin/applications` → 銀行振込案内 | 振込案内メール（user）+ 入金確認待ち通知（admin） |
+| Confirm bank transfer | `/admin/applications` → 入金確認 | 契約作成 + 決済完了メール + 発送準備依頼 |
 | Mark as shipped | `/admin/applications` → status dropdown | shipped email + auto→in_use |
 | Sync with Stripe | `/admin/payments` → Stripe同期 | renewal reminders, auto-expiry |
 | Stop subscription | `/admin/payments` → ⏹ button | cancel email, return guide |
@@ -145,19 +174,21 @@ TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Fireba
 
 > **Placeholder contract.** `/admin/email-templates` shows a 「代入キー一覧」 sidebar and admins insert
 > those `{{keys}}` by clicking them. The substitution loop in `functions/src/triggers.ts` only replaces
-> keys present in its `templateData` table and **passes unknown ones through verbatim**, so a key the
-> UI advertises but the trigger never supplies is delivered to the customer as the literal text
-> `{{payAmount}}`. That happened in production until 2026-08-22: `onApplicationCreate` hand-picked six
-> fields, so every applicant's receipt email showed `{{rentalType}}ヶ月プラン / ¥{{payAmount}}/
+> keys present in the table `buildTemplateData()` returns and **passes unknown ones through verbatim**,
+> so a key the UI advertises but the trigger never supplies is delivered to the customer as the literal
+> text `{{payAmount}}`. That happened in production until 2026-08-22: `onApplicationCreate` hand-picked
+> six fields, so every applicant's receipt email showed `{{rentalType}}ヶ月プラン / ¥{{payAmount}}/
 > {{payType}}`. Application-driven triggers must pass the whole application document (the way
 > `onApplicationUpdate`'s `applicationData` does) rather than a curated subset.
 >
-> Beware when testing this: the built-in `SYSTEM_TEMPLATES` are deliberately minimal, but the
-> templates that actually ship are the admin-edited ones in Firestore, which use far more
-> placeholders. Checking only the built-ins does not catch this class of bug.
+> Guard: `npm run test:email-placeholders` cross-checks the UI's advertised keys against what the
+> submission trigger supplies, and asserts the rendered body has no `{{...}}` left. Note the built-in
+> `SYSTEM_TEMPLATES` are deliberately minimal — the templates that actually ship are the admin-edited
+> ones in Firestore, which use far more placeholders, so testing only against the built-ins is not
+> enough to catch this.
 >
-> `payAmount` and `payType` are normalised for display just before substitution (thousands separator,
-> 月々払い / 一括払い) so every template renders them the same way. Callers that pass an
+> `payAmount` and `payType` are normalised for display inside `buildTemplateData()` (thousands
+> separator, 月々払い / 一括払い) so every template renders them the same way. Callers that pass an
 > already-formatted string (e.g. the bank transfer `transferAmount`) are left untouched.
 
 
@@ -199,7 +230,7 @@ CW = Chatwork, GC = Google Chat (configurable per trigger in admin UI)
 | `deviceModules` | Available modules | name, description |
 | `applications` | Rental applications | userId, deviceId, status, payType, rentalType, shipping |
 | `subscriptions` | Active subscriptions | userId, deviceId, payType, startAt, endAt, recurringId |
-| `paymentLinks` | Payment URLs | applicationId, deviceId, payAmount, status |
+| `paymentLinks` | Payment URLs | applicationId, userId, deviceId, payAmount, status, expiresAt |
 | `waitlist` | Waitlist entries | userId, deviceId, status |
 | `emailTriggers` | Trigger → template mapping | triggerPoint, templateId, enabled, channels |
 | `emailTemplates` | Email/chat templates | name, subject, body, type |

@@ -189,19 +189,49 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // Payment Links: Public read. 決済完了時に認証ユーザーがstatusを'used'へ変更可能. Adminsは全操作可能.
+    // Payment Links: 本人と管理者のみ読み取り可。決済完了時に本人が status を
+    // 'paid' へ変更できる。Admins は全操作可能。
     //
-    // 【金額改ざん防止】一般ユーザーに許すのは status を 'used' にする操作だけ。
-    // 以前はフィールド制限が無かったため、status を pending→used にする同じ更新で
+    // 【公開読み取りの廃止】以前は `allow read: if true` で全世界に公開していた。
+    // リンクIDさえ分かれば誰でも userId / applicationId / payAmount /
+    // stripePaymentIntentId / stripeCustomerId を読めた（Stripe の識別子が素通し）。
+    // ドキュメントIDは自動採番の20文字だが、決済案内メールに載って外部を流通する
+    // 値なので「推測できない＝秘密」とは扱えない。
+    //
+    // 【金額改ざん防止】一般ユーザーに許すのは status を 'paid' にする操作だけ。
+    // 以前はフィールド制限が無かったため、status を遷移させる同じ更新で
     // payAmount も一緒に書き換えられた（＝請求額の改ざんが可能だった）。
+    //
+    // 【状態語彙の統一】'pending' | 'paid' | 'expired' | 'canceled' の4値。
+    // 定義元は functions/src/payment-link-status.ts。旧語彙（'open' / 'active' /
+    // 'used'）は scripts/migrate-payment-link-status.mjs で変換する。移行前の
+    // リンクを決済できなくしないため、遷移元としての 'open' / 'active' は当面許可する。
     match /paymentLinks/{linkId} {
-      allow read: if true;
+      // 期限切れのリンクは決済に使えない。
+      // 旧データは expiresAt 未設定、または serverTimestamp() がそのまま入っていて
+      // 「作成時刻＝期限」（発行と同時に期限切れ）になっている。これらは期限なし扱い
+      // とする — resolvePaymentLinkExpiry() と同じ判定。
+      function linkNotExpired() {
+        return !('expiresAt' in resource.data)
+          || resource.data.expiresAt <= resource.data.get('createdAt', timestamp.value(0))
+          || request.time < resource.data.expiresAt;
+      }
+
+      // userId を持たない移行前のリンクは、認証済みなら読める（＝従来通り）。
+      // 移行スクリプトが userId を埋めたあと、このフォールバックは削除すること。
+      function isLinkOwner() {
+        return request.auth != null
+          && request.auth.uid == resource.data.get('userId', request.auth.uid);
+      }
+
+      allow read: if isAdmin() || isLinkOwner();
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-        || (request.auth != null
-            && resource.data.status == 'pending'
-            && request.resource.data.status == 'used'
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']));
+        || (isLinkOwner()
+            && resource.data.get('status', 'pending') in ['pending', 'open', 'active']
+            && request.resource.data.status == 'paid'
+            && linkNotExpired()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paidAt', 'updatedAt']));
     }
 
     // Global Settings: Admins can write. Public read (contains non-sensitive config like service name, model settings).

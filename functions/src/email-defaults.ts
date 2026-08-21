@@ -78,7 +78,7 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     name: '[標準] 決済リンク送付のご案内',
     subject: '【{{serviceName}}】お手続きのご案内 — 決済リンクのご送付',
     type: 'transaction',
-    body: `{{userName}} 様\n\nお待たせいたしました。\nご契約のお手続きに必要な決済リンクをご用意いたしましたので、下記よりお支払いをお願いいたします。\n\n対象機器: {{deviceType}}\n申請ID: {{applicationId}}\n\n▼ お支払いはこちら\n{{paymentLinkUrl}}\n\nお支払いの完了を確認次第、機器の発送準備を開始いたします。\n\nご不明な点がございましたら、本メールへご返信ください。\n\n—\n{{operatorCompanyName}}`
+    body: `{{userName}} 様\n\nお待たせいたしました。\nご契約のお手続きに必要な決済リンクをご用意いたしましたので、下記よりお支払いをお願いいたします。\n\n対象機器: {{deviceType}}\n申請ID: {{applicationId}}\n\n▼ お支払いはこちら\n{{paymentLinkUrl}}\n\n■ お支払い期限: {{paymentDeadline}}\n※ 期限を過ぎるとリンクが無効になります。その場合はお手数ですが本メールへご返信ください。\n\nお支払いの完了を確認次第、機器の発送準備を開始いたします。\n\nご不明な点がございましたら、本メールへご返信ください。\n\n—\n{{operatorCompanyName}}`
   },
   {
     id: 'sys_payment_completed',

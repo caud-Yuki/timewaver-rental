@@ -592,6 +592,7 @@ ${isStaff ? '<p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">管理者�
                       {
                         group: '決済・契約', keys: [
                           { key: 'paymentLinkUrl', label: '決済リンクURL' },
+                          { key: 'paymentDeadline', label: '決済リンクの有効期限' },
                           { key: 'deliveryDate', label: '配送予定日' },
                           { key: 'deadline', label: '期限日' },
                           { key: 'endDate', label: '契約終了日' },

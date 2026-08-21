@@ -10,6 +10,13 @@ import { getAuth } from "firebase-admin/auth";
 const StripeSDK = require("stripe") as typeof import("stripe");
 import { sendTriggeredEmail } from "./triggers";
 import { computeExpectedAmount, resolveTrustedPricing, PricingBreakdown } from "./pricing";
+import {
+  DEFAULT_PAYMENT_LINK_VALIDITY_DAYS,
+  computePaymentLinkExpiry,
+  normalizePaymentLinkStatus,
+  paymentLinkUnusableReason,
+  resolvePaymentLinkExpiry,
+} from "./payment-link-status";
 import { sendViaAccount } from "./mail/lib/sendDispatcher";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
 
@@ -495,10 +502,19 @@ export const createStripePayment = onCall(async (request) => {
     }
     const link = linkDoc.data()!;
 
-    // 1b. Reject already-used / canceled / expired links
-    const linkStatus = link.status || 'pending';
-    if (!['pending', 'open', 'active'].includes(linkStatus)) {
-      throw new HttpsError("failed-precondition", `Payment link is not usable (status=${linkStatus}).`);
+    // 1b. Reject already-paid / canceled / expired links.
+    // 状態語彙と期限判定は payment-link-status.ts に集約している（フロントの
+    // 決済ページと同じ判定）。ここが実効的なゲート — リンクの status を
+    // どう書き換えても、この関数を通らなければ PaymentIntent は作られない。
+    const unusableReason = paymentLinkUnusableReason(link);
+    if (unusableReason) {
+      const expiry = resolvePaymentLinkExpiry(link);
+      log(`[createStripePayment] Rejected link ${paymentLinkId}: reason=${unusableReason}, ` +
+        `status=${normalizePaymentLinkStatus(link.status)}, expiresAt=${expiry ? expiry.toISOString() : 'none'}`);
+      const message = unusableReason === 'expired'
+        ? "This payment link has expired."
+        : `Payment link is not usable (status=${unusableReason}).`;
+      throw new HttpsError("failed-precondition", message);
     }
 
     // 1c. Authorize: the link must belong to this user (if a userId is recorded on the link).
@@ -1397,8 +1413,25 @@ export const syncPaymentData = onCall(async (request) => {
       }
     }
 
-    log(`[syncPaymentData] Sync complete. Synced: ${results.synced}, Errors: ${results.errors}, Expired: ${expired}, PastDueCanceled: ${pastDueCanceled}, Reminders: ${reminders}, NewExpired: ${newExpired}`);
-    return { status: 'success', ...results, expired, pastDueCanceled, reminders, newExpired };
+    // --- 期限切れの決済リンクを 'expired' に確定させる ---
+    // 期限の判定自体は決済ページと createStripePayment が毎回行うので、この掃除を
+    // しなくても期限切れリンクで決済はできない。ここで status を書き換えるのは、
+    // 管理画面や集計から見える保存状態を実態と一致させるため。
+    let linksExpired = 0;
+    const pendingLinksSnap = await db.collection('paymentLinks')
+      .where('status', 'in', ['pending', 'open', 'active'])
+      .get();
+    for (const linkDoc of pendingLinksSnap.docs) {
+      const linkData = linkDoc.data();
+      if (paymentLinkUnusableReason(linkData) !== 'expired') continue;
+      await linkDoc.ref.update({ status: 'expired', updatedAt: Timestamp.now() });
+      linksExpired++;
+      const expiry = resolvePaymentLinkExpiry(linkData);
+      log(`[syncPaymentData] Payment link ${linkDoc.id} → expired (expiresAt: ${expiry ? expiry.toISOString() : 'unknown'}).`);
+    }
+
+    log(`[syncPaymentData] Sync complete. Synced: ${results.synced}, Errors: ${results.errors}, Expired: ${expired}, PastDueCanceled: ${pastDueCanceled}, Reminders: ${reminders}, NewExpired: ${newExpired}, LinksExpired: ${linksExpired}`);
+    return { status: 'success', ...results, expired, pastDueCanceled, reminders, newExpired, linksExpired };
 
   } catch (error) {
     log("[syncPaymentData] ERROR:", error);
@@ -1711,8 +1744,10 @@ export const getPaymentHistory = onCall(async (request) => {
     }
     const sub = subDoc.data()!;
 
-    // 2. Initialize Stripe
-    const stripe = await getStripeClient();
+    // 2. Initialize Stripe — 銀行振込のように Stripe を経由しない契約もあるため、
+    //    Stripe の ID を持つ契約のときだけ初期化する（未設定環境でも履歴を返せる）。
+    const needsStripe = !!(sub.stripePaymentIntentId || sub.stripeSubscriptionId);
+    const stripe = needsStripe ? await getStripeClient() : null;
 
     // 3. Build subscription info
     const toISO = (ts: any) => {
@@ -1748,7 +1783,7 @@ export const getPaymentHistory = onCall(async (request) => {
     // For one-time payments — fetch PaymentIntent
     if (sub.stripePaymentIntentId) {
       try {
-        const pi = await stripe.paymentIntents.retrieve(sub.stripePaymentIntentId);
+        const pi = await stripe!.paymentIntents.retrieve(sub.stripePaymentIntentId);
         history.push({
           // Legacy aliases
           historyId: pi.id,
@@ -1770,7 +1805,7 @@ export const getPaymentHistory = onCall(async (request) => {
     // For subscriptions — fetch invoices
     if (sub.stripeSubscriptionId) {
       try {
-        const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+        const stripeSub = await stripe!.subscriptions.retrieve(sub.stripeSubscriptionId);
         const cpe = getSubscriptionCurrentPeriodEnd(stripeSub);
 
         stripeDetails = {
@@ -1799,7 +1834,7 @@ export const getPaymentHistory = onCall(async (request) => {
       }
 
       try {
-        const invoices = await stripe.invoices.list({
+        const invoices = await stripe!.invoices.list({
           subscription: sub.stripeSubscriptionId,
           limit: 100,
         });
@@ -1826,6 +1861,33 @@ export const getPaymentHistory = onCall(async (request) => {
       } catch (err: any) {
         log(`[getPaymentHistory] Failed to fetch invoices:`, err.message);
       }
+    }
+
+    // 4b. Stripe を経由しない支払い（銀行振込）— Firestore の契約情報から明細を組み立てる。
+    // 振込ルートには PaymentIntent も Invoice も無く、これが無いとマイページの決済履歴が
+    // 「決済明細はありません」になる。契約レコードは入金確認後にしか作られないので、
+    // レコードの存在＝入金確認済みとして SOLD 扱いにする。
+    if (history.length === 0 && !needsStripe) {
+      let paidAt: string | null = null;
+      if (sub.applicationId) {
+        const paidAppDoc = await db.collection('applications').doc(String(sub.applicationId)).get();
+        paidAt = paidAppDoc.data()?.bankTransfer?.confirmedAt || null;
+      }
+      history.push({
+        // Legacy aliases
+        historyId: `offline_${subDoc.id}`,
+        paymentId: null,
+        paymentStatus: 'SOLD',
+        // Stripe-native + meta
+        id: `offline_${subDoc.id}`,
+        paymentIntentId: null,
+        type: 'charge',
+        status: 'succeeded',
+        amount: sub.payAmount || 0,
+        created: paidAt || toISO(sub.createdAt) || new Date().toISOString(),
+        paymentMethod: sub.paymentMethod || 'bank_transfer',
+      });
+      log(`[getPaymentHistory] No Stripe records for ${subDoc.id}; returning offline (bank transfer) entry.`);
     }
 
     // 5. Get user info
@@ -2119,6 +2181,49 @@ export const stripeWebhook = onRequest({ cors: false }, async (req, res) => {
             log(`[stripeWebhook] charge.refunded: Recorded on sub ${subDoc.id}`);
           }
         }
+        break;
+      }
+
+      case 'payment_intent.succeeded': {
+        // 決済リンクをサーバー側で 'paid' に確定させる。
+        // 決済ページ（クライアント）も同じ更新を書くが、そちらが失敗しても
+        // 支払い済みリンクが未使用のまま残らないよう Webhook でも閉じる。
+        // Admin SDK は Firestore ルールを迂回するのでここは必ず通る。
+        const pi = event.data.object;
+        const linkIdFromMeta = pi.metadata?.paymentLinkId || '';
+
+        let linkRef = linkIdFromMeta
+          ? db.collection('paymentLinks').doc(linkIdFromMeta)
+          : null;
+        if (!linkRef) {
+          // metadata が無い古い PaymentIntent 向けのフォールバック
+          const bySnap = await db.collection('paymentLinks')
+            .where('stripePaymentIntentId', '==', pi.id)
+            .limit(1).get();
+          if (!bySnap.empty) linkRef = bySnap.docs[0].ref;
+        }
+        if (!linkRef) {
+          log(`[stripeWebhook] payment_intent.succeeded: No paymentLink found for ${pi.id}`);
+          break;
+        }
+
+        const linkSnap = await linkRef.get();
+        if (!linkSnap.exists) {
+          log(`[stripeWebhook] payment_intent.succeeded: paymentLink ${linkRef.id} not found`);
+          break;
+        }
+        if (normalizePaymentLinkStatus(linkSnap.data()?.status) === 'paid') {
+          log(`[stripeWebhook] payment_intent.succeeded: paymentLink ${linkRef.id} already paid`);
+          break;
+        }
+
+        await linkRef.update({
+          status: 'paid',
+          paidAt: Timestamp.now(),
+          stripePaymentIntentId: pi.id,
+          updatedAt: Timestamp.now(),
+        });
+        log(`[stripeWebhook] payment_intent.succeeded: Closed paymentLink ${linkRef.id} as paid`);
         break;
       }
 
@@ -2523,9 +2628,28 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
   // 決済リンク送付（paymentLinkIdがセットされたタイミングで決済案内メール）
   if (after.status === 'payment_sent' && after.paymentLinkId) {
     const paymentBaseUrl = 'https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app';
+
+    // 有効期限を案内に載せる。期限切れリンクは決済ページでも createStripePayment
+    // でも弾かれるので、期限を伝えないとユーザーが黙って詰まる。
+    let paymentDeadline = '';
+    const linkSnap = await db.collection('paymentLinks').doc(after.paymentLinkId).get();
+    if (linkSnap.exists) {
+      const linkData = linkSnap.data() || {};
+      let expiry = resolvePaymentLinkExpiry(linkData);
+      if (!expiry) {
+        // 期限が入っていない移行前のリンク。案内には既定日数で算出した日付を載せる。
+        const settingsSnap = await db.collection('settings').doc('global').get();
+        const validityDays = settingsSnap.data()?.paymentLinkValidityDays || DEFAULT_PAYMENT_LINK_VALIDITY_DAYS;
+        const createdAt = linkData.createdAt?.toDate ? linkData.createdAt.toDate() : new Date();
+        expiry = computePaymentLinkExpiry(createdAt, validityDays);
+      }
+      paymentDeadline = `${expiry.getFullYear()}/${expiry.getMonth() + 1}/${expiry.getDate()}`;
+    }
+
     await sendTriggeredEmail('payment_link_sent', user, {
       ...applicationData,
       paymentLinkUrl: `${paymentBaseUrl}/payment/${after.paymentLinkId}`,
+      paymentDeadline,
     });
   }
 
@@ -2602,6 +2726,20 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
         updatedAt: Timestamp.now(),
       });
       log(`[onApplicationUpdate] Created server-side subscription for ${applicationId} (no Stripe — bank transfer path).`);
+
+      // 契約日をデバイスにも刻む。カード決済は決済ページ(handlePaymentSuccess)が
+      // 同じ書き込みをするが、振込ルートはそのページを通らない。マイページの
+      // 「契約開始日」は devices.contractStartAt を見ているため、ここが無いと空欄になる。
+      // 更新の場合は開始日を据え置き、終了日だけ延ばす（カード決済と同じ扱い）。
+      if (after.deviceId) {
+        const contractDeviceRef = db.collection('devices').doc(after.deviceId);
+        if ((await contractDeviceRef.get()).exists) {
+          await contractDeviceRef.update(isRenewal
+            ? { contractEndAt: Timestamp.fromDate(endDate), updatedAt: Timestamp.now() }
+            : { contractStartAt: Timestamp.fromDate(startDate), updatedAt: Timestamp.now() });
+          log(`[onApplicationUpdate] Stamped contract dates on device ${after.deviceId} (bank transfer path).`);
+        }
+      }
 
       // Record confirmation metadata for bank transfers.
       if (after.paymentMethod === 'bank_transfer') {

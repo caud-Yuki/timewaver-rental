@@ -11,6 +11,7 @@ import { useFirestore, useDoc, useMemoFirebase, useUser } from '@/firebase';
 import { doc, updateDoc, serverTimestamp, addDoc, collection, Timestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { PaymentLink, UserProfile, Application, GlobalSettings } from '@/types';
+import { paymentLinkUnusableReason, resolvePaymentLinkExpiry } from '@/lib/payment-link-status';
 import { addBusinessDays, formatDateJP } from '@/lib/business-days';
 import { getStripeConfig, getStripeInstance } from '@/lib/stripe';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
@@ -102,7 +103,7 @@ export default function PaymentPage() {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const db = useFirestore();
   const paymentLinkId = params.paymentLinkId as string;
 
@@ -244,9 +245,23 @@ export default function PaymentPage() {
         updatedAt: serverTimestamp(),
       };
 
+      // 決済リンクは 'paid' で閉じる（旧実装は 'used' を書いていたが、ルールが
+      // 許可する遷移と噛み合わず毎回失敗し、支払い済みリンクが再利用可能なまま
+      // 残っていた）。ここで書けるのは status / updatedAt / paidAt だけ
+      // — 金額の書き換えを混ぜられないよう firestore.rules で制限している。
+      const writeLabels = [
+        'subscriptions/create',
+        'paymentLinks/markPaid',
+        'applications/complete',
+        'devices/update',
+      ];
       const writes: Promise<any>[] = [
         addDoc(collection(db, 'subscriptions'), subscriptionData),
-        updateDoc(doc(db, 'paymentLinks', paymentLink.id), { status: 'used', updatedAt: serverTimestamp() }),
+        updateDoc(doc(db, 'paymentLinks', paymentLink.id), {
+          status: 'paid',
+          paidAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }),
         updateDoc(doc(db, 'applications', paymentLink.applicationId), { status: 'completed', updatedAt: serverTimestamp() }),
       ];
 
@@ -269,9 +284,15 @@ export default function PaymentPage() {
       }
 
       Promise.allSettled(writes).then(async (results) => {
+        // 決済自体は成立しているので画面は完了のまま進めるが、書き込み失敗を
+        // 握り潰さない。'paymentLinks/markPaid' の失敗はリンクが未使用のまま
+        // 残ることを意味するので error として残す。
         results.forEach((r, i) => {
           if (r.status === 'rejected') {
-            console.warn(`[PAYMENT_DEBUG] Firestore write #${i} failed:`, r.reason?.message);
+            console.error(
+              `[PAYMENT_DEBUG] Firestore write failed (${writeLabels[i] ?? `#${i}`}):`,
+              r.reason?.message,
+            );
           }
         });
         console.log('[PAYMENT_DEBUG] Firestore sync completed.');
@@ -346,14 +367,49 @@ export default function PaymentPage() {
     );
   }
 
+  // --- Render: Sign-in Required ---
+  // paymentLinks は本人と管理者しか読めない（firestore.rules）。未ログインだと
+  // リンクの読み取り自体が失敗するので、無効リンクと区別して案内する。
+  if (!userLoading && !user) {
+    return (
+      <div className="container mx-auto px-4 py-20 flex justify-center">
+        <Card className="w-full max-w-md p-8 text-center space-y-4">
+          <Lock className="h-12 w-12 text-primary mx-auto" />
+          <h1 className="text-2xl font-bold">ログインが必要です</h1>
+          <p className="text-muted-foreground">
+            お支払い内容の確認には、お申し込み時のアカウントでのログインが必要です。
+          </p>
+          <Button
+            className="w-full"
+            onClick={() => router.push(`/auth/login?redirect=/payment/${paymentLinkId}`)}
+          >
+            ログインする
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  if (userLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
+
   // --- Render: Invalid Link ---
-  if (!paymentLink || !['pending', 'open', 'active'].includes(paymentLink.status)) {
+  // 状態と有効期限の判定は payment-link-status.ts に集約している。
+  // 同じ判定をサーバー側（createStripePayment）でも行うため、ここを迂回しても決済はできない。
+  const unusableReason = paymentLink ? paymentLinkUnusableReason(paymentLink) : null;
+  if (!paymentLink || unusableReason) {
+    const message =
+      unusableReason === 'paid' ? 'このリンクのお支払いは完了しています。'
+      : unusableReason === 'expired' ? 'このリンクは有効期限が切れています。お手数ですが担当者までご連絡ください。'
+      : unusableReason === 'canceled' ? 'このお申し込みはキャンセルされています。'
+      : 'このリンクは既に使用されているか、期限が切れています。';
     return (
       <div className="container mx-auto px-4 py-20 flex justify-center">
         <Card className="w-full max-w-md p-8 text-center space-y-4">
           <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto" />
-          <h1 className="text-2xl font-bold">リンクが無効です</h1>
-          <p className="text-muted-foreground">このリンクは既に使用されているか、期限が切れています。</p>
+          <h1 className="text-2xl font-bold">
+            {unusableReason === 'paid' ? 'お支払い済みです' : 'リンクが無効です'}
+          </h1>
+          <p className="text-muted-foreground">{message}</p>
           <Button className="w-full" onClick={() => router.push('/')}>トップに戻る</Button>
         </Card>
       </div>
@@ -361,6 +417,8 @@ export default function PaymentPage() {
   }
 
   // --- Render: Payment Form ---
+  const linkExpiry = resolvePaymentLinkExpiry(paymentLink);
+
   return (
     <div className="container mx-auto px-4 py-12 flex justify-center">
       <div className="w-full max-w-lg space-y-8">
@@ -387,6 +445,11 @@ export default function PaymentPage() {
               <div className="flex gap-2 mt-2">
                 <Badge variant="secondary" className="bg-white">{paymentLink.payType === 'monthly' ? '月々払い' : '一括払い'}</Badge>
               </div>
+              {linkExpiry && (
+                <p className="text-xs text-muted-foreground mt-3">
+                  このお支払いリンクの有効期限: <strong>{formatDateJP(linkExpiry)}</strong>
+                </p>
+              )}
             </div>
 
             {/* === Stripe Elements === */}
