@@ -1,8 +1,26 @@
 # 銀行振込フロー（案内 → 入金確認 → 契約作成）
 
 対象: `TWRENTAL-PLATFORM_vrs.1.1`
-状態: **実装・自動テスト済み / 未デプロイ**（2026-08-21 時点。デプロイは別途）
+状態: **デプロイ済み（2026-08-22）**
 関連: [workflow.md](./workflow.md) §5b, [SECURITY-payment-amount-verification.md](./SECURITY-payment-amount-verification.md)
+
+デプロイ実績（2026-08-22 01:00-01:15 JST / コミット `79b4743`）:
+- Cloud Functions: 本フローの変更（`onApplicationUpdate` の契約日刻印、`getPaymentHistory` の
+  振込明細）は決済リンク改修と同じソースツリーから 01:01 JST に反映済み。
+  `onApplicationUpdate` / `getPaymentHistory` とも `2026-08-21T16:01Z` 更新・ACTIVE で、
+  再デプロイは全関数 "No changes detected"（＝配信中のソースがこのツリーと一致）。
+- Firestore ルール: 本フローでの変更は無し。再デプロイして live ruleset
+  `5d31bea9-c3b8-4f46-93a8-bd4aff0cb818` が `firestore.rules` と差分なし（末尾空行のみ）
+  であることを Rules API で確認。
+- Next.js (App Hosting): 配信中のチャンクに実装が入っていることを確認 —
+  `mypage/applications` に「振込先を表示」、`admin/applications` に「入金確認として処理」、
+  `mypage/payments` に「銀行振込」。
+- 回帰テスト（デプロイ時の HEAD で再実行）: bank-transfer 14/14、rules 62/62、pricing 22/22、
+  email-placeholders 10/10、renewal 9/9。
+
+**未完了（運用側）**: `/admin/email-triggers` の「銀行振込案内時」を有効化し、テンプレートを
+割り当てること。`/admin/settings` の口座情報も本番値の確認が必要。どちらも管理画面での操作で、
+これが済むまで案内メールは飛ばない（§2 を参照）。
 
 カードを使わない支払い経路。**一括払いのみ**対応（月々払いは継続課金が必要なのでカード決済のみ）。
 決済ページ `/payment/{paymentLinkId}` を通らないため、カード決済ならブラウザ側が行う
