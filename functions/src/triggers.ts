@@ -271,6 +271,19 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       ...data,
     };
 
+    // 表示用の正規化。テンプレートは申込ドキュメントの生値をそのまま埋め込むので、
+    // ここで整えないと利用者向けメールに「¥125500 / monthly」と出てしまう。
+    // 呼び出し側が整形済みの文字列を渡している場合（銀行振込の transferAmount など）は
+    // Number() が NaN になるので touch しない。
+    // null/undefined を通すと Number(null) === 0 になり「¥0」と請求額を偽ってしまうので弾く
+    // （値が無いときは下のループが null/undefined を飛ばし {{payAmount}} が残る＝気付ける）。
+    if (templateData.payAmount !== undefined && templateData.payAmount !== null && templateData.payAmount !== '') {
+      const amount = Number(templateData.payAmount);
+      if (Number.isFinite(amount)) templateData.payAmount = amount.toLocaleString('ja-JP');
+    }
+    if (templateData.payType === 'monthly') templateData.payType = '月々払い';
+    else if (templateData.payType === 'full') templateData.payType = '一括払い';
+
     for (const [key, value] of Object.entries(templateData)) {
       if (value === undefined || value === null) continue;
       const placeholder = `{{${key}}}`;

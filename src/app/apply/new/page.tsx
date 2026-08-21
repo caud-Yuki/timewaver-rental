@@ -374,7 +374,6 @@ function ApplyForm() {
     }
 
     setIsSubmitting(true);
-    isSubmittedRef.current = true; // Mark as submitted
 
     // Validate shipping address
     if (!formData.tel || !formData.zipcode || !formData.address1) {
@@ -391,6 +390,12 @@ function ApplyForm() {
         return;
       }
     }
+
+    // 入力チェックを通過してから「送信済み」を立てる。ここより前で立ててしまうと、
+    // 未入力エラーで return したときにフラグが true のまま残り、以降 releaseDeviceLock() が
+    // 常に早期 return する（＝タイムアウトでもページ離脱でも機器が processing のまま
+    // 解放されず、他ユーザーが永久にその機器を申し込めなくなる）。
+    isSubmittedRef.current = true; // Mark as submitted
 
     // 重複申請ガード（B案）: 同一ユーザーが同じ機種で「進行中」の申請を既に持っていればブロック。
     // ステータス連動のため、却下・取消・契約終了になれば自動的に再申請可能になる（永久ブロックは発生しない）。

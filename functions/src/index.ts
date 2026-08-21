@@ -2357,7 +2357,15 @@ export const onApplicationCreate = onDocumentCreated("applications/{applicationI
   }
 
   const db = getFirestore();
+  // 管理UI（/admin/email-templates の「挿入できる変数」）が案内している差し込み変数は
+  // payAmount / payType / rentalType / 配送先など、ほとんどが申込ドキュメントの項目。
+  // 以前はここで 6 項目だけを手で拾っていたため、管理者が案内どおりに
+  // {{payAmount}} などを差し込んだ受付メールが、値ではなく "{{payAmount}}" という
+  // 文字列のまま全申込者に届いていた（差し込みループは未知のキーを素通しする）。
+  // onApplicationUpdate 側の applicationData と同じく、申込を丸ごと渡して揃える。
+  // payAmount はこの時点でサーバー再計算値に差し替え済み。
   const payload = {
+    ...data,
     applicationId,
     deviceType: data.deviceType || '',
     deviceName: data.deviceType || '',

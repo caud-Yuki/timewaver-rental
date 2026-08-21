@@ -29,7 +29,30 @@ TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Fireba
 - User fills: rental plan (3/6/12m), payment type (monthly/full), ID upload, shipping address
 - Shipping address pre-populated from profile if available
 - Application created in `applications` collection with `status: pending`
+- Device moves `processing` → `under_review` (審査中) — the lock holder does this from the client,
+  so `firestore.rules` must keep allowing that one transition (case 4 under `match /devices`).
+  `under_review` → anything is admin-only, so a user cannot pull a device back out of review.
+- **The waitlist is NOT cleared here.** The application can still be rejected, in which case the
+  device returns to `available` and the waiting users must be notified in order. That ordering is
+  driven by the admin screens (`/admin`, `/admin/waitlist`), which move entries to
+  `notified` / `scheduled`. An earlier implementation batch-deleted the device's waitlist entries
+  at this point; `waitlist` delete is admin-only, so every general user hit `permission-denied`
+  and never reached the completion toast.
+- Everything after the `applications` create is best-effort: it is wrapped in its own `try`/`catch`
+  and only logged, because the application document already exists and admins can correct the rest.
+- The session lock is released by `releaseDeviceLock()` on timeout / unmount / `beforeunload`,
+  guarded by `isSubmittedRef`. Set that flag **only once submission is actually under way** — if an
+  early `return` leaves it `true`, the release becomes a permanent no-op and the device stays
+  `processing` forever, blocking every other user.
 - **Email**: `application_submitted` → user
+- **Email**: `application_submitted_admin` → admin, plus a Google Chat webhook post
+
+> **Deleting an application is customer-facing.** `onApplicationDeleted` releases the linked device
+> and then calls `onDeviceReleased()`, which **publishes a public 「【空き速報】」 news article and
+> emails every `status: 'waiting'` user on that device's waitlist**. The release only happens when
+> the device is not already `available`, so when you delete an application by hand (cleaning up a
+> test, removing a mistake), **set the device back to `available` first** — then the delete is
+> quiet. Deleting first and fixing the device afterwards has already sent the notifications.
 
 ### 3. 審査 (Admin Review)
 - Admin reviews in `/admin/applications`
@@ -119,6 +142,24 @@ TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Fireba
 ---
 
 ## Email/Chat Trigger Points
+
+> **Placeholder contract.** `/admin/email-templates` shows a 「代入キー一覧」 sidebar and admins insert
+> those `{{keys}}` by clicking them. The substitution loop in `functions/src/triggers.ts` only replaces
+> keys present in its `templateData` table and **passes unknown ones through verbatim**, so a key the
+> UI advertises but the trigger never supplies is delivered to the customer as the literal text
+> `{{payAmount}}`. That happened in production until 2026-08-22: `onApplicationCreate` hand-picked six
+> fields, so every applicant's receipt email showed `{{rentalType}}ヶ月プラン / ¥{{payAmount}}/
+> {{payType}}`. Application-driven triggers must pass the whole application document (the way
+> `onApplicationUpdate`'s `applicationData` does) rather than a curated subset.
+>
+> Beware when testing this: the built-in `SYSTEM_TEMPLATES` are deliberately minimal, but the
+> templates that actually ship are the admin-edited ones in Firestore, which use far more
+> placeholders. Checking only the built-ins does not catch this class of bug.
+>
+> `payAmount` and `payType` are normalised for display just before substitution (thousands separator,
+> 月々払い / 一括払い) so every template renders them the same way. Callers that pass an
+> already-formatted string (e.g. the bank transfer `transferAmount`) are left untouched.
+
 
 | # | Trigger ID | Event | Recipient | Channels |
 |---|---|---|---|---|

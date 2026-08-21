@@ -99,6 +99,29 @@ await it('管理者も under_review へ遷移できる', async () => {
   await assertSucceeds(updateDoc(doc(asAdmin(), 'devices', DEVICE), { status: 'under_review' }));
 });
 
+await seed();
+await it('★ 申込送信シーケンス全体が通る（apply/new の handleSubmit と同じ順番・同じ書き込み）', async () => {
+  const db = asUser();
+  // 1. プロフィールへ配送先を反映（handleSubmit の非同期・非致命処理）
+  await assertSucceeds(
+    updateDoc(doc(db, 'users', USER), { tel: '09000000000', zipcode: '1000001', address1: '東京都千代田区' })
+  );
+  // 2. 申込本体（ここだけが致命。失敗すると利用者にエラーが出る）
+  await assertSucceeds(
+    addDoc(collection(db, 'applications'), {
+      userId: USER, status: 'pending', deviceId: DEVICE, payAmount: 50000, payType: 'monthly', rentalType: 12,
+    })
+  );
+  // 3. セッションロックを審査中へ
+  await assertSucceeds(updateDoc(doc(db, 'devices', DEVICE), { status: 'under_review' }));
+  // 4. 他ユーザーのキャンセル待ちは残ったまま（申込送信では削除しない）。
+  //    旧実装はここで一括 delete して permission-denied になり、申込完了まで到達できなかった。
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const snap = await getDoc(doc(ctx.firestore(), 'waitlist', 'wl_other'));
+    assert.equal(snap.exists(), true, 'キャンセル待ちが消えている');
+  });
+});
+
 console.log('\n権限境界: 緩めすぎていないこと');
 
 await seed();
