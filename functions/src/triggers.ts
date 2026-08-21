@@ -76,6 +76,22 @@ const SYSTEM_TEMPLATE_FALLBACK: Record<string, { subject: string; body: string; 
     SYSTEM_TEMPLATES.map((t) => [t.id, { subject: t.subject, body: t.body, isAdmin: t.isAdmin, chatSubject: t.chatSubject, chatBody: t.chatBody }])
   );
 
+/**
+ * Retired system template ids → their replacement. A deployment that saved its
+ * trigger bindings before the id was retired still has the old id in
+ * `emailTriggers`, and without this map the send would abort silently. Only
+ * consulted after both the Firestore template and the direct fallback miss, so
+ * an admin who customized the old id keeps their own copy.
+ *
+ * - sys_application_approved: its wording duplicated sys_consent_form_approved
+ *   ("同意書を確認し、承認いたしました") but the application_approved event
+ *   fires at 審査承認 — before the consent form exists. Replaced by
+ *   sys_consent_form_required, which asks for the form instead.
+ */
+const RETIRED_TEMPLATE_ALIASES: Record<string, string> = {
+  sys_application_approved: 'sys_consent_form_required',
+};
+
 const secretClient = new SecretManagerServiceClient();
 const PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "studio-3681859885-cd9c1";
 
@@ -187,6 +203,15 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       chatSubject = fallback.chatSubject;
       chatBody = fallback.chatBody;
       log(`[sendTriggeredEmail] Using built-in fallback for '${templateId}' (not in Firestore).`);
+    } else if (SYSTEM_TEMPLATE_FALLBACK[RETIRED_TEMPLATE_ALIASES[templateId]]) {
+      const aliasId = RETIRED_TEMPLATE_ALIASES[templateId];
+      const fallback = SYSTEM_TEMPLATE_FALLBACK[aliasId];
+      subject = fallback.subject;
+      body = fallback.body;
+      isAdmin = fallback.isAdmin;
+      chatSubject = fallback.chatSubject;
+      chatBody = fallback.chatBody;
+      log(`[sendTriggeredEmail] Template '${templateId}' is retired; using '${aliasId}' instead.`);
     } else {
       log(`[sendTriggeredEmail] Template '${templateId}' not found and no fallback. Aborting.`);
       return false;

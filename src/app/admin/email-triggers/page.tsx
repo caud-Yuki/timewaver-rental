@@ -34,7 +34,7 @@ const EVENT_POINTS: Array<{
   sysAdmin?: string;
 }> = [
   { id: 'application_submitted',  name: '申込送信時',                desc: 'ユーザーが申込を送信した時',                                              sysUser: 'sys_application_submitted', sysAdmin: 'sys_application_submitted_admin' },
-  { id: 'application_approved',   name: '審査承認時',                desc: '管理者が申請を承認した時',                                                sysUser: 'sys_application_approved' },
+  { id: 'application_approved',   name: '審査承認時',                desc: '管理者が申請を承認した時',                                                sysUser: 'sys_consent_form_required' },
   { id: 'application_rejected',   name: '審査却下時',                desc: '管理者が申請を却下した時',                                                sysUser: 'sys_application_rejected' },
   { id: 'consent_form_submitted', name: '同意書提出時',              desc: 'ユーザーが同意書を提出した時',                                            sysAdmin: 'sys_consent_form_submitted' },
   { id: 'consent_form_approved',  name: '同意書承認時',              desc: '管理者が同意書を承認した時',                                              sysUser: 'sys_consent_form_approved' },

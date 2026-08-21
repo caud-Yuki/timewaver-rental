@@ -1,7 +1,25 @@
 
 /**
- * @fileOverview System default email templates.
- * Expanded to cover all Section 4 trigger points.
+ * @fileOverview System default email templates — the single source of truth.
+ *
+ * Both sides of the platform read this one array:
+ * - Cloud Functions: `triggers.ts` builds `SYSTEM_TEMPLATE_FALLBACK` from it,
+ *   so a "[標準]" template that was never materialized into the
+ *   `emailTemplates` collection still renders at send time.
+ * - Admin UI: `src/lib/email-defaults.ts` re-exports this module to populate
+ *   /admin/email-templates and the dropdowns on /admin/email-triggers.
+ *
+ * The definition lives under `functions/src` (rather than a neutral shared
+ * folder) because Firebase uploads only the `functions/` directory and builds
+ * it with tsconfig `include: ["src"] → outDir: "lib"`. A module outside
+ * `functions/src` would fall outside rootDir, reshape the emitted `lib/` tree
+ * and break `main: "lib/index.js"` at deploy time. The Next app has no such
+ * restriction and can import across the project root, so it points here.
+ *
+ * Every id listed here must stay in sync with the `sysUser` / `sysAdmin`
+ * defaults in `src/app/admin/email-triggers/page.tsx`: an id referenced there
+ * but missing here leaves the event bound to a template that resolves to
+ * nothing, and `sendTriggeredEmail` aborts the send silently.
  */
 
 export interface SystemTemplate {
@@ -49,18 +67,18 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     body: `管理者様\n\n以下の申請について、ユーザーから同意書の提出がありました。\n内容を確認し、承認処理を行ってください。\n\nユーザー名: {{userName}}\n申請ID: {{applicationId}}`
   },
   {
-    id: 'sys_application_approved',
-    name: '[標準] 審査承認・決済案内',
-    subject: '【{{serviceName}}】同意書承認および決済のご案内',
-    type: 'application',
-    body: `{{userName}} 様\n\nご提出いただいた同意書を確認し、承認いたしました。\n決済のご案内は、準備が整い次第あらためて別途お送りいたしますので、今しばらくお待ちください。\n\nご不明な点がございましたら、本メールへご返信ください。\n\n—\n{{operatorCompanyName}}`
-  },
-  {
     id: 'sys_application_rejected',
     name: '[標準] 審査却下通知',
     subject: '【{{serviceName}}】レンタル申込に関するお知らせ',
     type: 'application',
     body: `{{userName}} 様\n\n今回は誠に残念ながら、ご利用を見送らせていただくこととなりました。\nご了承くださいますようお願い申し上げます。`
+  },
+  {
+    id: 'sys_payment_link_sent',
+    name: '[標準] 決済リンク送付のご案内',
+    subject: '【{{serviceName}}】お手続きのご案内 — 決済リンクのご送付',
+    type: 'transaction',
+    body: `{{userName}} 様\n\nお待たせいたしました。\nご契約のお手続きに必要な決済リンクをご用意いたしましたので、下記よりお支払いをお願いいたします。\n\n対象機器: {{deviceType}}\n申請ID: {{applicationId}}\n\n▼ お支払いはこちら\n{{paymentLinkUrl}}\n\nお支払いの完了を確認次第、機器の発送準備を開始いたします。\n\nご不明な点がございましたら、本メールへご返信ください。\n\n—\n{{operatorCompanyName}}`
   },
   {
     id: 'sys_payment_completed',
@@ -149,14 +167,6 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     subject: '【{{serviceName}}】ご希望の機器に空きが出ました',
     type: 'waiting',
     body: `{{userName}} 様\n\nキャンセル待ち登録をいただいておりました機器に空きが発生いたしました。\nお早めにお申し込み手続きをお願いいたします。`
-  },
-  {
-    id: 'sys_consent_form_submitted',
-    name: '[標準] 同意書提出通知（管理者宛）',
-    subject: '【{{serviceName}}管理者】同意書の提出がありました',
-    type: 'application',
-    isAdmin: true,
-    body: `管理者様\n\n以下の申請について、ユーザーから同意書の提出がありました。\n内容を確認し、承認処理を行ってください。\n\nユーザー名: {{userName}}\n申請ID: {{applicationId}}`
   },
   {
     id: 'sys_consent_form_approved',
