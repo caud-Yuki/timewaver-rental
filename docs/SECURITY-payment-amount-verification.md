@@ -1,8 +1,19 @@
 # 課金金額のサーバー側再計算（payAmount 改ざん対策）
 
 対象: `TWRENTAL-PLATFORM_vrs.1.1`
-状態: **コード修正・テスト済み / 未デプロイ**
+状態: **デプロイ済み（2026-08-21）**
 関連: [SECURITY-V1-URGENT-FIXES.md](./SECURITY-V1-URGENT-FIXES.md)
+
+デプロイ実績（2026-08-21）:
+- Firestore ルール: `firebase deploy --only firestore:rules` 実行。本番 ruleset
+  `72999707-10bf-48bf-8026-873d76c957ce` に `lockedPricingFields` / `pricing` 制限が
+  含まれることを firebaserules API で確認。
+- Cloud Functions: `rm -rf lib && npx tsc`（exit 0）後にデプロイ。
+  `createStripePayment` / `createStripeSubscription` / `onApplicationCreate` /
+  `onApplicationUpdate` を更新、`onSubscriptionCreate` を新規作成。
+- Next.js (App Hosting): コミット `009517c` を `origin/main` に push。
+  `rollout-2026-08-21-001` / `build-2026-08-21-001`（branch: main）が **SUCCEEDED**、
+  本番 URL が 200 応答することを確認（2026-08-21 16:34 JST）。
 
 ---
 
