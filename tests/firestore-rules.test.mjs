@@ -427,6 +427,24 @@ await it('★ 申込作成時に pricing を偽装して持ち込めない', asy
 });
 
 await seed();
+await it('★ 申込作成時に couponUsageCountedAt を持ち込めない（クーポン上限の回避防止）', async () => {
+  await assertFails(
+    addDoc(collection(asUser(), 'applications'), {
+      userId: USER, status: 'pending', deviceId: DEVICE, payAmount: 50,
+      couponId: 'coupon_100off', couponUsageCountedAt: new Date(),
+    })
+  );
+});
+
+await seed();
+await it('★ 本人は couponUsageCountedAt を後から書き換えられない', async () => {
+  await seedApplication();
+  await assertFails(
+    updateDoc(doc(asUser(), 'applications', 'app_1'), { couponUsageCountedAt: new Date() })
+  );
+});
+
+await seed();
 await it('本人は申込をキャンセルできる（マイページのフロー維持）', async () => {
   await seedApplication();
   await assertSucceeds(updateDoc(doc(asUser(), 'applications', 'app_1'), { status: 'canceled' }));

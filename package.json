@@ -11,7 +11,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:rules": "firebase emulators:exec --only firestore --project twrental-rules-test 'node tests/firestore-rules.test.mjs'",
-    "test:pricing": "cd functions && npm run build && cd .. && firebase emulators:exec --only firestore --project twrental-pricing-test 'node tests/pricing.test.mjs'"
+    "test:pricing": "cd functions && npm run build && cd .. && firebase emulators:exec --only firestore --project twrental-pricing-test 'node tests/pricing.test.mjs'",
+    "test:renewal": "node --experimental-strip-types tests/renewal.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

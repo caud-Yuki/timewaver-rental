@@ -92,17 +92,21 @@ service cloud.firestore {
           'payAmount', 'originalAmount', 'couponDiscount', 'couponId', 'couponCode',
           'pricing', 'deviceId', 'deviceSerialNumber', 'payType', 'rentalType',
           'rentalPeriod', 'isRenewal', 'previousSubscriptionId', 'previousEndAt',
-          'paymentMethod', 'bankTransfer', 'paymentLinkId', 'userId'
+          'paymentMethod', 'bankTransfer', 'paymentLinkId', 'userId',
+          'couponUsageCountedAt'
         ];
       }
 
       // 本人のみ作成可。新規作成時のステータスは 'pending' 固定（審査前の段階を飛ばした直接作成を防ぐ軽い検証）。
       // 重複申請の制御はクライアント側の保存時ガードで行う（ステータス連動で自己回復するためロック方式は使わない）。
       // `pricing` はサーバーの署名代わりなので、作成時にクライアントから持ち込めない。
+      // `couponUsageCountedAt` はクーポン利用回数を加算済みかの印。作成時に持ち込めると
+      // 上限（maxTotalUsers）を消費せずにクーポンを使い回せてしまうため同様に禁止する。
       allow create: if request.auth != null
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending'
-        && !('pricing' in request.resource.data);
+        && !('pricing' in request.resource.data)
+        && !('couponUsageCountedAt' in request.resource.data);
       allow read: if request.auth != null && (isAdmin() || (resource != null && resource.data.userId == request.auth.uid));
       allow update: if isAdmin()
         || (request.auth != null

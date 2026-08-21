@@ -379,4 +379,5 @@ Detailed architecture docs are in `docs/`:
 | `docs/firestore-rules.md` | Security rules reference, collection access levels, server action compatibility |
 | `docs/collections-reference.md` | Firestore collection field definitions |
 | `docs/workflow.md` | End-to-end user and admin workflow |
+| `docs/FLOW-renewal.md` | 契約更新フロー（受付条件・重複ガード・法人情報・クーポン）の整合 |
 | `docs/blueprint.md` | Full app specification and style guide |

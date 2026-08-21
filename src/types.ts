@@ -123,6 +123,14 @@ export interface Application {
   // Applicant classification & corporate info
   applicantType?: ApplicantType;
   corporateInfo?: CorporateInfo;
+  // 契約更新（/apply/renew）で作られた申込
+  isRenewal?: boolean;
+  /** 更新元の契約 ID。次期契約の開始日はこの契約の終了日になる。 */
+  previousSubscriptionId?: string | null;
+  /** 更新元契約の終了日（ISO文字列）。決済完了時の startAt に使う。 */
+  previousEndAt?: string | null;
+  /** クーポン利用回数をサーバーが加算済みであることを示す印（Functions のみが書き込む）。 */
+  couponUsageCountedAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

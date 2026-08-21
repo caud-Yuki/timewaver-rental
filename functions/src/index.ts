@@ -2318,8 +2318,10 @@ export const onApplicationCreate = onDocumentCreated("applications/{applicationI
   // 監査用のスナップショット `pricing` を刻む（決済時はこの値と照合する）。
   // Admin SDK の書き込みは firestore.rules をバイパスするため、クライアントは
   // ここで刻まれた値を書き換えられない（rules 側で明示的に禁止している）。
+  let pricingResult: PricingBreakdown | null = null;
   try {
     const pricing = await computeExpectedAmount(data);
+    pricingResult = pricing;
     const clientAmount = Number(data.payAmount);
     if (clientAmount !== pricing.expected) {
       log(`[onApplicationCreate] payAmount normalized for ${applicationId}: client ¥${data.payAmount} → server ¥${pricing.expected}. ` +
@@ -2347,6 +2349,31 @@ export const onApplicationCreate = onDocumentCreated("applications/{applicationI
       });
     } catch (writeErr: any) {
       log(`[onApplicationCreate] Failed to record pricing error for ${applicationId}:`, writeErr.message);
+    }
+  }
+
+  // --- クーポン利用回数の加算 ---
+  // 以前はブラウザ（/apply/new）が coupons を直接 update していたが、
+  // firestore.rules 上 coupons の write は管理者のみのため常に permission-denied になり、
+  // 利用上限（maxTotalUsers）が実質機能していなかった。ここで Admin SDK により加算する。
+  // トリガーの再実行で二重加算しないよう、申込側の couponUsageCountedAt を印にして
+  // トランザクションで一度だけ加算する（この印はクライアントからは書き込めない）。
+  if (pricingResult?.couponId && pricingResult.discount > 0) {
+    try {
+      const couponDb = getFirestore();
+      const couponRef = couponDb.collection('coupons').doc(pricingResult.couponId);
+      await couponDb.runTransaction(async (tx) => {
+        const appSnap = await tx.get(snap.ref);
+        if (!appSnap.exists || appSnap.data()?.couponUsageCountedAt) return;
+        tx.update(couponRef, {
+          currentUsageCount: FieldValue.increment(1),
+          updatedAt: Timestamp.now(),
+        });
+        tx.update(snap.ref, { couponUsageCountedAt: Timestamp.now() });
+      });
+      log(`[onApplicationCreate] Coupon ${pricingResult.couponCode || pricingResult.couponId} usage counted for ${applicationId}.`);
+    } catch (couponErr: any) {
+      log(`[onApplicationCreate] Failed to count coupon usage for ${applicationId}:`, couponErr.message);
     }
   }
 

@@ -471,14 +471,10 @@ function ApplyForm() {
       updatedAt: serverTimestamp(),
     };
 
-    // Increment coupon usage count
-    if (appliedCoupon?.id) {
-      const couponRef = doc(db, 'coupons', appliedCoupon.id);
-      updateDoc(couponRef, {
-        currentUsageCount: (appliedCoupon.currentUsageCount || 0) + 1,
-        updatedAt: serverTimestamp(),
-      }).catch(() => {});
-    }
+    // NOTE: クーポン利用回数の加算はここでは行わない。
+    // coupons は firestore.rules 上 write が管理者のみのため、一般ユーザーからの
+    // 加算は必ず permission-denied になり、利用上限（maxTotalUsers）が機能していなかった。
+    // 現在は Functions の onApplicationCreate が Admin SDK でトランザクション加算する。
 
     // Also update user profile with shipping address & corporate info
     if (user) {

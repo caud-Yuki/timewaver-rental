@@ -76,6 +76,18 @@ async function seed() {
     code: 'HUGE', name: '過大割引', discountType: 'fixed', discountValue: 999999,
     isActive: true, status: 'active',
   });
+  await db.collection('coupons').doc('cp_inactive').set({
+    code: 'STOP', name: '停止中', discountType: 'fixed', discountValue: 10000,
+    isActive: false, status: 'disabled',
+  });
+  await db.collection('coupons').doc('cp_new_only').set({
+    code: 'NEWONLY', name: '新規限定', discountType: 'fixed', discountValue: 10000,
+    isActive: true, status: 'active', newCustomerOnly: true,
+  });
+  await db.collection('coupons').doc('cp_maxed').set({
+    code: 'MAXED', name: '上限到達', discountType: 'fixed', discountValue: 10000,
+    isActive: true, status: 'active', maxTotalUsers: 2, currentUsageCount: 2,
+  });
 }
 
 /** 申込ドキュメント相当のオブジェクト。payAmount はあえて改ざん値を入れる。 */
@@ -171,6 +183,25 @@ await it('★ couponDiscount を改ざんしても結果に影響しない', asy
   assert.equal(p.expected, 50000);
 });
 
+await it('★ 停止中のクーポンは無効', async () => {
+  const p = await computeExpectedAmount(app({ couponId: 'cp_inactive' }));
+  assert.equal(p.discount, 0);
+  assert.equal(p.couponRejectedReason, 'coupon_inactive');
+});
+
+await it('★ 利用上限に達したクーポンは無効（申込作成時の初回算出）', async () => {
+  const p = await computeExpectedAmount(app({ couponId: 'cp_maxed' }));
+  assert.equal(p.discount, 0);
+  assert.equal(p.couponRejectedReason, 'coupon_usage_limit_reached');
+});
+
+await it('上限チェックは再計算時には行わない（自分の消費分で正規の申込を弾かない）', async () => {
+  // pricing が既にある = 申込作成時にサーバーが算出済み（＝1枠消費済み）の申込。
+  const p = await computeExpectedAmount(app({ couponId: 'cp_maxed', pricing: { version: 1, expected: 45000 } }));
+  assert.equal(p.discount, 10000);
+  assert.equal(p.expected, 45000);
+});
+
 console.log('\n更新(renew)申込: 更新画面の見積り（新規と同じモジュール込み）と一致すること');
 
 await it('契約実績がある更新も新規と同額（モジュール加算あり）', async () => {
@@ -189,10 +220,18 @@ await it('★ 契約実績が無いのに isRenewal を立てても更新扱い�
   assert.equal(p.expected, 55000);
 });
 
-await it('★ 更新申込にクーポンを差し込んでも割引されない（更新画面にクーポンUIは無い）', async () => {
+await it('更新申込でもクーポンは新規と同じ条件で有効（RENEWAL_ALLOWS_COUPON）', async () => {
   const p = await computeExpectedAmount(app({ isRenewal: true, previousSubscriptionId: 'sub_prev', couponId: 'cp_10pct' }));
+  assert.equal(p.isRenewal, true);
+  assert.equal(p.discount, 5500);
+  assert.equal(p.expected, 49500);
+  assert.equal(p.couponRejectedReason, null);
+});
+
+await it('★ 新規限定クーポンは更新申込では常に無効', async () => {
+  const p = await computeExpectedAmount(app({ isRenewal: true, previousSubscriptionId: 'sub_prev', couponId: 'cp_new_only' }));
   assert.equal(p.discount, 0);
-  assert.equal(p.couponRejectedReason, 'coupon_not_allowed_on_renewal');
+  assert.equal(p.couponRejectedReason, 'coupon_new_customer_only');
   assert.equal(p.expected, 55000);
 });
 

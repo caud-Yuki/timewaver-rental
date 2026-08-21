@@ -28,6 +28,7 @@ import {
 import { Device, Application, Waitlist, GlobalSettings, Subscription } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
+import { isRenewalEligible, toDateOrNull } from '@/lib/renewal';
 
 export default function MyDevicesPage() {
   const { user, loading: authLoading } = useUser();
@@ -170,18 +171,6 @@ export default function MyDevicesPage() {
     });
   };
 
-  const isRenewalEligible = (endAt: any) => {
-    if (!settings) return false;
-    if (settings.mode === 'test') return true;
-    
-    if (!endAt) return false;
-    const end = endAt.toDate ? endAt.toDate() : new Date(endAt);
-    const now = new Date();
-    const oneMonthBefore = new Date(end);
-    oneMonthBefore.setMonth(oneMonthBefore.getMonth() - 1);
-    return now >= oneMonthBefore;
-  };
-
   if (authLoading || !user) {
     return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
   }
@@ -239,9 +228,13 @@ export default function MyDevicesPage() {
               </h3>
               <div className="grid md:grid-cols-2 gap-8">
                 {myDevices.map((device) => {
-                  const subscription = subscriptions.find(s => s.deviceId === device.id);
+                  // 更新が成立すると旧契約と新契約がどちらも active で残るため、
+                  // 終了日が最も遅い契約（＝現在有効な契約）を見る。
+                  const subscription = subscriptions
+                    .filter(s => s.deviceId === device.id)
+                    .sort((a, b) => (toDateOrNull(b.endAt)?.getTime() || 0) - (toDateOrNull(a.endAt)?.getTime() || 0))[0];
                   const contractEndAt = subscription?.endAt;
-                  const eligible = isRenewalEligible(contractEndAt);
+                  const eligible = isRenewalEligible(contractEndAt, settings);
 
                   return (
                     <Card key={device.id} className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-white group">

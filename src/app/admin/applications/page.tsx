@@ -53,7 +53,10 @@ import {
   AlertTriangle,
   UserCheck,
   Trash2,
-  Landmark
+  Landmark,
+  Building2,
+  RefreshCw,
+  Tag
 } from 'lucide-react';
 import { Application, UserProfile, EmailTemplate, applicationConverter, userProfileConverter, emailTemplateConverter } from '@/types';
 import Link from 'next/link';
@@ -217,6 +220,24 @@ function ApplicationDetailModal({ application }: { application: Application }) {
             <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
               <ShieldCheck className="h-3 w-3" /> 申請内容
             </h3>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className={application.applicantType === 'corporate' ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : ''}>
+                {application.applicantType === 'corporate'
+                  ? <><Building2 className="h-3 w-3 mr-1" /> 法人</>
+                  : <><UserIcon className="h-3 w-3 mr-1" /> 個人</>}
+              </Badge>
+              {application.isRenewal && (
+                <Badge variant="outline" className="border-emerald-300 text-emerald-700 bg-emerald-50">
+                  <RefreshCw className="h-3 w-3 mr-1" /> 契約更新
+                </Badge>
+              )}
+              {application.couponCode && (
+                <Badge variant="outline" className="border-amber-300 text-amber-700 bg-amber-50">
+                  <Tag className="h-3 w-3 mr-1" /> {application.couponCode}
+                  {application.couponDiscount ? ` -¥${application.couponDiscount.toLocaleString()}` : ''}
+                </Badge>
+              )}
+            </div>
             <div className="bg-secondary/20 p-4 rounded-2xl grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <p className="text-[10px] text-muted-foreground">対象機器</p>
@@ -231,6 +252,37 @@ function ApplicationDetailModal({ application }: { application: Application }) {
                 <p className="text-xs text-primary font-bold">¥{(application.payAmount ?? 0).toLocaleString()}</p>
               </div>
             </div>
+
+            {/* 法人申込のときだけ、申込時に入力された法人情報を表示する */}
+            {application.applicantType === 'corporate' && application.corporateInfo && (
+              <div className="bg-indigo-50/50 border border-indigo-100 p-4 rounded-2xl space-y-3">
+                <p className="text-[10px] font-bold text-indigo-900 flex items-center gap-1">
+                  <Building2 className="h-3 w-3" /> 法人情報
+                </p>
+                <div className="grid grid-cols-2 gap-y-3 gap-x-4">
+                  {([
+                    ['法人名', application.corporateInfo.companyName],
+                    ['法人番号', application.corporateInfo.corporateNumber],
+                    ['インボイス登録番号', application.corporateInfo.invoiceNumber],
+                    ['会社電話番号', application.corporateInfo.companyPhone],
+                    ['担当者名', application.corporateInfo.contactName],
+                    ['担当者メール', application.corporateInfo.contactEmail],
+                  ] as Array<[string, string | undefined | null]>).map(([label, value]) => (
+                    <div key={label} className="space-y-0.5">
+                      <p className="text-[10px] text-muted-foreground">{label}</p>
+                      <p className="text-xs font-medium break-all">{value || '-'}</p>
+                    </div>
+                  ))}
+                  <div className="space-y-0.5 col-span-2">
+                    <p className="text-[10px] text-muted-foreground">会社住所</p>
+                    <p className="text-xs font-medium">
+                      {application.corporateInfo.companyZipcode ? `〒${application.corporateInfo.companyZipcode} ` : ''}
+                      {application.corporateInfo.companyAddress || '-'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
         </div>
       </div>

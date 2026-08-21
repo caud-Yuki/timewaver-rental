@@ -34,6 +34,16 @@ export const PRICING_VERSION = 1;
  */
 export const RENEWAL_INCLUDES_MODULES = true;
 
+/**
+ * 更新（renew）申込でクーポンを使えるか。
+ *
+ * 2026-08-21: /apply/renew にクーポン入力欄を追加し、新規申込と同水準にそろえたため
+ * true にした（以前は UI が無いことを理由に一律で割引 0 にしていた）。
+ * false に戻す場合は /apply/renew のクーポン UI も同時に外すこと。
+ * なお「新規限定クーポン（newCustomerOnly）」は更新申込では常に無効。
+ */
+export const RENEWAL_ALLOWS_COUPON = true;
+
 export type PayType = 'monthly' | 'full';
 export type TermKey = '3m' | '6m' | '12m';
 
@@ -139,6 +149,7 @@ async function isVerifiedRenewal(app: Record<string, any>): Promise<boolean> {
 async function resolveCouponDiscount(
   app: Record<string, any>,
   baseAmount: number,
+  isRenewal: boolean,
 ): Promise<{ discount: number; couponId: string | null; couponCode: string | null; reason: string | null }> {
   const couponId = app?.couponId ? String(app.couponId) : null;
   if (!couponId) return { discount: 0, couponId: null, couponCode: null, reason: null };
@@ -149,6 +160,25 @@ async function resolveCouponDiscount(
     return { discount: 0, couponId, couponCode: null, reason: 'coupon_not_found' };
   }
   const coupon = couponDoc.data()!;
+
+  // 停止・削除されたクーポン（クライアント側でも同じ判定をしている）
+  if (coupon.isActive === false || (coupon.status && coupon.status !== 'active')) {
+    return { discount: 0, couponId, couponCode: coupon.code || null, reason: 'coupon_inactive' };
+  }
+
+  // 利用上限。判定するのは「この申込がまだ 1 枠も消費していないとき」だけ。
+  // `pricing` は Admin SDK しか書けない（firestore.rules）ので、これが無い＝申込作成直後の
+  // 初回算出。再計算時（決済時など）は自分自身の消費分で上限に達して正規の申込を
+  // 弾いてしまうため、上限チェックはしない。
+  const isInitialPricing = !app?.pricing;
+  if (isInitialPricing && coupon.maxTotalUsers && toAmount(coupon.currentUsageCount) >= toAmount(coupon.maxTotalUsers)) {
+    return { discount: 0, couponId, couponCode: coupon.code || null, reason: 'coupon_usage_limit_reached' };
+  }
+
+  // 新規限定クーポンは更新申込では常に対象外（/apply/renew も同じ理由で弾いている）。
+  if (coupon.newCustomerOnly && isRenewal) {
+    return { discount: 0, couponId, couponCode: coupon.code || null, reason: 'coupon_new_customer_only' };
+  }
 
   // 有効期限は「申込時点」で判定する。決済が数日後になる運用のため、
   // 申込後に期限切れになった正規の申込を弾かない。
@@ -232,10 +262,10 @@ export async function computeExpectedAmount(app: Record<string, any>): Promise<P
     ? unitBase + moduleAddonMonthly
     : unitBase + moduleAddonMonthly * months;
 
-  // 更新申込はクーポン UI を持たないため、クーポンは新規申込のみ有効とする。
-  const coupon = renewal
+  // クーポンは新規・更新のどちらでも同じ検証を通す（RENEWAL_ALLOWS_COUPON で切替可）。
+  const coupon = (renewal && !RENEWAL_ALLOWS_COUPON)
     ? { discount: 0, couponId: app?.couponId ? String(app.couponId) : null, couponCode: null, reason: app?.couponId ? 'coupon_not_allowed_on_renewal' : null }
-    : await resolveCouponDiscount(app, baseAmount);
+    : await resolveCouponDiscount(app, baseAmount, renewal);
 
   return {
     version: PRICING_VERSION,
