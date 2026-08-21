@@ -9,6 +9,43 @@ firebase deploy --only firestore:rules
 
 **Important**: Rules do NOT auto-deploy with App Hosting. They must be deployed manually.
 
+## Verifying what is actually live
+
+`firebase deploy` reports success, but it does not tell you later whether the live ruleset still
+matches this file — and several sessions edit this tree at once, so a modified `firestore.rules`
+in the working tree is *not* evidence of what production is enforcing. Fetch the live ruleset and
+diff it:
+
+```bash
+TOKEN=$(gcloud auth print-access-token)
+PROJ=studio-3681859885-cd9c1
+RS=$(curl -s -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: $PROJ" \
+  "https://firebaserules.googleapis.com/v1/projects/$PROJ/releases" \
+  | node -pe "JSON.parse(require('fs').readFileSync(0)).releases.find(r=>r.name.endsWith('/cloud.firestore')).rulesetName.split('/').pop()")
+curl -s -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: $PROJ" \
+  "https://firebaserules.googleapis.com/v1/projects/$PROJ/rulesets/$RS" \
+  | node -pe "JSON.parse(require('fs').readFileSync(0)).source.files[0].content" > /tmp/live.rules
+diff /tmp/live.rules firestore.rules && echo "live == local"
+```
+
+The `x-goog-user-project` header is required; without it the Rules API returns 403.
+
+For the Next.js app (App Hosting, backend `timewaver-rental`, region `asia-east1`,
+`https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app`), check which commit is
+actually serving before assuming a client-side fix is live:
+
+```bash
+firebase apphosting:backends:list --project studio-3681859885-cd9c1
+```
+
+To confirm a specific client change shipped, fetch the page and grep its chunk — the chunk
+filename hash changes with content, so this is a direct read of what browsers are running:
+
+```bash
+BASE=https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app
+curl -s "$BASE/apply/new" | grep -o '/_next/static/chunks/app/apply/new/page-[a-z0-9]*\.js'
+```
+
 ## Access Levels
 
 | Level | Meaning | Example |
