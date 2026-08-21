@@ -45,16 +45,29 @@ async function it(name, fn) {
   }
 }
 
-/** functions/src/index.ts の addBusinessDays と同じ規則（土日を飛ばす）。 */
-function addBusinessDays(date, days) {
+/**
+ * functions/src/index.ts の addBusinessDays と同じ規則（土日を飛ばす）。
+ *
+ * ただし **UTC で数える**。Cloud Functions（本番・エミュレータとも）は UTC で動くので、
+ * トリガー側の `new Date()` / `getDay()` / `setDate()` は UTC 基準になる。テストプロセスは
+ * ホストのタイムゾーン（JST）で動くため、ローカルの getter で数えると JST 深夜〜午前に
+ * 実行したときだけ 1 日ズレて落ちる。比較する側を UTC にそろえる。
+ *
+ * 裏を返すと、案内メールに載る「振込期限」も UTC 起算の日付である（JST 00:00〜09:00 に
+ * 送付すると JST の 1 日前に見える）。docs/FLOW-bank-transfer.md の既知の制限を参照。
+ */
+function addBusinessDaysUTC(date, days) {
   let count = 0;
   const result = new Date(date);
   while (count < days) {
-    result.setDate(result.getDate() + 1);
-    if (result.getDay() !== 0 && result.getDay() !== 6) count++;
+    result.setUTCDate(result.getUTCDate() + 1);
+    if (result.getUTCDay() !== 0 && result.getUTCDay() !== 6) count++;
   }
   return result;
 }
+
+/** UTC での年月日だけを取り出す（時刻差を無視して日付だけ比較するため）。 */
+const utcDate = (d) => d.toISOString().slice(0, 10);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -208,10 +221,10 @@ await it('★ 請求金額はクライアントの payAmount ではなくサー�
 });
 
 await it('振込期限は settings.bankTransferDeadlineDays（営業日）で決まる', async () => {
-  const expected = addBusinessDays(new Date(), DEADLINE_DAYS);
+  const expected = addBusinessDaysUTC(new Date(), DEADLINE_DAYS);
   const actual = new Date(afterInstructions.bankTransfer.deadline);
-  // 秒単位のズレは無視して日付で比較する。
-  assert.equal(actual.toDateString(), expected.toDateString());
+  // 秒単位のズレは無視して日付（UTC）で比較する。
+  assert.equal(utcDate(actual), utcDate(expected));
 });
 
 await it('入金確認前は契約（subscriptions）が作られていない', async () => {
@@ -253,10 +266,10 @@ await it('契約の金額・支払区分・決済手段が銀行振込として�
 await it('契約期間は発送バッファ（営業日）起算の12ヶ月', async () => {
   const start = subscription.startAt.toDate();
   const end = subscription.endAt.toDate();
-  assert.equal(start.toDateString(), addBusinessDays(new Date(), BUFFER_DAYS).toDateString());
+  assert.equal(utcDate(start), utcDate(addBusinessDaysUTC(new Date(), BUFFER_DAYS)));
   const expectedEnd = new Date(start);
-  expectedEnd.setMonth(expectedEnd.getMonth() + 12);
-  assert.equal(end.toDateString(), expectedEnd.toDateString());
+  expectedEnd.setUTCMonth(expectedEnd.getUTCMonth() + 12);
+  assert.equal(utcDate(end), utcDate(expectedEnd));
 });
 
 await it('入金確認日時が申請に記録される', async () => {
@@ -275,8 +288,8 @@ await it('★ デバイスが貸出中になり、契約開始日が刻まれる
   assert.equal(device.status, 'active');
   assert.equal(device.currentUserId, USER);
   assert.equal(
-    device.contractStartAt.toDate().toDateString(),
-    subscription.startAt.toDate().toDateString(),
+    utcDate(device.contractStartAt.toDate()),
+    utcDate(subscription.startAt.toDate()),
   );
 });
 
