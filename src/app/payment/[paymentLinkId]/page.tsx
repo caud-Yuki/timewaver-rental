@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Activity, ShieldCheck, CreditCard, Lock, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useFirestore, useDoc, useMemoFirebase, useUser } from '@/firebase';
-import { doc, updateDoc, serverTimestamp, addDoc, collection, Timestamp, getDoc as firestoreGetDoc } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, addDoc, collection, Timestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { PaymentLink, UserProfile, Application, GlobalSettings } from '@/types';
 import { addBusinessDays, formatDateJP } from '@/lib/business-days';
@@ -286,19 +286,13 @@ export default function PaymentPage() {
             const functions = getFunctions();
             const createSub = httpsCallable(functions, 'createStripeSubscription');
 
-            // Read device to get monthlyPriceId
-            const deviceSnap = await firestoreGetDoc(doc(db, 'devices', paymentLink.deviceId));
-            const deviceData = deviceSnap.data();
-            const termKey = rentalMonths <= 3 ? '3m' : rentalMonths <= 6 ? '6m' : '12m';
-            const monthlyPriceId = deviceData?.stripeProducts?.[termKey]?.monthlyPriceId;
-
+            // 継続課金の金額・Price はサーバー側 (createStripeSubscription) が
+            // PaymentIntent → 決済リンク → 申込 から再計算して確定する。
+            // 金額改ざんを防ぐため、ここからは金額も priceId も送らない。
             const subResult = await createSub({
               stripeCustomerId: profile.stripeCustomerId,
-              monthlyPriceId: monthlyPriceId || null,
               paymentIntentId,
               firestoreSubscriptionId: firestoreSubId,
-              payAmount: paymentLink.payAmount,
-              deviceName: paymentLink.deviceName,
             });
             console.log('[PAYMENT_DEBUG] Stripe Subscription created:', (subResult.data as any).stripeSubscriptionId);
           } catch (subErr: any) {

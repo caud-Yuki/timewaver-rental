@@ -4,27 +4,26 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // --- 管理者判定 ---
     //
-    // 1) Custom Claim (request.auth.token.admin) を最優先で見る。
-    //    Claim は Admin SDK からしか付与できずクライアントからは書き換え不能なため、
-    //    Firestore 側が書き換えられても昇格されない。ドキュメント読み取りも発生しない。
-    // 2) users/{uid}.role == 'admin' は移行期間中のフォールバック。
-    //    全管理者へ Claim を付与し終えたら、この分岐を削除すること。
-    //    付与は Cloud Functions の setUserRole（Admin SDK）で行う。
-    function hasAdminClaim() {
-      return request.auth != null && request.auth.token.get('admin', false) == true;
-    }
-
+    // 判定材料は Custom Claim (request.auth.token.admin) のみ。
+    // Claim は Admin SDK からしか付与できずクライアントからは書き換え不能なため、
+    // Firestore 側が書き換えられても昇格されない。ドキュメント読み取りも発生しない。
+    // 付与・剥奪は Cloud Functions の setUserRole（Admin SDK）で行う。
+    //
+    // 2026-08-21: 全管理者への Claim 付与が完了したため、移行期間中の
+    // users/{uid}.role == 'admin' フォールバックを削除した。
+    // setUserRole は今も role フィールドを書き続けるが、それは管理画面の表示用で
+    // あって認可の判断材料ではない（＝role が書き換えられても昇格に繋がらない）。
     function isAdmin() {
-      return hasAdminClaim() || (request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin');
+      return request.auth != null && request.auth.token.get('admin', false) == true;
     }
 
     // User Profiles: 本人のみ読み書き可。管理者は全件読み取り可。
     //
     // role は本人から書き換え不能にすること。以前は `allow write` 一本で
     // フィールド制限が無かったため、任意のログインユーザーが自分のドキュメントに
-    // role:'admin' を書き込むだけで管理者に昇格できた（3層すべての管理者判定が
-    // このフィールドを参照しているため、実質フルアクセスを取得できた）。
+    // role:'admin' を書き込むだけで管理者に昇格できた（当時は3層すべての管理者判定が
+    // このフィールドを参照していたため、実質フルアクセスを取得できた）。
+    // 現在は認可が Custom Claim のみに移ったため二重の防御になっている。
     //
     // 昇格・降格は Cloud Functions の setUserRole 経由のみ（Admin SDK は
     // ルールを迂回するため、ここで管理者に write を許可する必要はない）。
@@ -78,14 +77,38 @@ service cloud.firestore {
     }
 
     // Applications: Users can read and write only their own applications. Admins can do everything.
+    //
+    // 【金額改ざん防止】payAmount などの金額系フィールドは、申込作成後は本人から
+    // 変更できない。作成時にブラウザが入れた金額は Cloud Functions
+    // (onApplicationCreate) がサーバー再計算値で上書きし、その根拠を `pricing`
+    // スナップショットとして刻む。決済時 (createStripePayment) はこの値と照合する。
+    // Admin SDK はルールを迂回するため、サーバー側の正規化はここで禁止しても動く。
+    //
+    // 本人が正当に更新するのは status / 本人確認書類 / 同意書のみ（マイページ）。
     match /applications/{applicationId} {
+      // サーバーだけが書いてよい金額・契約条件フィールド
+      function lockedPricingFields() {
+        return [
+          'payAmount', 'originalAmount', 'couponDiscount', 'couponId', 'couponCode',
+          'pricing', 'deviceId', 'deviceSerialNumber', 'payType', 'rentalType',
+          'rentalPeriod', 'isRenewal', 'previousSubscriptionId', 'previousEndAt',
+          'paymentMethod', 'bankTransfer', 'paymentLinkId', 'userId'
+        ];
+      }
+
       // 本人のみ作成可。新規作成時のステータスは 'pending' 固定（審査前の段階を飛ばした直接作成を防ぐ軽い検証）。
       // 重複申請の制御はクライアント側の保存時ガードで行う（ステータス連動で自己回復するためロック方式は使わない）。
+      // `pricing` はサーバーの署名代わりなので、作成時にクライアントから持ち込めない。
       allow create: if request.auth != null
         && request.resource.data.userId == request.auth.uid
-        && request.resource.data.status == 'pending';
+        && request.resource.data.status == 'pending'
+        && !('pricing' in request.resource.data);
       allow read: if request.auth != null && (isAdmin() || (resource != null && resource.data.userId == request.auth.uid));
-      allow update, delete: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin()
+        || (request.auth != null
+            && resource.data.userId == request.auth.uid
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(lockedPricingFields()));
+      allow delete: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
     }
 
     // Subscriptions: Users can read their own and create their own (決済完了時). Admins manage all.
@@ -95,9 +118,16 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // Support Requests: Users can read/create their own. Admins can manage all.
+    // Support Requests (修理・サポート依頼): Users can read/create their own.
+    // Admins triage them from /admin/support-requests.
+    //
+    // 新規は 'open' 固定。対応状況（in_progress / resolved など）と社内向けの
+    // adminNote は管理者だけが書き換えられるため、利用者が自分の依頼を
+    // 完了済みに見せかけたり、未対応キューから消したりはできない。
     match /supportRequests/{requestId} {
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'open';
       allow read: if request.auth != null && (isAdmin() || (resource != null && resource.data.userId == request.auth.uid));
       allow update, delete: if isAdmin();
     }
@@ -156,10 +186,18 @@ service cloud.firestore {
     }
 
     // Payment Links: Public read. 決済完了時に認証ユーザーがstatusを'used'へ変更可能. Adminsは全操作可能.
+    //
+    // 【金額改ざん防止】一般ユーザーに許すのは status を 'used' にする操作だけ。
+    // 以前はフィールド制限が無かったため、status を pending→used にする同じ更新で
+    // payAmount も一緒に書き換えられた（＝請求額の改ざんが可能だった）。
     match /paymentLinks/{linkId} {
       allow read: if true;
       allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (request.auth != null && resource.data.status == 'pending' && request.resource.data.status == 'used');
+      allow update: if isAdmin()
+        || (request.auth != null
+            && resource.data.status == 'pending'
+            && request.resource.data.status == 'used'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']));
     }
 
     // Global Settings: Admins can write. Public read (contains non-sensitive config like service name, model settings).

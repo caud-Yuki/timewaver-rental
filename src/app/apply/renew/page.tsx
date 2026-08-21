@@ -12,9 +12,10 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, RefreshCw, ShieldCheck, Camera, FileCheck, Check, ArrowLeft } from 'lucide-react';
-import { Device, UserProfile } from '@/types';
+import { Device, UserProfile, GlobalSettings } from '@/types';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
+import { calculateTotalMonthly, calculateTotalFull } from '@/lib/module-pricing';
 
 type PlanDuration = '3m' | '6m' | '12m';
 type PayType = 'monthly' | 'full';
@@ -69,15 +70,26 @@ function RenewForm() {
   }, [db, user]);
   const { data: profile } = useDoc<UserProfile>(profileRef as any);
 
+  const settingsRef = useMemoFirebase(() => {
+    if (!db) return null;
+    return doc(db, 'settings', 'global');
+  }, [db]);
+  const { data: settings } = useDoc<GlobalSettings>(settingsRef as any);
+  const moduleBasePrice = settings?.moduleBasePrice || 0;
+
   // Price calculation
+  // 新規申込（/apply/new）と同じくモジュール料金を含める。
+  // サーバー側 (functions/src/pricing.ts) の再計算もこの式と一致している必要がある。
   const getPrice = () => {
     if (!device?.price?.[selectedDuration]) return { monthly: 0, full: 0, total: 0 };
     const plan = device.price[selectedDuration];
     const months = PLAN_OPTIONS.find(p => p.duration === selectedDuration)?.months || 12;
+    const monthly = calculateTotalMonthly(plan.monthly, device.modules, moduleBasePrice);
+    const full = calculateTotalFull(plan.full, device.modules, moduleBasePrice, months);
     return {
-      monthly: plan.monthly,
-      full: plan.full,
-      total: selectedPayType === 'monthly' ? plan.monthly * months : plan.full,
+      monthly,
+      full,
+      total: selectedPayType === 'monthly' ? monthly * months : full,
     };
   };
 
@@ -204,7 +216,9 @@ function RenewForm() {
             <div className="grid grid-cols-3 gap-3">
               {PLAN_OPTIONS.map((plan) => {
                 const isSelected = selectedDuration === plan.duration;
-                const planPrice = device.price?.[plan.duration];
+                const planMonthly = calculateTotalMonthly(
+                  device.price?.[plan.duration]?.monthly || 0, device.modules, moduleBasePrice
+                );
                 return (
                   <button
                     key={plan.duration}
@@ -223,7 +237,7 @@ function RenewForm() {
                     )}
                     <div className="text-lg font-bold">{plan.label}</div>
                     <div className="text-[11px] text-muted-foreground mt-1">
-                      ¥{planPrice?.monthly?.toLocaleString()}/月
+                      ¥{planMonthly.toLocaleString()}/月
                     </div>
                   </button>
                 );

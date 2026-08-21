@@ -55,6 +55,37 @@ export interface CorporateInfo {
   contactEmail?: string;          // 担当者メールアドレス
 }
 
+/**
+ * 申込時にサーバー（Cloud Functions: onApplicationCreate）が算出・保存する
+ * 金額の内訳スナップショット。決済時 (createStripePayment) はこの値と照合し、
+ * 一致しない決済は拒否する。クライアントからは書き込めない（firestore.rules）。
+ */
+export interface PricingBreakdown {
+  version: number;
+  /** 請求すべき金額（円）。月額払いなら1か月分、一括払いなら総額。 */
+  expected: number;
+  /** クーポン適用前の金額 */
+  baseAmount: number;
+  discount: number;
+  months: number;
+  termKey: '3m' | '6m' | '12m';
+  payType: 'monthly' | 'full';
+  /** device.price[termKey][payType] の素の単価 */
+  unitBase: number;
+  moduleBasePrice: number;
+  /** モジュール加算（月額換算） */
+  moduleAddonMonthly: number;
+  includesModules: boolean;
+  couponId: string | null;
+  couponCode: string | null;
+  couponRejectedReason: string | null;
+  isRenewal: boolean;
+  deviceId: string | null;
+  computedAt: string;
+  /** 金額を確定できなかった場合（機器削除・価格未設定など）。version は 0 になる。 */
+  error?: string;
+}
+
 export interface Application {
   id: string;
   userId: string;
@@ -65,6 +96,13 @@ export interface Application {
   rentalType?: 'new' | 'renew';
   payType: 'monthly' | 'full';
   payAmount?: number;
+  /** クーポン適用前の金額（サーバー算出） */
+  originalAmount?: number;
+  couponId?: string | null;
+  couponCode?: string | null;
+  couponDiscount?: number;
+  /** サーバー算出の金額内訳。payAmount の根拠であり、決済時の照合基準。 */
+  pricing?: PricingBreakdown;
   status: ApplicationStatus;
   agreementPdfUrl?: string;
   agreementImageUrls?: string[];
@@ -385,6 +423,17 @@ export interface PaymentLink {
   deviceName?: string;
   deviceId?: string;
   rentalType?: 'new' | 'renew';
+  userId?: string;
+  stripePaymentIntentId?: string;
+  stripeCustomerId?: string;
+  /** 決済時にサーバー再計算値と食い違った記録（金額改ざんの痕跡） */
+  amountVerification?: {
+    status: 'mismatch';
+    linkAmount: number;
+    expectedAmount: number;
+    detectedAt: Timestamp;
+    userId: string;
+  };
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -501,3 +550,43 @@ export interface EarlyBooking {
   updatedAt: Timestamp;
 }
 export const earlyBookingConverter = createConverter<EarlyBooking>();
+
+// =============================================================================
+// Support / Repair Requests (修理・サポート依頼)
+// =============================================================================
+export type SupportRequestType = 'repair' | 'support';
+
+/**
+ * open          — 受付直後。まだ誰も着手していない。
+ * in_progress   — 担当者が対応中。
+ * awaiting_user — 利用者の返信待ち／機器の返送待ち。
+ * resolved      — 対応完了。
+ * closed        — 取り下げ・重複などで完了扱いにする場合。
+ */
+export type SupportRequestStatus = 'open' | 'in_progress' | 'awaiting_user' | 'resolved' | 'closed';
+
+export interface SupportRequest {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  deviceId: string;
+  // 受付時点のスナップショット。機器が別のユーザーへ再貸出されても
+  // 依頼履歴から「どの機器の話だったか」が失われないようにする。
+  deviceType?: string;
+  deviceSerialNumber?: string;
+  type: SupportRequestType;
+  description: string;
+  status: SupportRequestStatus;
+  /** 管理者のみが閲覧する対応メモ（利用者には送信されない）。 */
+  adminNote?: string;
+  /** 対応担当者の表示名。空欄は未アサイン。 */
+  assignedTo?: string;
+  resolvedAt?: Timestamp;
+  // 受付通知の送信記録。onSupportRequestCreated が書き込む。
+  userNotifiedAt?: Timestamp;
+  adminNotifiedAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+export const supportRequestConverter = createConverter<SupportRequest>();

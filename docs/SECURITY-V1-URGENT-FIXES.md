@@ -1,7 +1,77 @@
 # V1 緊急セキュリティ修正（本番運用前）
 
 対象: `TWRENTAL-PLATFORM_vrs.1.1`
-状態: **コード修正・検証済み / 未デプロイ・キー未ローテーション**
+状態: **コード修正・検証済み / デプロイ済み（2026-08-21）・キー未ローテーション**
+
+デプロイ実績:
+- Firestore ルール: `firebase deploy --only firestore:rules` 実行済み（2026-08-21）
+- Cloud Functions: `rm -rf lib/ && npx tsc`（exit 0）後に `firebase deploy --only functions` 実行済み。
+  全関数が「No changes detected」＝既にこのコードが本番に載っていた。
+  本番エンドポイントへの無認証 POST で `sendAdHocEmail` / `resendEarlyBookingFollowUp` とも
+  `UNAUTHENTICATED: Authentication required.` を返すことを確認（オープンリレー解消を実機検証）。
+- App Hosting (Next.js): 修正コミット `8ff1c53` は `origin/main` に push 済み（自動ビルド対象）。
+
+2026-08-21 追記: セクション 3 の **Custom Claims 移行を完了**（管理者 4 名へ Claim 付与、
+3 層すべてから Firestore role フォールバックを削除）。Firestore ルールは本番反映済み。
+Cloud Functions / Next.js の Claim 専用版は**デプロイ待ち**（下記）。
+
+残タスク:
+- セクション 2 のキーローテーション（未実施）
+- Cloud Functions のデプロイ（`functions/src/pricing.ts` を使う金額検証の実装が完了し、
+  `tsc` は exit 0・テストも通過済み。保留解除 → デプロイ可。
+  内容は [SECURITY-payment-amount-verification.md](./SECURITY-payment-amount-verification.md) 参照）
+- Next.js の push（App Hosting 自動ビルド）
+- ~~`/admin/settings` の表示確認（App Hosting サービスアカウント権限の検証）~~ → **完了（2026-08-21）**
+
+### 2026-08-21 独立検証（別セッションによる実データ確認）
+
+**Custom Claim 付与（セクション 3 ステップ 1-3）: 完了を確認**
+
+Identity Toolkit `accounts:query` と Firestore `users` の突き合わせ結果:
+
+| | 件数 |
+|---|---|
+| Auth 総ユーザー数 | 14 |
+| Custom Claim `admin:true` 保持者 | 4 |
+| Firestore `users.role == 'admin'` | 4 |
+| Claim 未付与の管理者 | **0** |
+| Claim 保持者だが `role != 'admin'` | **0** |
+
+```
+9zFJ9JcGjvQxdA3SCNCl4YbeS6c2  keiri@caud.jp             {admin:true, role:'admin'}
+H1R4w7z28eNDOwZbmjUYnWo3q3G2  hakusyocho@caudesign.jp   {admin:true, role:'admin'}
+UE2iItBomNhcM7kIc5xfLy83cNR2  yukiteraoka@caudesign.jp  {admin:true, role:'admin'}
+jgqbvpkOqOZdv33T8aBfnKX6iOo2  ual.yuuki@gmail.com       {admin:true, role:'admin'}
+```
+
+両集合が完全一致するため、フォールバック削除によるロックアウトは発生しない。
+
+**本番 Firestore ルール: Claim 専用版が反映済み**
+
+`firebaserules.googleapis.com` の `releases/cloud.firestore` を直接取得して確認。
+ruleset `bac561ab-7cc1-4081-87c5-68eac55f89e4` / updateTime `2026-08-21T06:55:50Z`（JST 15:55）。
+`isAdmin()` は `request.auth.token.get('admin', false) == true` のみで、role 参照なし。
+
+**App Hosting サービスアカウント権限: 要件充足**
+
+`firebase-app-hosting-compute@studio-3681859885-cd9c1.iam.gserviceaccount.com` の保有ロール:
+
+- `roles/firebase.sdkAdminServiceAgent` — `firebaseauth.users.get`（ユーザー参照）、
+  `datastore.entities.get` / `.list`（Firestore 読み取り）を含む。
+  当初想定の `roles/firebaseauth.viewer` は不要（本ロールが上位互換）。
+- `roles/secretmanager.admin` — シークレット操作
+- `roles/firebaseapphosting.computeRunner` / `roles/developerconnect.readTokenAccessor`
+
+**`/admin/settings` 実画面: 正常表示**
+
+`https://timewaver-rental--studio-3681859885-cd9c1.asia-east1.hosted.app/admin/settings`
+を管理者セッションで開き、以下を確認:
+
+- ヘッダに `権限: admin` が表示（サーバ側の管理者判定が成功）
+- Stripe TEST/LIVE 各 3 キー・GEMINI API KEY がいずれも「設定済み」
+  （Secret Manager 読み取りが成功＝SA 権限が実際に機能している）
+- Google Chat Webhook 2 件が「URL設定済」
+- コンソールエラー 0 件
 
 ---
 
@@ -113,40 +183,101 @@ allow update: ... && request.resource.data.get('role','user') == resource.data.g
 allow delete: if false;
 ```
 
-あわせて `isAdmin()` に **Custom Claim 経路**を追加した（Firestore の role はフォールバック）。
+あわせて `isAdmin()` に **Custom Claim 経路**を追加した（当初は Firestore の role をフォールバックに残した）。
+その後 2026-08-21 に移行が完了し、フォールバックを削除して現在は次の形になっている。
 
 ```
-function hasAdminClaim() {
+function isAdmin() {
   return request.auth != null && request.auth.token.get('admin', false) == true;
 }
-function isAdmin() {
-  return hasAdminClaim() || (request.auth != null &&
-    get(...).data.get('role','') == 'admin');
-}
 ```
 
-### Custom Claims への移行計画
+Claim は Admin SDK からしか書けないため、Firestore 側が何らかの理由で書き換えられても
+昇格には繋がらない。`get()` による users ドキュメント読み取りも不要になった。
 
-管理者判定の参照箇所は **3 層**:
+### Custom Claims への移行（2026-08-21 完了）
 
-| 層 | ファイル | 現状 | 移行後 |
+管理者判定の参照箇所は **3 層**。全層を Custom Claim のみに切り替えた。
+
+| 層 | ファイル | 移行前 | 現在 |
 |---|---|---|---|
-| Firestore ルール | `firestore.rules` の `isAdmin()` | Claim 優先 + role フォールバック | フォールバック削除 |
-| Cloud Functions | `functions/src/index.ts:requireAdmin` / `functions/src/mail/lib/auth.ts:requireAdmin` | Firestore role のみ | Claim を見る |
-| Next.js | `src/lib/admin-auth.ts:requireAdmin` | Claim 優先 + role フォールバック | フォールバック削除 |
+| Firestore ルール | `firestore.rules` の `isAdmin()` | Claim 優先 + role フォールバック | **Claim のみ**（本番反映済み） |
+| Cloud Functions | `functions/src/index.ts:requireAdmin` / `functions/src/mail/lib/auth.ts:requireAdmin` | Firestore role のみ | **Claim のみ**（コード完了・デプロイ待ち） |
+| Next.js | `src/lib/admin-auth.ts:requireAdmin` | Claim 優先 + role フォールバック | **Claim のみ**（コード完了・push 待ち） |
 
-移行手順:
+#### 実施記録
 
-1. 新設した `setUserRole` callable で既存管理者全員に Claim を付与
-   （Firestore の role と Claim の両方を書くので、移行中どちらの経路でも通る）
-2. 各管理者が再ログイン（`setUserRole` は `revokeRefreshTokens` を呼ぶので強制される）
-3. 全管理者に Claim が付いたことを確認
-4. 上表の「移行後」に沿って 3 箇所のフォールバックを削除
-5. `functions/src/mail/lib/auth.ts` の `requireAdmin` にも Claim 分岐を追加する
+**1. Claim 付与（完了）**
 
-> 注: 現状 `setUserRole` を呼ぶ管理画面 UI は未実装。初回の Claim 付与は
-> Firebase Console / Admin SDK スクリプト、または一時的に callable を直接
-> 呼ぶことで行う。UI 化は別タスク。
+既存管理者 4 名に `{"admin":true,"role":"admin"}` を付与し、同時にリフレッシュトークンを失効させた
+（＝`setUserRole` と同じ副作用）。
+
+```
+9zFJ9JcGjvQxdA3SCNCl4YbeS6c2  keiri@caud.jp
+H1R4w7z28eNDOwZbmjUYnWo3q3G2  hakusyocho@caudesign.jp
+UE2iItBomNhcM7kIc5xfLy83cNR2  yukiteraoka@caudesign.jp
+jgqbvpkOqOZdv33T8aBfnKX6iOo2  ual.yuuki@gmail.com
+```
+
+付与前は 4 名とも Claim 無し（`customAttributes` が空）で、実質フォールバック経路だけで
+動いていた。`setUserRole` は管理者しか呼べず当時 Claim 保持者が 0 名だったため、初回付与は
+Admin SDK 相当の帯域外経路（Identity Toolkit `accounts:update`）で行った。
+同じ手順を `scripts/set-admin-claim.mjs` としてリポジトリに残してある。
+
+**2. 再ログイン（強制済み）**
+
+`validSince` を更新したため既存 ID トークンは失効済み。各管理者は次回サインイン時に
+Claim 入りのトークンを受け取る。Next.js 側は `verifyIdToken(idToken, true)`（checkRevoked）
+なので、失効したトークンでの管理操作はその場で拒否される。
+
+**3. 確認（完了）**
+
+```
+$ node scripts/set-admin-claim.mjs --list
+Claim を持つ管理者: 4 名
+```
+
+**4. フォールバック削除**
+
+- `firestore.rules` — `hasAdminClaim()` を `isAdmin()` に統合し、`get(users/{uid}).role` 参照を削除。
+  **デプロイ済み**（ruleset `bac561ab-7cc1-4081-87c5-68eac55f89e4`。本番の ruleset を
+  取得してローカルの `firestore.rules` と diff し、一致することを確認）。
+- `functions/src/index.ts` / `functions/src/mail/lib/auth.ts` — `request.auth.token` の
+  `admin` / `role` claim だけを見る実装に変更。Firestore 読み取りが 1 回減る。**デプロイ待ち**。
+- `src/lib/admin-auth.ts` — Firestore フォールバックを削除（`adminFirestore` の import も不要になった）。
+  **push 待ち**（App Hosting 自動ビルド）。
+
+**5. ルールテスト**
+
+`npm run test:rules` → **29/29 passed**。フォールバック撤去を検出する負のテストを 2 件追加した:
+
+- `users.role='admin'` だが Claim を持たないコンテキストが管理者専用コレクションを読めない
+- 同コンテキストが管理者操作（waitlist 削除）をできない
+
+役目を終えた「Firestore の role:admin フォールバックは移行期間中も有効」テストは、
+「Claim を持つ管理者は管理者専用コレクションを読める（管理画面フロー維持）」に置換した。
+`asAdmin()` コンテキストは本番と同じ `{admin:true, role:'admin'}` claim を持つように変更してある。
+
+> **現在の中間状態**: ルールだけ先に出したため、
+> 「ルール＝Claim のみ / Functions・Next.js＝Claim 優先 + role フォールバック（旧デプロイ）」。
+> 4 名とも Claim と Firestore role の両方を持つのでどの層でも管理者として通る。
+> 残り 2 層をデプロイすれば完全に Claim 一本になる。
+
+#### ロックアウトからの復旧
+
+認可が Claim のみになったため、**Claim を持つ管理者が 0 人になると `setUserRole` を呼べる者が
+いなくなり、自力では復旧できない**。その場合はプロジェクト所有者権限で帯域外に付与する:
+
+```bash
+gcloud auth login                                  # プロジェクト所有者/編集者で
+node scripts/set-admin-claim.mjs <uid> admin       # 付与（Firestore role も同時に更新）
+node scripts/set-admin-claim.mjs <uid> user        # 剥奪
+node scripts/set-admin-claim.mjs --list            # Claim 保持者の一覧
+```
+
+通常の昇格・降格は管理者が `setUserRole` を呼ぶこと。このスクリプトはあくまで復旧用。
+
+> 注: `setUserRole` を呼ぶ管理画面 UI は未実装のまま。UI 化は別タスク。
 
 ---
 
@@ -192,7 +323,7 @@ stopRecurringPayment         requireAdmin
 
 | 検証 | 結果 |
 |---|---|
-| Firestore ルールテスト (`npm run test:rules`) | **27/27 passed** |
+| Firestore ルールテスト (`npm run test:rules`) | **29/29 passed**（Claim 移行後。移行前は 27/27） |
 | ネガティブコントロール（旧ルールに戻して実行） | 昇格テスト 5 件が**意図どおり FAIL** → テストが実際に穴を検出することを確認 |
 | `functions` の `tsc` | **exit 0**（デプロイ可） |
 | Next.js `npm run build` | **exit 0**（全ルート生成成功） |
@@ -214,7 +345,8 @@ Firestore エミュレータ上で `firestore.rules` をそのまま評価する
 - 他人のプロフィールを更新・昇格できない
 - 管理者自身も自分の role を書き換えられない
 - Custom Claim `admin:true` は users ドキュメント無しでも管理者扱いになる
-- Firestore role フォールバックが移行期間中も有効
+- Claim を持つ管理者は管理者専用コレクションを読める（管理画面フロー維持）
+- **Claim 無しで `users.role='admin'` だけでは管理者扱いにならない**（フォールバック撤去の回帰テスト × 2）
 
 ### 未カバー（今後の推奨）
 
@@ -228,6 +360,8 @@ Firestore エミュレータ上で `firestore.rules` をそのまま評価する
 
 ### 手動での確認手順（デプロイ後）
 
+0. **管理者は再ログインする** — 2026-08-21 の Claim 付与でリフレッシュトークンを失効させたため、
+   既存セッションは無効。再ログインしないと管理画面が `PERMISSION_DENIED` になる（想定動作）
 1. **一般ユーザーで昇格を試す** — 一般アカウントでログインし、ブラウザのコンソールから
    自分の users ドキュメントに `role:'admin'` を書き込む → `PERMISSION_DENIED` になること
 2. **決済ページ** — `/payment/[id]` を開き、DevTools の Network で Server Action の

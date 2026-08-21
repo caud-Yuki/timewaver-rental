@@ -9,6 +9,7 @@ import { getAuth } from "firebase-admin/auth";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const StripeSDK = require("stripe") as typeof import("stripe");
 import { sendTriggeredEmail } from "./triggers";
+import { computeExpectedAmount, resolveTrustedPricing, PricingBreakdown } from "./pricing";
 import { sendViaAccount } from "./mail/lib/sendDispatcher";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
 
@@ -163,23 +164,28 @@ async function onDeviceReleased(deviceId: string, deviceType: string, reason: 'c
 
 /**
  * Require an authenticated admin caller. Throws HttpsError on failure.
- * Looks up the caller's user doc and verifies role === 'admin'.
+ *
+ * Admin state lives in the Firebase Auth custom claim, which arrives inside
+ * the callable's already-verified auth token. The claim can only be written by
+ * the Admin SDK (setUserRole below), so it cannot be forged from the client,
+ * and reading it costs no Firestore lookup.
+ *
+ * The users/{uid}.role field is NOT consulted: it is display metadata for the
+ * admin UI. It was the sole source of truth until 2026-08-21, when the
+ * migration to claims completed (see docs/SECURITY-V1-URGENT-FIXES.md).
+ *
+ * A caller promoted while signed in picks the claim up on the next token
+ * refresh; setUserRole revokes their refresh tokens to force that immediately.
  */
 async function requireAdmin(request: any): Promise<string> {
   if (!request?.auth) {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
-  const uid = request.auth.uid;
-  const db = getFirestore();
-  const userDoc = await db.collection('users').doc(uid).get();
-  if (!userDoc.exists) {
-    throw new HttpsError("permission-denied", "User profile not found.");
-  }
-  const role = userDoc.data()?.role;
-  if (role !== 'admin') {
+  const token = request.auth.token || {};
+  if (token.admin !== true && token.role !== 'admin') {
     throw new HttpsError("permission-denied", "Admin role required.");
   }
-  return uid;
+  return request.auth.uid;
 }
 
 /**
@@ -220,14 +226,21 @@ function assertValidRecipients(to: string): string[] {
  * Grant or revoke admin rights. Admin only.
  *
  * This is the sanctioned path for changing a role now that clients can no
- * longer write users/{uid}.role (see firestore.rules). It writes BOTH the
- * Firebase Auth custom claim and the Firestore field so all three
- * authorization layers agree during the migration to claims:
- *   - firestore.rules  -> hasAdminClaim() / role fallback
- *   - Cloud Functions  -> requireAdmin() below
+ * longer write users/{uid}.role (see firestore.rules).
+ *
+ * Authorization reads the Firebase Auth custom claim in all three layers:
+ *   - firestore.rules  -> isAdmin()
+ *   - Cloud Functions  -> requireAdmin() above, mail/lib/auth.ts
  *   - Next.js          -> src/lib/admin-auth.ts
  *
- * Once every admin carries the claim, drop the Firestore fallback in all three.
+ * The Firestore `role` field is still written here, but only so the admin UI
+ * can label users; nothing authorizes on it. Revoking refresh tokens makes the
+ * new claim take effect at once instead of at the next hourly token refresh.
+ *
+ * Lockout note: because authorization is claim-only, an account with no claim
+ * cannot call this function. If every claim were lost, re-grant one out of band
+ * with `node scripts/set-admin-claim.mjs <uid> admin` (Admin SDK, bypasses this
+ * check) and sign in again.
  */
 export const setUserRole = onCall(async (request) => {
   const callerUid = await requireAdmin(request);
@@ -502,12 +515,58 @@ export const createStripePayment = onCall(async (request) => {
 
     // 3. Get application data
     const appDoc = await db.collection('applications').doc(link.applicationId).get();
-    const appData = appDoc.exists ? appDoc.data()! : {};
+    if (!appDoc.exists) {
+      throw new HttpsError("not-found", "Application for this payment link was not found.");
+    }
+    const appData = appDoc.data()!;
+
+    // 3b. Authorize via the application as well (the link may predate userId stamping)
+    if (appData.userId && appData.userId !== userId) {
+      throw new HttpsError("permission-denied", "This application does not belong to the authenticated user.");
+    }
 
     // 4. Validate amount (Stripe JPY minimum charge is ¥50)
     const amount = link.payAmount || 0;
     if (!Number.isInteger(amount) || amount < 50) {
       throw new HttpsError("invalid-argument", `Invalid payAmount: ${amount}. Must be an integer ≥ 50.`);
+    }
+
+    // 4b. 【金額改ざん防止】機器価格・期間・モジュール・クーポンから
+    //      請求すべき金額をサーバー側で再計算し、一致しなければ決済を拒否する。
+    //      payAmount はもともとブラウザが計算した値で、applications は本人が
+    //      update できるため、ここを通さないと任意の金額で決済できてしまう。
+    let pricing: PricingBreakdown;
+    try {
+      const resolved = await resolveTrustedPricing(appData, 'createStripePayment');
+      pricing = resolved.breakdown;
+      log(`[createStripePayment] Expected ¥${pricing.expected} (${resolved.source}) vs link ¥${amount}`);
+    } catch (pricingErr: any) {
+      log(`[createStripePayment] Pricing failed for application ${link.applicationId}:`, pricingErr.message);
+      throw new HttpsError("failed-precondition", "金額を検証できませんでした。管理者にお問い合わせください。");
+    }
+
+    if (amount !== pricing.expected) {
+      log(`[createStripePayment] AMOUNT MISMATCH — link=¥${amount}, expected=¥${pricing.expected}, ` +
+        `application=${link.applicationId}, user=${userId}, breakdown=${JSON.stringify(pricing)}`);
+      // 後で調査できるよう痕跡を残す（失敗しても決済拒否は変わらない）。
+      try {
+        await linkDoc.ref.update({
+          amountVerification: {
+            status: 'mismatch',
+            linkAmount: amount,
+            expectedAmount: pricing.expected,
+            detectedAt: Timestamp.now(),
+            userId,
+          },
+          updatedAt: Timestamp.now(),
+        });
+      } catch (flagErr: any) {
+        log(`[createStripePayment] Failed to flag mismatch on link ${paymentLinkId}:`, flagErr.message);
+      }
+      throw new HttpsError(
+        "failed-precondition",
+        "決済金額が申込内容と一致しません。管理者にお問い合わせください。",
+      );
     }
 
     // 5. Initialize Stripe
@@ -592,14 +651,13 @@ export const createStripePayment = onCall(async (request) => {
         const deviceDoc = await db.collection('devices').doc(link.deviceId).get();
         if (deviceDoc.exists) {
           const deviceData = deviceDoc.data()!;
-          const rentalPeriod = appData.rentalPeriod || 12;
-          const termKey = rentalPeriod <= 3 ? '3m' : rentalPeriod <= 6 ? '6m' : '12m';
+          const termKey = pricing.termKey;
           monthlyPriceId = deviceData.stripeProducts?.[termKey]?.monthlyPriceId || null;
           log(`[createStripePayment] Device priceId for ${termKey}: ${monthlyPriceId}`);
         }
       }
 
-      const rentalMonths = appData.rentalPeriod || 12;
+      const rentalMonths = pricing.months;
 
       const paymentIntent = await stripe.paymentIntents.create(
         {
@@ -665,13 +723,18 @@ export const createStripeSubscription = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
 
-  const { stripeCustomerId, monthlyPriceId, paymentIntentId, firestoreSubscriptionId, payAmount, deviceName } = request.data;
+  const { stripeCustomerId, paymentIntentId, firestoreSubscriptionId } = request.data || {};
+  // 【金額改ざん防止】monthlyPriceId / payAmount / deviceName はクライアントが送ってくるが、
+  // 継続課金額の決定には使わない。すべてサーバー側（PaymentIntent → paymentLink →
+  // application → devices/settings/coupons）から導出する。ログ用にだけ控える。
+  const clientClaimedAmount = request.data?.payAmount;
+  const uid = request.auth.uid;
 
   if (!stripeCustomerId || !paymentIntentId) {
     throw new HttpsError("invalid-argument", "stripeCustomerId and paymentIntentId are required.");
   }
 
-  log(`[createStripeSubscription] Customer: ${stripeCustomerId}, basePriceId: ${monthlyPriceId}, payAmount: ${payAmount}, firestoreSubId: ${firestoreSubscriptionId}`);
+  log(`[createStripeSubscription] Customer: ${stripeCustomerId}, firestoreSubId: ${firestoreSubscriptionId}, clientClaimedAmount(ignored): ${clientClaimedAmount}`);
 
   try {
     const stripe = await getStripeClient();
@@ -691,52 +754,126 @@ export const createStripeSubscription = onCall(async (request) => {
       throw new HttpsError("permission-denied", "PaymentIntent does not belong to this customer.");
     }
 
+    // 呼び出し元本人の Stripe 顧客IDとも突き合わせる。
+    // paymentLinks は公開読み取り可で PaymentIntent ID / 顧客ID が載るため、
+    // これが無いと他人の登録カードで継続課金を作られうる。
+    const callerDoc = await db.collection('users').doc(uid).get();
+    const callerCustomerId = callerDoc.data()?.stripeCustomerId;
+    if (callerCustomerId && callerCustomerId !== stripeCustomerId) {
+      throw new HttpsError("permission-denied", "This Stripe customer does not belong to the authenticated user.");
+    }
+
+    // 1b. 1か月目の決済が実際に成立していることを確認する
+    if (pi.status !== 'succeeded' && pi.status !== 'processing') {
+      throw new HttpsError("failed-precondition", `PaymentIntent is not paid (status=${pi.status}).`);
+    }
+
     // 2. Set as default payment method on the customer
     await stripe.customers.update(stripeCustomerId, {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
 
-    // 3. Determine which priceId to use for the subscription
-    let subscriptionPriceId = monthlyPriceId;
+    // 2b. 【金額改ざん防止】継続課金額をサーバー側で確定する。
+    //     PaymentIntent の metadata に埋めた paymentLinkId から申込を辿り、
+    //     機器価格・期間・モジュール・クーポンで再計算した月額を採用する。
+    let monthlyAmount: number | null = null;
+    let deviceIdForPrice: string | null = null;
+    let deviceLabel = 'TimeWaver Rental';
+    let termKey: string | null = null;
+    let amountSource = 'payment_intent';
 
-    if (monthlyPriceId && payAmount) {
-      // Check if the base price matches the actual payAmount (which includes modules)
-      try {
-        const basePrice = await stripe.prices.retrieve(monthlyPriceId);
-        if (basePrice.unit_amount !== payAmount) {
-          // Amount differs (modules added) — create a dynamic price re-using the base product
-          const baseProductId = typeof basePrice.product === 'string' ? basePrice.product : (basePrice.product as any)?.id;
-          const dynamicPriceParams: any = {
-            unit_amount: payAmount,
-            currency: 'jpy',
-            recurring: { interval: 'month' },
-            metadata: { basePriceId: monthlyPriceId, includesModules: 'true' },
-          };
-          if (baseProductId) {
-            dynamicPriceParams.product = baseProductId;
-          } else {
-            dynamicPriceParams.product_data = { name: `${deviceName || 'TimeWaver Rental'} (カスタム)` };
+    const linkIdFromPi = pi.metadata?.paymentLinkId || '';
+    if (linkIdFromPi) {
+      const linkDoc = await db.collection('paymentLinks').doc(linkIdFromPi).get();
+      if (linkDoc.exists) {
+        const link = linkDoc.data()!;
+        if (link.userId && link.userId !== uid) {
+          throw new HttpsError("permission-denied", "This payment does not belong to the authenticated user.");
+        }
+        deviceIdForPrice = link.deviceId || null;
+        deviceLabel = link.deviceName || deviceLabel;
+
+        if (link.applicationId) {
+          const appDoc = await db.collection('applications').doc(link.applicationId).get();
+          if (appDoc.exists) {
+            const appData = appDoc.data()!;
+            if (appData.userId && appData.userId !== uid) {
+              throw new HttpsError("permission-denied", "This application does not belong to the authenticated user.");
+            }
+            try {
+              const { breakdown, source } = await resolveTrustedPricing(appData, 'createStripeSubscription');
+              if (breakdown.payType !== 'monthly') {
+                throw new HttpsError("failed-precondition", "This application is not a monthly plan.");
+              }
+              monthlyAmount = breakdown.expected;
+              termKey = breakdown.termKey;
+              amountSource = `application:${source}`;
+            } catch (pricingErr: any) {
+              if (pricingErr instanceof HttpsError) throw pricingErr;
+              log(`[createStripeSubscription] Pricing failed for application ${link.applicationId}:`, pricingErr.message);
+            }
           }
-          const dynamicPrice = await stripe.prices.create(dynamicPriceParams);
-          subscriptionPriceId = dynamicPrice.id;
-          log(`[createStripeSubscription] Module pricing: base ¥${basePrice.unit_amount} → total ¥${payAmount}, dynamic price: ${dynamicPrice.id}`);
+        }
+      }
+    }
+
+    // フォールバック: 申込から算出できない場合は「実際に決済された1か月目の金額」を使う。
+    // Stripe 側で確定した金額なので、クライアント申告値より安全。
+    if (monthlyAmount === null) {
+      log(`[createStripeSubscription] WARNING: could not derive amount from application — falling back to PaymentIntent amount ¥${pi.amount}.`);
+    }
+    const recurringAmount: number = monthlyAmount ?? pi.amount;
+
+    if (!Number.isInteger(recurringAmount) || recurringAmount < 50) {
+      throw new HttpsError("failed-precondition", `Invalid recurring amount: ${recurringAmount}.`);
+    }
+    if (pi.amount !== recurringAmount) {
+      log(`[createStripeSubscription] NOTICE: 1st month charged ¥${pi.amount} but recurring amount is ¥${recurringAmount} (source=${amountSource}).`);
+    }
+    if (clientClaimedAmount !== undefined && Number(clientClaimedAmount) !== recurringAmount) {
+      log(`[createStripeSubscription] AMOUNT MISMATCH — client claimed ¥${clientClaimedAmount}, server computed ¥${recurringAmount}, user=${uid}, pi=${paymentIntentId}. Using server value.`);
+    }
+
+    // 3. Determine which priceId to use for the subscription.
+    //    機器に登録済みの Price は金額が一致するときだけ使い、そうでなければ
+    //    サーバー算出額で動的 Price を作る。
+    let subscriptionPriceId: string | null = null;
+    let basePriceId: string | null = null;
+    let baseProductId: string | null = null;
+
+    if (deviceIdForPrice && termKey) {
+      const deviceDoc = await db.collection('devices').doc(deviceIdForPrice).get();
+      basePriceId = deviceDoc.data()?.stripeProducts?.[termKey]?.monthlyPriceId || null;
+    }
+
+    if (basePriceId) {
+      try {
+        const basePrice = await stripe.prices.retrieve(basePriceId);
+        baseProductId = typeof basePrice.product === 'string' ? basePrice.product : (basePrice.product as any)?.id || null;
+        if (basePrice.unit_amount === recurringAmount && basePrice.currency === 'jpy') {
+          subscriptionPriceId = basePriceId;
+          log(`[createStripeSubscription] Using registered price ${basePriceId} (¥${recurringAmount})`);
         }
       } catch (e: any) {
-        log(`[createStripeSubscription] Could not check base price, using as-is:`, e.message);
+        log(`[createStripeSubscription] Could not retrieve base price ${basePriceId}:`, e.message);
       }
     }
 
     if (!subscriptionPriceId) {
-      // No pre-created price — create a dynamic one from payAmount
-      if (!payAmount) throw new HttpsError("invalid-argument", "Either monthlyPriceId or payAmount is required.");
-      const dynamicPrice = await stripe.prices.create({
-        unit_amount: payAmount,
+      const dynamicPriceParams: any = {
+        unit_amount: recurringAmount,
         currency: 'jpy',
         recurring: { interval: 'month' },
-        product_data: { name: `${deviceName || 'TimeWaver Rental'}` },
-      });
+        metadata: { basePriceId: basePriceId || '', amountSource },
+      };
+      if (baseProductId) {
+        dynamicPriceParams.product = baseProductId;
+      } else {
+        dynamicPriceParams.product_data = { name: `${deviceLabel} (カスタム)` };
+      }
+      const dynamicPrice = await stripe.prices.create(dynamicPriceParams);
       subscriptionPriceId = dynamicPrice.id;
-      log(`[createStripeSubscription] Created fallback dynamic price: ${subscriptionPriceId} (¥${payAmount})`);
+      log(`[createStripeSubscription] Created dynamic price ${subscriptionPriceId} (¥${recurringAmount}, source=${amountSource})`);
     }
 
     // 4. Read the Firestore sub doc to get the rental endAt (used for cancel_at)
@@ -747,6 +884,10 @@ export const createStripeSubscription = onCall(async (request) => {
       const fsSubDoc = await db.collection('subscriptions').doc(firestoreSubscriptionId).get();
       if (fsSubDoc.exists) {
         const fsData = fsSubDoc.data()!;
+        // 他人の契約レコードを書き換えられないよう所有者を確認する
+        if (fsData.userId && fsData.userId !== uid) {
+          throw new HttpsError("permission-denied", "This subscription does not belong to the authenticated user.");
+        }
         rentalMonths = fsData.rentalMonths || null;
         const endAtRaw = fsData.endAt;
         if (endAtRaw?.toDate) firestoreEndAt = endAtRaw.toDate();
@@ -807,6 +948,8 @@ export const createStripeSubscription = onCall(async (request) => {
         stripeSubscriptionId: subscription.id,
         stripePaymentIntentId: paymentIntentId,
         stripeCustomerId,
+        // 契約レコードの金額もサーバー算出値で上書きする（管理画面の表示・集計もこの値を見る）
+        payAmount: recurringAmount,
         'stripeStatus.status': subscription.status,
         'stripeStatus.cancelAt': cancelAtUnix ? new Date(cancelAtUnix * 1000).toISOString() : null,
         'stripeStatus.lastSyncedAt': new Date().toISOString(),
@@ -2169,6 +2312,44 @@ export const onApplicationCreate = onDocumentCreated("applications/{applicationI
   const data = snap.data();
   const applicationId = event.params.applicationId;
 
+  // --- 【金額改ざん防止】payAmount のサーバー側再計算・正規化 ---
+  // payAmount / originalAmount / couponDiscount はブラウザが計算した値なので信用しない。
+  // 機器価格・期間・モジュール・クーポンから算出し直して上書きし、
+  // 監査用のスナップショット `pricing` を刻む（決済時はこの値と照合する）。
+  // Admin SDK の書き込みは firestore.rules をバイパスするため、クライアントは
+  // ここで刻まれた値を書き換えられない（rules 側で明示的に禁止している）。
+  try {
+    const pricing = await computeExpectedAmount(data);
+    const clientAmount = Number(data.payAmount);
+    if (clientAmount !== pricing.expected) {
+      log(`[onApplicationCreate] payAmount normalized for ${applicationId}: client ¥${data.payAmount} → server ¥${pricing.expected}. ` +
+        `breakdown=${JSON.stringify(pricing)}`);
+    }
+    await snap.ref.update({
+      payAmount: pricing.expected,
+      originalAmount: pricing.baseAmount,
+      couponDiscount: pricing.discount,
+      pricing,
+      updatedAt: Timestamp.now(),
+    });
+    // 以降の通知メール等がこの後の処理で参照するため、手元のコピーも更新しておく
+    data.payAmount = pricing.expected;
+    data.originalAmount = pricing.baseAmount;
+    data.couponDiscount = pricing.discount;
+  } catch (pricingErr: any) {
+    // 価格を確定できない申込（機器削除・価格未設定など）は金額未検証として記録する。
+    // 決済側 (createStripePayment) が最終的に拒否するので、ここでは通知処理を続行する。
+    log(`[onApplicationCreate] WARNING: could not price application ${applicationId}:`, pricingErr.message);
+    try {
+      await snap.ref.update({
+        pricing: { version: 0, error: String(pricingErr.message || pricingErr), computedAt: new Date().toISOString() },
+        updatedAt: Timestamp.now(),
+      });
+    } catch (writeErr: any) {
+      log(`[onApplicationCreate] Failed to record pricing error for ${applicationId}:`, writeErr.message);
+    }
+  }
+
   // Only notify on a fresh user submission (created in 'pending'). Applications
   // created/seeded in other states should not re-trigger the submission flow.
   if (data.status && data.status !== 'pending') {
@@ -2200,6 +2381,40 @@ export const onApplicationCreate = onDocumentCreated("applications/{applicationI
   log(`[onApplicationCreate] Dispatched submission notifications for ${applicationId}.`);
 });
 
+/**
+ * 【金額改ざん防止】契約レコード（subscriptions）の金額をサーバー値に正規化する。
+ *
+ * subscriptions は決済完了時にブラウザが作成しており、payAmount もブラウザが
+ * 持っている値をそのまま書いている。実際の課金は createStripePayment /
+ * createStripeSubscription がサーバー再計算値で行うが、管理画面の表示・集計・
+ * 返金額の根拠はこのドキュメントを見るため、ここでも申込から算出し直して揃える。
+ */
+export const onSubscriptionCreate = onDocumentCreated("subscriptions/{subscriptionId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const sub = snap.data();
+  const subscriptionId = event.params.subscriptionId;
+
+  if (!sub?.applicationId) return;
+
+  try {
+    const db = getFirestore();
+    const appDoc = await db.collection('applications').doc(String(sub.applicationId)).get();
+    if (!appDoc.exists) return;
+
+    const { breakdown } = await resolveTrustedPricing(appDoc.data()!, 'onSubscriptionCreate');
+    if (Number(sub.payAmount) !== breakdown.expected) {
+      log(`[onSubscriptionCreate] AMOUNT MISMATCH on subscription ${subscriptionId}: doc ¥${sub.payAmount} → server ¥${breakdown.expected} (application ${sub.applicationId}). Correcting.`);
+      await snap.ref.update({
+        payAmount: breakdown.expected,
+        updatedAt: Timestamp.now(),
+      });
+    }
+  } catch (e: any) {
+    log(`[onSubscriptionCreate] Could not verify amount for subscription ${subscriptionId}:`, e.message);
+  }
+});
+
 export const onApplicationUpdate = onDocumentUpdated("applications/{applicationId}", async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
@@ -2226,6 +2441,28 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
   const getAdminEmail = async () => {
     const settingsDoc = await db.collection('settings').doc('global').get();
     return settingsDoc.data()?.managerEmail || settingsDoc.data()?.adminEmail || null;
+  };
+
+  // 【金額改ざん防止】請求金額はドキュメントの payAmount をそのまま使わず、
+  // 申込時にサーバーが刻んだ pricing スナップショット（無ければ再計算）から取る。
+  // 万一ズレていたら申込ドキュメント側も正しい値に直す。
+  const getTrustedAmount = async (): Promise<number> => {
+    try {
+      const { breakdown } = await resolveTrustedPricing(after, 'onApplicationUpdate');
+      if (Number(after.payAmount) !== breakdown.expected) {
+        log(`[onApplicationUpdate] AMOUNT MISMATCH on ${applicationId}: doc ¥${after.payAmount} → server ¥${breakdown.expected}. Correcting.`);
+        await appRef.update({
+          payAmount: breakdown.expected,
+          originalAmount: breakdown.baseAmount,
+          couponDiscount: breakdown.discount,
+          updatedAt: Timestamp.now(),
+        });
+      }
+      return breakdown.expected;
+    } catch (e: any) {
+      log(`[onApplicationUpdate] Could not verify amount for ${applicationId}:`, e.message);
+      return Number(after.payAmount) || 0;
+    }
   };
 
   // --- Status Change Handlers ---
@@ -2264,7 +2501,7 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
     const deadlineDays = settingsData.bankTransferDeadlineDays || 7;
     const deadline = addBusinessDays(new Date(), deadlineDays);
     const deadlineStr = `${deadline.getFullYear()}/${deadline.getMonth() + 1}/${deadline.getDate()}`;
-    const amount = after.payAmount ?? 0;
+    const amount = await getTrustedAmount();
 
     // Persist the transfer details on the application for admin reference.
     await appRef.update({
@@ -2321,7 +2558,7 @@ export const onApplicationUpdate = onDocumentUpdated("applications/{applicationI
         stripeCustomerId: null,
         stripeSubscriptionId: null,
         stripePaymentIntentId: null,
-        payAmount: after.payAmount ?? 0,
+        payAmount: await getTrustedAmount(),
         status: 'active',
         applicationId,
         previousSubscriptionId: after.previousSubscriptionId || null,
@@ -2857,4 +3094,261 @@ export const sendEarlyBookingLaunchNotice = onCall(async (request) => {
 
   log(`[sendEarlyBookingLaunchNotice] Done. total=${docs.length} sent=${sent} skipped=${skipped} failed=${failed}`);
   return { success: true, total: docs.length, sent, skipped, failed };
+});
+
+// =============================================================================
+// Support / Repair Requests (修理・サポート依頼)
+// =============================================================================
+
+const SUPPORT_REQUEST_TYPE_LABEL: Record<string, string> = {
+  repair: '故障・修理の依頼',
+  support: '操作方法・活用方法の相談',
+};
+
+/**
+ * Neutralize user-authored free text before it is substituted into an email
+ * template. The description field is written by whoever fills in the repair
+ * form, so it must not be able to steer the rendering pipeline.
+ *
+ * Three separate hazards, all from `sendTriggeredEmail`'s substitution loop:
+ *
+ * 1. HTML. The mail pipeline chooses between "escape as plain text" and
+ *    "insert as raw HTML" by sniffing the *finished* body for tags (see
+ *    mail/lib/template.ts `detectIsHtml`). A description containing `<h1>`
+ *    flips the whole message onto the raw-HTML path and injects the user's
+ *    markup into a staff inbox. Folding the angle brackets to their
+ *    full-width forms keeps the text readable in Japanese copy while making
+ *    it unparseable as a tag — and unlike HTML escaping it does not
+ *    double-encode when the plain-text path runs.
+ *
+ * 2. Placeholders. Substitution is a sequential pass over every key, so a
+ *    `{{...}}` sequence surviving inside the description can be expanded by a
+ *    later key. Today's key order happens to make that harmless, but it is
+ *    load-bearing on object insertion order; breaking the braces removes the
+ *    dependency entirely.
+ *
+ * 3. Replacement patterns. The engine uses `String.replace`, where `$&`,
+ *    `` $` `` and `$'` in the *replacement* have special meaning and would
+ *    splice other parts of the template into the message. Doubling `$`
+ *    emits a literal one.
+ */
+function sanitizeForEmail(text: unknown, maxLength = 4000): string {
+  const raw = typeof text === 'string' ? text : '';
+  const trimmed = raw.length > maxLength ? `${raw.slice(0, maxLength)}…（以下省略）` : raw;
+  return trimmed
+    .replace(/</g, '＜')
+    .replace(/>/g, '＞')
+    .replace(/\{\{/g, '｛｛')
+    .replace(/\}\}/g, '｝｝')
+    .replace(/\$/g, '$$$$');
+}
+
+/** Format a Firestore timestamp for Japanese operators (functions run in UTC). */
+function formatJst(ts: any): string {
+  const date = ts?.toDate ? ts.toDate() : new Date();
+  return date.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+}
+
+/**
+ * Ensure the support-request notification event has a trigger config.
+ *
+ * Without a doc in `emailTriggers`, sendTriggeredEmail resolves no template
+ * and silently returns — which is exactly the "nobody notices" failure this
+ * feature exists to fix. Seeding on first use makes the notification work out
+ * of the box while leaving it fully editable in /admin/email-triggers
+ * afterward (the seed only runs when the doc is absent).
+ */
+async function ensureSupportRequestTrigger(db: FirebaseFirestore.Firestore): Promise<void> {
+  const ref = db.collection('emailTriggers').doc('support_request');
+  const snap = await ref.get();
+  if (snap.exists) return;
+  await ref.set({
+    triggerPoint: 'support_request',
+    enabled: true,
+    userTemplateId: 'sys_support_request_created',
+    adminTemplateId: 'sys_support_request_created_admin',
+    channels: { email: true },
+    updatedAt: Timestamp.now(),
+  }, { merge: true });
+  log('[supportRequest] Seeded default trigger config for "support_request".');
+}
+
+/** Shared placeholder payload for every support-request email. */
+function buildSupportRequestPayload(requestId: string, data: FirebaseFirestore.DocumentData) {
+  return {
+    requestId,
+    requestType: data.type || 'repair',
+    requestTypeLabel: SUPPORT_REQUEST_TYPE_LABEL[data.type] || 'サポート依頼',
+    deviceType: sanitizeForEmail(data.deviceType) || '（未登録）',
+    deviceSerialNumber: sanitizeForEmail(data.deviceSerialNumber) || '（未登録）',
+    deviceId: data.deviceId || '',
+    description: sanitizeForEmail(data.description) || '（記載なし）',
+    submittedAt: formatJst(data.createdAt),
+  };
+}
+
+/**
+ * Notify staff (and acknowledge the user) when a repair / support request is
+ * filed from /mypage/support/repair.
+ *
+ * Until this existed, `supportRequests` documents were written and nothing
+ * else happened — no mail, no dashboard, no way to notice them.
+ */
+export const onSupportRequestCreated = onDocumentCreated("supportRequests/{requestId}", async (event) => {
+  const snap = event.data;
+  if (!snap) {
+    log("[onSupportRequestCreated] No snapshot; exiting.");
+    return;
+  }
+  const data = snap.data();
+  const requestId = event.params.requestId;
+
+  const db = getFirestore();
+  await ensureSupportRequestTrigger(db);
+
+  const payload = {
+    ...buildSupportRequestPayload(requestId, data),
+    userName: sanitizeForEmail(data.userName) || 'お客様',
+    userEmail: data.userEmail || '',
+  };
+
+  // 1. Acknowledgement to the requester. The stamp is only written when the
+  //    notification really went out — the admin list surfaces it as
+  //    「送信済 / 未送信」 and a false "送信済" is worse than no badge at all.
+  if (data.userEmail) {
+    try {
+      const sent = await sendTriggeredEmail(
+        'support_request_created',
+        { name: data.userName || 'お客様', email: data.userEmail },
+        payload,
+      );
+      if (sent) await snap.ref.update({ userNotifiedAt: Timestamp.now() });
+    } catch (err: any) {
+      log(`[onSupportRequestCreated] Failed user acknowledgement:`, err?.message || err);
+    }
+  }
+
+  // 2. Notify the operations team so the request gets picked up.
+  const settingsDoc = await db.collection('settings').doc('global').get();
+  const settings = settingsDoc.exists ? settingsDoc.data() || {} : {};
+  const adminEmail: string = settings.managerEmail || settings.adminEmail || '';
+
+  if (!adminEmail) {
+    log(`[onSupportRequestCreated] No managerEmail in settings/global — staff notification skipped for ${requestId}.`);
+    return;
+  }
+
+  try {
+    const sent = await sendTriggeredEmail(
+      'support_request_created_admin',
+      { name: settings.managerName || 'Admin', email: adminEmail },
+      payload,
+    );
+    if (sent) {
+      await snap.ref.update({ adminNotifiedAt: Timestamp.now() });
+      log(`[onSupportRequestCreated] Staff notification dispatched for ${requestId}.`);
+    } else {
+      log(`[onSupportRequestCreated] Staff notification NOT dispatched for ${requestId} — check /admin/email-triggers and the mail account.`);
+    }
+  } catch (err: any) {
+    log(`[onSupportRequestCreated] Failed staff notification:`, err?.message || err);
+  }
+});
+
+/**
+ * Tell the requester when staff mark their request resolved.
+ *
+ * Deliberately NOT auto-seeded: unlike the intake notification, this one goes
+ * to a customer, so it stays silent until an admin binds a template for the
+ * `support_request_resolved` event in /admin/email-triggers.
+ */
+export const onSupportRequestUpdated = onDocumentUpdated("supportRequests/{requestId}", async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  const requestId = event.params.requestId;
+  if (!before || !after) return;
+
+  // Only the open → resolved edge. Any other write (memo, assignee, the
+  // resolvedAt stamp written below) leaves the status untouched and exits here.
+  if (before.status === after.status || after.status !== 'resolved') return;
+
+  if (!after.resolvedAt) {
+    await event.data!.after.ref.update({ resolvedAt: Timestamp.now() });
+  }
+
+  if (!after.userEmail) {
+    log(`[onSupportRequestUpdated] ${requestId} resolved but has no userEmail; nothing to send.`);
+    return;
+  }
+
+  try {
+    await sendTriggeredEmail(
+      'support_request_resolved',
+      { name: after.userName || 'お客様', email: after.userEmail },
+      {
+        ...buildSupportRequestPayload(requestId, after),
+        userName: sanitizeForEmail(after.userName) || 'お客様',
+        userEmail: after.userEmail,
+      },
+    );
+    log(`[onSupportRequestUpdated] Resolution notice dispatched for ${requestId}.`);
+  } catch (err: any) {
+    log(`[onSupportRequestUpdated] Failed resolution notice:`, err?.message || err);
+  }
+});
+
+/**
+ * Re-send the staff intake notification for one support request.
+ *
+ * The onCreate trigger only stamps `adminNotifiedAt` when a notification
+ * actually went out, so /admin/support-requests can show which requests nobody
+ * was told about — typically because `managerEmail` was blank or the mail
+ * account was down at the time. This is the retry for those.
+ */
+export const resendSupportRequestNotification = onCall(async (request) => {
+  // Same open-relay exposure as sendAdHocEmail: the recipient comes from
+  // settings, but an unauthenticated caller could otherwise spray mail at will.
+  await requireAdmin(request);
+
+  const { requestId } = (request.data || {}) as { requestId?: string };
+  if (!requestId) throw new HttpsError("invalid-argument", "requestId is required.");
+
+  const db = getFirestore();
+  const ref = db.collection('supportRequests').doc(requestId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Support request not found.");
+
+  const data = snap.data()!;
+  await ensureSupportRequestTrigger(db);
+
+  const settingsDoc = await db.collection('settings').doc('global').get();
+  const settings = settingsDoc.exists ? settingsDoc.data() || {} : {};
+  const adminEmail: string = settings.managerEmail || settings.adminEmail || '';
+  if (!adminEmail) {
+    throw new HttpsError(
+      "failed-precondition",
+      "担当者メールアドレスが未設定です。基本設定から登録してください。",
+    );
+  }
+
+  const sent = await sendTriggeredEmail(
+    'support_request_created_admin',
+    { name: settings.managerName || 'Admin', email: adminEmail },
+    {
+      ...buildSupportRequestPayload(requestId, data),
+      userName: sanitizeForEmail(data.userName) || 'お客様',
+      userEmail: data.userEmail || '',
+    },
+  );
+
+  if (!sent) {
+    throw new HttpsError(
+      "internal",
+      "通知を送信できませんでした。トリガー設定とメールアカウントの状態を確認してください。",
+    );
+  }
+
+  await ref.update({ adminNotifiedAt: Timestamp.now() });
+  log(`[resendSupportRequestNotification] Re-sent staff notification for ${requestId}.`);
+  return { success: true, to: adminEmail };
 });

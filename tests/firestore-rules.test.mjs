@@ -21,6 +21,7 @@ const ADMIN = 'admin_boss';
 const DEVICE = 'device_001';
 const NEWBIE = 'user_newbie';   // users ドキュメント未作成のユーザー
 const CLAIM_ADMIN = 'admin_claim'; // Custom Claim だけを持つ管理者（users ドキュメント無し）
+const LEGACY_ADMIN = 'admin_legacy'; // users.role='admin' だが Claim 未付与（旧フォールバック経路）
 
 const testEnv = await initializeTestEnvironment({
   projectId: 'twrental-rules-test',
@@ -51,6 +52,7 @@ async function seed() {
     await setDoc(doc(db, 'users', USER), { role: 'user' });
     await setDoc(doc(db, 'users', OTHER), { role: 'user' });
     await setDoc(doc(db, 'users', ADMIN), { role: 'admin' });
+    await setDoc(doc(db, 'users', LEGACY_ADMIN), { role: 'admin' });
     // 申込画面が取得済みのセッションロック
     await setDoc(doc(db, 'devices', DEVICE), {
       status: 'processing',
@@ -68,10 +70,13 @@ async function seed() {
 
 const asUser = () => testEnv.authenticatedContext(USER).firestore();
 const asOther = () => testEnv.authenticatedContext(OTHER).firestore();
-const asAdmin = () => testEnv.authenticatedContext(ADMIN).firestore();
+/** 管理者。本番の setUserRole が付与するのと同じ Claim を持つ */
+const asAdmin = () => testEnv.authenticatedContext(ADMIN, { admin: true, role: 'admin' }).firestore();
 const asNewbie = () => testEnv.authenticatedContext(NEWBIE).firestore();
 /** Custom Claim で管理者になっているコンテキスト（Firestore の role には依存しない） */
 const asClaimAdmin = () => testEnv.authenticatedContext(CLAIM_ADMIN, { admin: true }).firestore();
+/** users.role だけが 'admin' で Claim を持たないコンテキスト（昇格されてはいけない） */
+const asLegacyAdmin = () => testEnv.authenticatedContext(LEGACY_ADMIN).firestore();
 
 console.log('\n申込フロー: 一般ユーザーが申込を完了できること');
 
@@ -226,7 +231,7 @@ await it('管理者であっても自分で role を書き換えることはで�
   await assertFails(updateDoc(doc(asAdmin(), 'users', ADMIN), { role: 'user' }));
 });
 
-console.log('\nCustom Claim による管理者判定（Firestore の role に依存しない経路）');
+console.log('\nCustom Claim による管理者判定（Firestore の role は認可に使わない）');
 
 await seed();
 await it('Custom Claim admin:true なら users ドキュメントが無くても管理者扱いになる', async () => {
@@ -244,8 +249,222 @@ await it('Claim を持たない一般ユーザーは管理者専用コレクシ�
 });
 
 await seed();
-await it('Firestore の role:admin フォールバックは移行期間中も有効', async () => {
+await it('★ Claim 無しで users.role=admin だけでは管理者専用コレクションを読めない（フォールバック撤去）', async () => {
+  await assertFails(getDoc(doc(asLegacyAdmin(), 'emailTemplates', 'tpl_1')));
+});
+
+await seed();
+await it('★ Claim 無しで users.role=admin だけでは管理者操作もできない（フォールバック撤去）', async () => {
+  await assertFails(deleteDoc(doc(asLegacyAdmin(), 'waitlist', 'wl_other')));
+});
+
+await seed();
+await it('Claim を持つ管理者は管理者専用コレクションを読める（管理画面フロー維持）', async () => {
   await assertSucceeds(getDoc(doc(asAdmin(), 'emailTemplates', 'tpl_1')));
+});
+
+console.log('\n修理・サポート依頼: 本人が起票でき、対応状況は管理者だけが動かせること');
+
+await seed();
+await it('自分名義の依頼を status=open で作成できる', async () => {
+  await assertSucceeds(
+    addDoc(collection(asUser(), 'supportRequests'), {
+      userId: USER, deviceId: DEVICE, type: 'repair', description: '電源が入らない', status: 'open',
+    })
+  );
+});
+
+await seed();
+await it('★ 作成時に status を open 以外にはできない（未対応キューから隠せない）', async () => {
+  await assertFails(
+    addDoc(collection(asUser(), 'supportRequests'), {
+      userId: USER, deviceId: DEVICE, type: 'repair', description: '電源が入らない', status: 'resolved',
+    })
+  );
+});
+
+await seed();
+await it('他人名義の依頼は作成できない', async () => {
+  await assertFails(
+    addDoc(collection(asUser(), 'supportRequests'), {
+      userId: OTHER, deviceId: DEVICE, type: 'repair', description: 'なりすまし', status: 'open',
+    })
+  );
+});
+
+await seed();
+await it('自分の依頼は読める', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'supportRequests', 'sr_1'), { userId: USER, status: 'open' });
+  });
+  await assertSucceeds(getDoc(doc(asUser(), 'supportRequests', 'sr_1')));
+});
+
+await seed();
+await it('他人の依頼は読めない', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'supportRequests', 'sr_1'), { userId: OTHER, status: 'open' });
+  });
+  await assertFails(getDoc(doc(asUser(), 'supportRequests', 'sr_1')));
+});
+
+await seed();
+await it('★ 起票者でも対応状況は更新できない（管理者のみ）', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'supportRequests', 'sr_1'), { userId: USER, status: 'open' });
+  });
+  await assertFails(updateDoc(doc(asUser(), 'supportRequests', 'sr_1'), { status: 'resolved' }));
+});
+
+await seed();
+await it('管理者は対応状況と対応メモを更新できる', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'supportRequests', 'sr_1'), { userId: USER, status: 'open' });
+  });
+  await assertSucceeds(
+    updateDoc(doc(asAdmin(), 'supportRequests', 'sr_1'), { status: 'in_progress', adminNote: '一次切り分け中' })
+  );
+});
+
+await seed();
+await it('管理者は依頼を読める', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'supportRequests', 'sr_1'), { userId: USER, status: 'open' });
+  });
+  await assertSucceeds(getDoc(doc(asAdmin(), 'supportRequests', 'sr_1')));
+});
+
+console.log('\n課金金額の改ざん防止: 金額系フィールドはサーバー（Admin SDK）だけが書けること');
+
+/** 審査中の申込を1件用意する */
+async function seedApplication(extra = {}) {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'applications', 'app_1'), {
+      userId: USER,
+      deviceId: DEVICE,
+      status: 'payment_sent',
+      payType: 'monthly',
+      rentalType: 12,
+      payAmount: 50000,
+      originalAmount: 50000,
+      couponDiscount: 0,
+      pricing: { version: 1, expected: 50000, deviceId: DEVICE, payType: 'monthly', months: 12 },
+      ...extra,
+    });
+  });
+}
+
+await seed();
+await it('★ 本人でも申込の payAmount を書き換えられない（今回の修正点）', async () => {
+  await seedApplication();
+  await assertFails(updateDoc(doc(asUser(), 'applications', 'app_1'), { payAmount: 50 }));
+});
+
+await seed();
+await it('★ 本人でも pricing スナップショットを書き換えられない', async () => {
+  await seedApplication();
+  await assertFails(
+    updateDoc(doc(asUser(), 'applications', 'app_1'), {
+      pricing: { version: 1, expected: 50, deviceId: DEVICE, payType: 'monthly', months: 12 },
+    })
+  );
+});
+
+await seed();
+await it('★ 金額以外の変更に紛れ込ませても拒否される', async () => {
+  await seedApplication();
+  await assertFails(
+    updateDoc(doc(asUser(), 'applications', 'app_1'), { status: 'canceled', payAmount: 50 })
+  );
+});
+
+await seed();
+await it('★ 割引額・クーポンも書き換えられない', async () => {
+  await seedApplication();
+  await assertFails(updateDoc(doc(asUser(), 'applications', 'app_1'), { couponDiscount: 49950 }));
+  await assertFails(updateDoc(doc(asUser(), 'applications', 'app_1'), { couponId: 'coupon_100off' }));
+});
+
+await seed();
+await it('★ 契約条件（機器・期間・支払方法）も後から変更できない', async () => {
+  await seedApplication();
+  await assertFails(updateDoc(doc(asUser(), 'applications', 'app_1'), { rentalType: 3 }));
+  await assertFails(updateDoc(doc(asUser(), 'applications', 'app_1'), { payType: 'full' }));
+  await assertFails(updateDoc(doc(asUser(), 'applications', 'app_1'), { deviceId: 'device_cheap' }));
+});
+
+await seed();
+await it('★ 申込作成時に pricing を偽装して持ち込めない', async () => {
+  await assertFails(
+    addDoc(collection(asUser(), 'applications'), {
+      userId: USER, status: 'pending', deviceId: DEVICE, payAmount: 50,
+      pricing: { version: 1, expected: 50, deviceId: DEVICE, payType: 'monthly', months: 12 },
+    })
+  );
+});
+
+await seed();
+await it('本人は申込をキャンセルできる（マイページのフロー維持）', async () => {
+  await seedApplication();
+  await assertSucceeds(updateDoc(doc(asUser(), 'applications', 'app_1'), { status: 'canceled' }));
+});
+
+await seed();
+await it('本人は本人確認書類・同意書をアップロードできる（マイページのフロー維持）', async () => {
+  await seedApplication();
+  await assertSucceeds(
+    updateDoc(doc(asUser(), 'applications', 'app_1'), {
+      identificationImageUrl: 'https://example.com/id.png',
+      agreementImageUrls: ['https://example.com/consent.png'],
+      status: 'consent_form_review',
+    })
+  );
+});
+
+await seed();
+await it('pricing を持たない旧データでも本人のキャンセルは通る（後方互換）', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'applications', 'app_legacy'), {
+      userId: USER, deviceId: DEVICE, status: 'payment_sent', payAmount: 50000,
+    });
+  });
+  await assertSucceeds(updateDoc(doc(asUser(), 'applications', 'app_legacy'), { status: 'canceled' }));
+});
+
+await seed();
+await it('管理者は金額を修正できる（返金・特例対応）', async () => {
+  await seedApplication();
+  await assertSucceeds(updateDoc(doc(asAdmin(), 'applications', 'app_1'), { payAmount: 40000 }));
+});
+
+/** 決済リンクを1件用意する */
+async function seedPaymentLink(status = 'pending') {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'paymentLinks', 'link_1'), {
+      applicationId: 'app_1', userId: USER, deviceId: DEVICE,
+      payType: 'monthly', payAmount: 50000, status,
+    });
+  });
+}
+
+await seed();
+await it('★ 決済リンクの payAmount を一般ユーザーが書き換えられない（今回の修正点）', async () => {
+  await seedPaymentLink();
+  await assertFails(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { payAmount: 50 }));
+});
+
+await seed();
+await it('★ status を used にする更新に金額改ざんを混ぜられない', async () => {
+  await seedPaymentLink();
+  await assertFails(
+    updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'used', payAmount: 50 })
+  );
+});
+
+await seed();
+await it('決済完了時に status を used へ変更するのは引き続き可能', async () => {
+  await seedPaymentLink();
+  await assertSucceeds(updateDoc(doc(asUser(), 'paymentLinks', 'link_1'), { status: 'used' }));
 });
 
 await testEnv.cleanup();
