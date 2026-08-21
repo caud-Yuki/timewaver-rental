@@ -28,7 +28,7 @@ firebase deploy --only firestore:rules
 | `news/*` | **Public** | Admin | |
 | `applications/{id}` | Auth (owner or admin) | Auth (owner create), Admin/owner (update) | Server actions CANNOT read |
 | `subscriptions/{id}` | Auth (owner or admin) | Auth (owner create), Admin (update) | |
-| `supportRequests/{id}` | Auth (owner or admin) | Auth (owner create), Admin (update) | |
+| `supportRequests/{id}` | Auth (owner or admin) | Auth (owner create, `status` must be `'open'`), Admin (update/delete) | 対応状況・`adminNote` は管理者のみ |
 | `coupons/*` | **Public** | Admin | |
 | `emailTemplates/*` | Admin only | Admin | |
 | `emailTriggers/*` | Admin only | Admin | |

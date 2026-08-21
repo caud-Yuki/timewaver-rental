@@ -261,6 +261,7 @@ export const myNewTypeConverter = createConverter<MyNewType>();
 | `emailTemplates` | `EmailTemplate` | `emailTemplateConverter` | Email HTML templates |
 | `emailTriggers` | — | — | Trigger → template mappings |
 | `news` | — | — | News/announcements |
+| `supportRequests` | `SupportRequest` | `supportRequestConverter` | 修理・サポート依頼 (admin: `/admin/support-requests`) |
 | `settings` | `GlobalSettings` | — | Single doc: `settings/global` |
 
 ### Application Status Flow

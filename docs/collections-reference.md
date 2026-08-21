@@ -203,6 +203,36 @@ Discount codes
 | `discount` | number | Discount amount or percentage |
 | `validUntil` | Timestamp | Expiry date |
 
+### `supportRequests`
+修理・サポート依頼 (submitted from `/mypage/support/repair`, triaged at `/admin/support-requests`)
+| Field | Type | Description |
+|---|---|---|
+| `userId` | string | Requesting user's UID |
+| `userName` | string? | Display name captured at submission |
+| `userEmail` | string? | Email captured at submission |
+| `deviceId` | string | Target device document ID |
+| `deviceType` | string? | Device name, snapshotted at submission |
+| `deviceSerialNumber` | string? | Serial number, snapshotted at submission |
+| `type` | string | 'repair' (故障・修理) \| 'support' (操作・活用相談) |
+| `description` | string | Free-text symptom / question written by the user |
+| `status` | string | 'open' \| 'in_progress' \| 'awaiting_user' \| 'resolved' \| 'closed' |
+| `adminNote` | string? | Internal triage memo — admin-only, never emailed to the user |
+| `assignedTo` | string? | Assigned staff display name |
+| `resolvedAt` | Timestamp? | Stamped by `onSupportRequestUpdated` on the first move to 'resolved' |
+| `userNotifiedAt` | Timestamp? | Acknowledgement email sent to the requester |
+| `adminNotifiedAt` | Timestamp? | Intake notification sent to staff |
+| `createdAt` | Timestamp | |
+| `updatedAt` | Timestamp | |
+
+Device fields are snapshots on purpose: the referenced device can be returned and
+re-rented to someone else, and the request history must stay readable regardless.
+
+`status` is fixed to `'open'` at creation by `firestore.rules`; only admins can
+move it afterwards. Notifications are dispatched by `onSupportRequestCreated` /
+`onSupportRequestUpdated` (functions/src/index.ts) through the standard
+`emailTriggers` pipeline — event ids `support_request` and
+`support_request_resolved`.
+
 ## Secret Manager Keys
 | Key | Purpose |
 |---|---|

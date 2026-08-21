@@ -63,6 +63,11 @@ TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Fireba
 - User can see device in `/mypage/devices`
 - Monthly payments auto-processed by Stripe
 - **Email**: `payment_failed` → user (if monthly payment fails)
+- User can file a repair / support request from `/mypage/support/repair`
+  (writes `supportRequests`; staff triage it at `/admin/support-requests`)
+- **Email**: `support_request` → user (受付確認) + ops staff (対応依頼)
+- **Email**: `support_request_resolved` → user, when staff mark it 対応完了
+  (off by default — bind a template in `/admin/email-triggers` to enable)
 
 ### 8. 契約更新 (Renewal)
 - 30 days before expiry: `syncPaymentData` sends renewal reminder
@@ -108,6 +113,8 @@ TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Fireba
 | Refund payment | `/admin/payments/{id}/history` → 返金 | refund record in Firestore |
 | Inspect returned device | `/admin/applications` → status dropdown | inspection email to staff |
 | Confirm return / damage | `/admin/applications` → status dropdown | return/damage email to user |
+| Triage repair / support request | `/admin/support-requests` → status dropdown | resolution email to user (if enabled) |
+| Re-send intake notification | `/admin/support-requests` → ✉ button | `resendSupportRequestNotification` → ops staff |
 
 ---
 
@@ -134,6 +141,8 @@ TimeWaverHub is a TimeWaver device rental platform built with Next.js 14, Fireba
 | 17 | `device_damaged` | Damage found | User | Email |
 | 18 | `waitlist_device_available` | Device becomes available | Waitlist Users | Email |
 | 19 | `news_published` | News published | Users | Email |
+| 20 | `support_request` | Repair / support request filed | User + Ops Staff | Email, CW, GC |
+| 21 | `support_request_resolved` | Request marked 対応完了 | User | Email |
 
 CW = Chatwork, GC = Google Chat (configurable per trigger in admin UI)
 
@@ -154,6 +163,7 @@ CW = Chatwork, GC = Google Chat (configurable per trigger in admin UI)
 | `emailTriggers` | Trigger → template mapping | triggerPoint, templateId, enabled, channels |
 | `emailTemplates` | Email/chat templates | name, subject, body, type |
 | `settings` | Global settings | mode, staff, shippingBufferDays, company info |
+| `supportRequests` | 修理・サポート依頼 | userId, deviceId, type, description, status, adminNote |
 | `news` | News articles | title, content, status, publishedAt |
 | `coupons` | Discount codes | code, discount, validUntil |
 
@@ -174,7 +184,7 @@ CW = Chatwork, GC = Google Chat (configurable per trigger in admin UI)
 
 ---
 
-## Cloud Functions (7 total)
+## Cloud Functions (excerpt — see `functions/src/index.ts` for the full list)
 
 | Function | Type | Purpose |
 |---|---|---|
@@ -185,3 +195,6 @@ CW = Chatwork, GC = Google Chat (configurable per trigger in admin UI)
 | `refundPayment` | onCall | Refund a payment via Stripe API |
 | `getPaymentHistory` | onCall | Fetch payment execution history from Stripe |
 | `onApplicationUpdate` | onDocumentUpdated | Trigger emails/chat on application status changes |
+| `onSupportRequestCreated` | onDocumentCreated | Notify ops staff + acknowledge the user on a new 修理・サポート依頼 |
+| `onSupportRequestUpdated` | onDocumentUpdated | Notify the user when a request is marked 対応完了 |
+| `resendSupportRequestNotification` | onCall | Admin retry of the staff intake notification |

@@ -3,7 +3,7 @@
 import { useState, Suspense, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useUser, useFirestore, useDoc, useMemoFirebase, useStorage } from '@/firebase';
-import { doc, collection, addDoc, serverTimestamp, query, where, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
+import { doc, collection, addDoc, serverTimestamp, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -493,33 +493,39 @@ function ApplyForm() {
       updateDoc(doc(db, 'users', user.uid), profileUpdate).catch(() => {}); // Non-blocking
     }
 
+    // 申請本体の作成のみがクリティカル。ここが失敗したときだけエラーを表示する。
     try {
       await addDoc(collection(db, 'applications'), applicationData);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "エラー", description: error?.message || '申請の送信に失敗しました。' });
+      isSubmittedRef.current = false; // Revert if submission fails
+      setIsSubmitting(false);
+      return;
+    }
 
+    // ここから先は付随処理。申請ドキュメントは既に作成済みなので、
+    // 失敗してもユーザーにはエラーを出さずログのみ残す（管理画面から補正できる）。
+    try {
       // Switch device from 'processing' (session lock) to 'under_review' (admin reviewing)
       await updateDoc(doc(db, 'devices', device.id), {
         status: 'under_review',
         updatedAt: serverTimestamp(),
       });
-
-      // When application is submitted, CLEAR the waitlist for this specific device
-      const waitlistQuery = query(collection(db, 'waitlist'), where('deviceId', '==', device.id));
-      const waitlistSnap = await getDocs(waitlistQuery);
-      
-      if (!waitlistSnap.empty) {
-        const batch = writeBatch(db);
-        waitlistSnap.docs.forEach(d => batch.delete(d.ref));
-        await batch.commit();
-      }
-
-      toast({ title: "申請を送信しました", description: "管理者による審査をお待ちください（1〜3営業日）" });
-      router.push('/mypage/applications');
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "エラー", description: error.message });
-      isSubmittedRef.current = false; // Revert if submission fails
-    } finally {
-      setIsSubmitting(false);
+    } catch (deviceErr) {
+      console.error('[APPLY] failed to move device to under_review:', deviceErr);
     }
+
+    // NOTE: ここでキャンセル待ちを削除しない。
+    // 申請はまだ 'pending' で却下されうるため、却下時は機器が available に戻り、
+    // 待機者へ順番に通知する必要がある。その順序制御は管理画面側
+    // (admin/devices, admin) が waitlist を 'notified' / 'scheduled' に更新して行う。
+    // 旧実装はこの位置で対象機器の waitlist を他ユーザー分ごと一括 delete していたが、
+    // firestore.rules 上 waitlist の delete は管理者のみで、一般ユーザーでは必ず
+    // permission-denied になり申請完了トーストまで到達できなかった。
+
+    toast({ title: "申請を送信しました", description: "管理者による審査をお待ちください（1〜3営業日）" });
+    setIsSubmitting(false);
+    router.push('/mypage/applications');
   };
 
   if (deviceLoading || (!device && !showWaitlistDialog)) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>;

@@ -53,6 +53,9 @@ const TRIGGER_TO_EVENT: Record<string, { eventId: string; audience: 'user' | 'ad
   news_published: { eventId: 'news_published', audience: 'user' },
   waitlist_device_available: { eventId: 'waitlist_device_available', audience: 'user' },
   welcome_registration: { eventId: 'welcome_registration', audience: 'user' },
+  support_request_created: { eventId: 'support_request', audience: 'user' },
+  support_request_created_admin: { eventId: 'support_request', audience: 'admin' },
+  support_request_resolved: { eventId: 'support_request_resolved', audience: 'user' },
   // Admin/staff counterparts for events that also notify the operations team.
   application_submitted_admin: { eventId: 'application_submitted', audience: 'admin' },
   device_damaged_admin: { eventId: 'device_damaged', audience: 'admin' },
@@ -93,8 +96,14 @@ async function getSecretValueLocal(secretName: string): Promise<string | null> {
 
 /**
  * Sends a transactional email based on a system trigger event using the Gmail API.
+ *
+ * Never throws: a notification failure must not roll back the business write
+ * that caused it. Returns whether the notification was actually dispatched, so
+ * callers that record a "notified at" stamp can avoid claiming a send that
+ * never happened (missing trigger config, disabled event, unreachable mail
+ * account). Callers that don't care may keep ignoring the result.
  */
-export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipient, data: Record<string, any>) => {
+export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipient, data: Record<string, any>): Promise<boolean> => {
   const db = getFirestore();
   log(`[sendTriggeredEmail] Initiated for trigger '${trigger}' to ${recipient.email}`);
 
@@ -132,7 +141,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       const legacyDoc = await db.collection('emailTriggers').doc(trigger).get();
       if (!legacyDoc.exists) {
         log(`[sendTriggeredEmail] No trigger config for '${trigger}' (event '${mapping.eventId}'). Aborting.`);
-        return;
+        return false;
       }
       triggerConfig = legacyDoc.data();
       templateId = triggerConfig?.templateId;
@@ -140,7 +149,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
 
     if (!templateId) {
       log(`[sendTriggeredEmail] Trigger '${trigger}' has no ${mapping.audience}TemplateId. Aborting.`);
-      return;
+      return false;
     }
 
     const templateDoc = await db.collection('emailTemplates').doc(templateId).get();
@@ -180,7 +189,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       log(`[sendTriggeredEmail] Using built-in fallback for '${templateId}' (not in Firestore).`);
     } else {
       log(`[sendTriggeredEmail] Template '${templateId}' not found and no fallback. Aborting.`);
-      return;
+      return false;
     }
 
     // Fetch company info from settings for placeholders
@@ -232,6 +241,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       linkProfile: `${baseUrl}/mypage/profile`,
       linkDeviceList: `${baseUrl}/devices`,
       linkAdminEarlyBookings: `${baseUrl}/admin/early-bookings`,
+      linkAdminSupportRequests: `${baseUrl}/admin/support-requests`,
       // Dynamic data (from the trigger caller)
       ...data,
     };
@@ -260,7 +270,7 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
 
     if (!enabled) {
       log(`[sendTriggeredEmail] Trigger '${trigger}' is disabled. Skipping.`);
-      return;
+      return false;
     }
 
     // 1. Email (default: enabled)
@@ -331,8 +341,10 @@ export const sendTriggeredEmail = async (trigger: string, recipient: EmailRecipi
       }
     }
 
+    return true;
   } catch (error) {
     log(`[sendTriggeredEmail] CRITICAL: Error processing trigger '${trigger}'.`, error);
+    return false;
   }
 };
 

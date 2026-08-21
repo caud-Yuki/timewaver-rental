@@ -43,7 +43,8 @@ import {
   Puzzle,
   Layers,
   Rocket,
-  BookOpen
+  BookOpen,
+  Wrench
 } from 'lucide-react';
 import { 
   Application, 
@@ -55,7 +56,9 @@ import {
   globalSettingsConverter, 
   applicationConverter, 
   waitlistConverter, 
-  deviceConverter 
+  deviceConverter,
+  SupportRequest,
+  supportRequestConverter
 } from '@/types';
 import Link from 'next/link';
 
@@ -251,6 +254,19 @@ export default function AdminDashboardPage() {
 
   const { data: recentApplications, loading: appsLoading } = useCollection<Application>(applicationsQuery);
 
+  // 未対応の修理・サポート依頼。これまで気付く導線が無かったため、
+  // ダッシュボード上部で件数を明示する。
+  const openSupportQuery = useMemo(() => {
+    if (!db || profile?.role !== 'admin') return null;
+    return query(
+      collection(db, 'supportRequests'),
+      where('status', '==', 'open')
+    ).withConverter(supportRequestConverter);
+  }, [db, profile?.role]);
+
+  const { data: openSupportRequests } = useCollection<SupportRequest>(openSupportQuery);
+  const openSupportCount = openSupportRequests?.length ?? 0;
+
   // Stripe configuration check is now done via Secret Manager.
   // For the dashboard, we assume it's configured if settings exist.
   const isConfigured = !!settings;
@@ -268,6 +284,7 @@ export default function AdminDashboardPage() {
     { title: 'トリガー設定', desc: '自動送信の紐付け', icon: Zap, href: '/admin/email-triggers', color: 'text-orange-500', bg: 'bg-orange-50' },
     { title: 'ランディング', desc: '利用者の声 / FAQ / 導入事例', icon: Layers, href: '/admin/landing', color: 'text-fuchsia-500', bg: 'bg-fuchsia-50' },
     { title: '先行予約', desc: '予約申込の管理', icon: Rocket, href: '/admin/early-bookings', color: 'text-rose-500', bg: 'bg-rose-50' },
+    { title: '修理・サポート', desc: '修理依頼・技術相談の対応', icon: Wrench, href: '/admin/support-requests', color: 'text-red-500', bg: 'bg-red-50' },
     { title: '基本設定', desc: 'システム・会社情報', icon: Settings, href: '/admin/settings', color: 'text-gray-500', bg: 'bg-gray-50' },
   ];
 
@@ -304,6 +321,25 @@ export default function AdminDashboardPage() {
           </div>
         )}
       </div>
+
+      {openSupportCount > 0 && (
+        <Card className="border-none shadow-xl bg-red-50 border-red-200">
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+                <Wrench className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-red-900">未対応の修理・サポート依頼が {openSupportCount} 件あります</h3>
+                <p className="text-sm text-red-700">利用者がマイページから送信した依頼です。内容を確認し、対応状況を更新してください。</p>
+              </div>
+            </div>
+            <Link href="/admin/support-requests">
+              <Button className="bg-red-600 hover:bg-red-700 text-white rounded-xl">対応する</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {!isConfigured && (
         <Card className="border-none shadow-xl bg-amber-50 border-amber-200">

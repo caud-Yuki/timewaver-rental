@@ -305,5 +305,29 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     body: `スタッフ各位\n\nキャンセル待ち対象の機器に空きが出たため、登録ユーザーへ在庫確保の通知を送信しました。\n申込・決済の進捗にあわせて在庫の引き当て状況をご確認ください。\n\n■対象機器\n{{deviceType}}\n\n■通知送信数\n{{notifiedCount}}件`,
     chatSubject: '【在庫確保】{{serviceName}}',
     chatBody: `対象機器: {{deviceType}}\n通知送信: {{notifiedCount}}件\n→ 在庫引き当て状況をご確認ください`
+  },
+  {
+    id: 'sys_support_request_created',
+    name: '[標準] 修理・サポート依頼受付',
+    subject: '【{{serviceName}}】修理・サポート依頼を受け付けました',
+    type: 'general',
+    body: `{{userName}} 様\n\n修理・サポートのご依頼を受け付けました。\n内容を確認のうえ、担当者よりご連絡いたします。\n\n■受付番号\n{{requestId}}\n\n■ご依頼の種類\n{{requestTypeLabel}}\n\n■対象機器\n{{deviceType}}（{{deviceSerialNumber}}）\n\n■ご依頼内容\n{{description}}\n\n受付順に対応いたしますが、ご返信まで1〜2営業日いただく場合がございます。\n\n—\n{{operatorCompanyName}}`
+  },
+  {
+    id: 'sys_support_request_created_admin',
+    name: '[標準] 修理・サポート依頼通知（スタッフ宛）',
+    subject: '【{{serviceName}}管理者】修理・サポート依頼が届きました',
+    type: 'general',
+    isAdmin: true,
+    body: `スタッフ各位\n\n利用者から修理・サポートの依頼が届きました。管理画面から対応状況を更新してください。\n\n■受付日時\n{{submittedAt}}\n\n■ご依頼の種類\n{{requestTypeLabel}}\n\n■利用者\n{{userName}}（{{userEmail}}）\n\n■対象機器\n{{deviceType}}（{{deviceSerialNumber}}）\n\n■依頼内容\n{{description}}\n\n■受付番号\n{{requestId}}\n\n対応管理画面: {{linkAdminSupportRequests}}`,
+    chatSubject: '【{{requestTypeLabel}}】{{serviceName}} に新しい依頼',
+    chatBody: `利用者: {{userName}}（{{userEmail}}）\n対象機器: {{deviceType}}（{{deviceSerialNumber}}）\n内容: {{description}}\n→ 管理画面で対応状況を更新してください\n{{linkAdminSupportRequests}}`
+  },
+  {
+    id: 'sys_support_request_resolved',
+    name: '[標準] 修理・サポート対応完了',
+    subject: '【{{serviceName}}】修理・サポート依頼の対応が完了しました',
+    type: 'general',
+    body: `{{userName}} 様\n\nお預かりしておりました修理・サポートのご依頼について、対応が完了いたしました。\n\n■受付番号\n{{requestId}}\n\n■ご依頼の種類\n{{requestTypeLabel}}\n\n■対象機器\n{{deviceType}}（{{deviceSerialNumber}}）\n\n■ご依頼内容\n{{description}}\n\n引き続きご不明な点がございましたら、マイページの「修理・サポート依頼」よりお知らせください。\n{{linkMypage}}\n\n—\n{{operatorCompanyName}}`
   }
 ];

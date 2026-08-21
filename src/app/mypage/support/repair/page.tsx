@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Wrench, AlertCircle, Camera } from 'lucide-react';
-import { Device, UserProfile } from '@/types';
+import { Device, UserProfile, SupportRequestType } from '@/types';
 
 export default function RepairRequestPage() {
   const { user, loading: authLoading } = useUser();
@@ -23,7 +23,7 @@ export default function RepairRequestPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     deviceId: '',
-    type: 'repair' as 'repair' | 'support',
+    type: 'repair' as SupportRequestType,
     description: '',
   });
 
@@ -45,11 +45,18 @@ export default function RepairRequestPage() {
     if (!db || !user || !formData.deviceId) return;
 
     setIsSubmitting(true);
+    // 機器情報は受付時点のスナップショットとして持たせる。管理画面が devices を
+    // 引き直さずに一覧を出せるうえ、機器が別ユーザーへ再貸出されても履歴が壊れない。
+    const device = myDevices.find((d) => d.id === formData.deviceId);
+    const fullName = [profile?.familyName, profile?.givenName].filter(Boolean).join(' ');
+
     const requestData = {
       userId: user.uid,
-      userName: `${profile?.familyName} ${profile?.givenName}`,
+      userName: fullName || user.displayName || user.email || '',
       userEmail: user.email,
       deviceId: formData.deviceId,
+      deviceType: device?.type || '',
+      deviceSerialNumber: device?.serialNumber || '',
       type: formData.type,
       description: formData.description,
       status: 'open',
@@ -57,12 +64,20 @@ export default function RepairRequestPage() {
       updatedAt: serverTimestamp(),
     };
 
-    addDoc(collection(db, 'supportRequests'), requestData)
-      .then(() => {
-        toast({ title: "依頼を送信しました", description: "内容を確認の上、担当者よりご連絡いたします。" });
-        router.push('/mypage/devices');
-      })
-      .finally(() => setIsSubmitting(false));
+    try {
+      await addDoc(collection(db, 'supportRequests'), requestData);
+      toast({ title: "依頼を送信しました", description: "内容を確認の上、担当者よりご連絡いたします。" });
+      router.push('/mypage/devices');
+    } catch (err: any) {
+      // 以前は .then() だけで catch が無く、書き込みに失敗しても画面上は無反応だった。
+      toast({
+        variant: 'destructive',
+        title: '送信できませんでした',
+        description: err?.message || '時間をおいて再度お試しください。',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (authLoading || devicesLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;

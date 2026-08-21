@@ -70,6 +70,21 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     body: `{{userName}} 様\n\n決済のお手続きありがとうございました。\nデバイスの発送準備を開始いたしました。\n\n対象機器: {{deviceType}}\nシリアル番号: {{deviceSerialNumber}}`
   },
   {
+    id: 'sys_bank_transfer_instructions',
+    name: '[標準] 銀行振込のご案内',
+    subject: '【{{serviceName}}】お振込先のご案内（一括払い）',
+    type: 'transaction',
+    body: `{{userName}} 様\n\nこの度はお申し込みいただきありがとうございます。\nお支払い方法に「銀行振込（一括払い）」をご選択いただきましたので、下記の通りお振込先をご案内いたします。\n\n■ご請求金額: ¥{{transferAmount}}\n■お振込期限: {{transferDeadline}}\n■対象機器: {{deviceType}}\n\n──────────────────\n【お振込先】\n金融機関: {{bankName}} {{bankBranch}}\n預金種別: {{bankAccountType}}\n口座番号: {{bankAccountNumber}}\n口座名義: {{bankAccountHolder}}\n──────────────────\n\n【お振込時のお願い】\n・お振込名義の前に申請番号（{{applicationId}}）をご入力ください（例: {{applicationId}} ヤマダタロウ）。入金確認がスムーズになります。\n・振込手数料はお客様のご負担にてお願いいたします。\n{{bankTransferNote}}\n\nご入金を確認次第、あらためて決済完了のご連絡と発送のご案内をお送りいたします。\nお振込期限までにご入金が確認できない場合、お申し込みが無効となる場合がございますのでご了承ください。\n\nご不明な点がございましたら、本メールへご返信ください。\n\n—\n{{operatorCompanyName}}`
+  },
+  {
+    id: 'sys_bank_transfer_pending_admin',
+    name: '[標準] 銀行振込案内 送付通知（管理者宛）',
+    subject: '【{{serviceName}}管理者】銀行振込の案内を送付しました（入金確認待ち）',
+    type: 'transaction',
+    isAdmin: true,
+    body: `管理者様\n\n以下の申請について、銀行振込のご案内をユーザーへ送付しました。\n入金の確認後、申請管理画面の「入金確認」ボタンでステータスを更新してください。\n\n申請ID: {{applicationId}}\nユーザー名: {{userName}}\n対象機器: {{deviceType}}\n請求金額: ¥{{transferAmount}}\n振込期限: {{transferDeadline}}`
+  },
+  {
     id: 'sys_payment_failed',
     name: '[標準] 決済失敗通知（管理者宛）',
     subject: '【{{serviceName}}管理者】月次決済が失敗しました',
@@ -290,5 +305,29 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     body: `スタッフ各位\n\nキャンセル待ち対象の機器に空きが出たため、登録ユーザーへ在庫確保の通知を送信しました。\n申込・決済の進捗にあわせて在庫の引き当て状況をご確認ください。\n\n■対象機器\n{{deviceType}}\n\n■通知送信数\n{{notifiedCount}}件`,
     chatSubject: '【在庫確保】{{serviceName}}',
     chatBody: `対象機器: {{deviceType}}\n通知送信: {{notifiedCount}}件\n→ 在庫引き当て状況をご確認ください`
+  },
+  {
+    id: 'sys_support_request_created',
+    name: '[標準] 修理・サポート依頼受付',
+    subject: '【{{serviceName}}】修理・サポート依頼を受け付けました',
+    type: 'general',
+    body: `{{userName}} 様\n\n修理・サポートのご依頼を受け付けました。\n内容を確認のうえ、担当者よりご連絡いたします。\n\n■受付番号\n{{requestId}}\n\n■ご依頼の種類\n{{requestTypeLabel}}\n\n■対象機器\n{{deviceType}}（{{deviceSerialNumber}}）\n\n■ご依頼内容\n{{description}}\n\n受付順に対応いたしますが、ご返信まで1〜2営業日いただく場合がございます。\n\n—\n{{operatorCompanyName}}`
+  },
+  {
+    id: 'sys_support_request_created_admin',
+    name: '[標準] 修理・サポート依頼通知（スタッフ宛）',
+    subject: '【{{serviceName}}管理者】修理・サポート依頼が届きました',
+    type: 'general',
+    isAdmin: true,
+    body: `スタッフ各位\n\n利用者から修理・サポートの依頼が届きました。管理画面から対応状況を更新してください。\n\n■受付日時\n{{submittedAt}}\n\n■ご依頼の種類\n{{requestTypeLabel}}\n\n■利用者\n{{userName}}（{{userEmail}}）\n\n■対象機器\n{{deviceType}}（{{deviceSerialNumber}}）\n\n■依頼内容\n{{description}}\n\n■受付番号\n{{requestId}}\n\n対応管理画面: {{linkAdminSupportRequests}}`,
+    chatSubject: '【{{requestTypeLabel}}】{{serviceName}} に新しい依頼',
+    chatBody: `利用者: {{userName}}（{{userEmail}}）\n対象機器: {{deviceType}}（{{deviceSerialNumber}}）\n内容: {{description}}\n→ 管理画面で対応状況を更新してください\n{{linkAdminSupportRequests}}`
+  },
+  {
+    id: 'sys_support_request_resolved',
+    name: '[標準] 修理・サポート対応完了',
+    subject: '【{{serviceName}}】修理・サポート依頼の対応が完了しました',
+    type: 'general',
+    body: `{{userName}} 様\n\nお預かりしておりました修理・サポートのご依頼について、対応が完了いたしました。\n\n■受付番号\n{{requestId}}\n\n■ご依頼の種類\n{{requestTypeLabel}}\n\n■対象機器\n{{deviceType}}（{{deviceSerialNumber}}）\n\n■ご依頼内容\n{{description}}\n\n引き続きご不明な点がございましたら、マイページの「修理・サポート依頼」よりお知らせください。\n{{linkMypage}}\n\n—\n{{operatorCompanyName}}`
   }
 ];

@@ -57,6 +57,8 @@ const EVENT_POINTS: Array<{
   { id: 'news_published',         name: 'ニュース公開時',            desc: '新しいお知らせを公開した時',                                              sysUser: 'sys_news_published' },
   { id: 'waitlist_device_available', name: '在庫確保時',             desc: 'キャンセル待ち対象に空きが出た時',                                        sysUser: 'sys_waitlist_available', sysAdmin: 'sys_waitlist_available_admin' },
   { id: 'welcome_registration',   name: '会員登録時',                desc: '新規ユーザーが登録した時',                                                sysUser: 'sys_welcome_registration' },
+  { id: 'support_request',        name: '修理・サポート依頼受付時',  desc: 'マイページから修理・サポート依頼が送信された時',                          sysUser: 'sys_support_request_created', sysAdmin: 'sys_support_request_created_admin' },
+  { id: 'support_request_resolved', name: '修理・サポート対応完了時', desc: '管理画面で依頼を「対応完了」に変更した時（既定では未設定＝送信しない）',     sysUser: 'sys_support_request_resolved' },
   { id: 'early_booking',          name: '先行予約受付時',            desc: '先行予約フォーム送信時',                                                  sysUser: 'sys_early_booking_confirmation', sysAdmin: 'sys_early_booking_admin_notification' },
   { id: 'early_booking_launch_notice', name: '先行予約者へのローンチ案内', desc: '先行予約モード解除後、申込開始を先行予約者へ一括案内（手動送信）',          sysUser: 'sys_early_booking_launch_notice' },
 ];

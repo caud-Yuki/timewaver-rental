@@ -9,16 +9,15 @@
  * action directly. Privileged server actions must call `requireAdmin()` with an
  * ID token minted by the caller's signed-in session.
  *
- * Admin determination is checked in two places, in order:
- *   1. The `admin` / `role` Firebase Auth custom claim (target state — cannot be
- *      forged from the client, and does not depend on Firestore rules).
- *   2. The `users/{uid}.role` Firestore field (current state — kept as a
- *      fallback so this works before claims have been backfilled).
- * Once every admin has the custom claim, delete step 2 (see setUserRole in
- * functions/src/index.ts, which writes both).
+ * Admin determination reads the `admin` / `role` Firebase Auth custom claim and
+ * nothing else. The claim can only be written by the Admin SDK (setUserRole in
+ * functions/src/index.ts), so it cannot be forged from the client and does not
+ * depend on Firestore rules. The `users/{uid}.role` Firestore field is display
+ * metadata for the admin UI; it was accepted as a fallback until 2026-08-21,
+ * when every admin had been given the claim (docs/SECURITY-V1-URGENT-FIXES.md).
  */
 
-import { adminAuth, adminFirestore } from '@/lib/firebase-admin';
+import { adminAuth } from '@/lib/firebase-admin';
 
 /** Thrown when the caller is not a signed-in admin. Message is user-facing. */
 export class AuthorizationError extends Error {
@@ -50,15 +49,7 @@ export async function requireAdmin(idToken: string | null | undefined): Promise<
     throw new AuthorizationError('認証情報が無効か、有効期限が切れています。再度ログインしてください。');
   }
 
-  // 1. Custom claims.
-  if (decoded.admin === true || decoded.role === 'admin') {
-    return { uid: decoded.uid, email: decoded.email };
-  }
-
-  // 2. Firestore role fallback. Read with the Admin SDK so it does not depend
-  //    on the caller-side security rules.
-  const snap = await adminFirestore().collection('users').doc(decoded.uid).get();
-  if (!snap.exists || snap.data()?.role !== 'admin') {
+  if (decoded.admin !== true && decoded.role !== 'admin') {
     throw new AuthorizationError('この操作には管理者権限が必要です。');
   }
 
