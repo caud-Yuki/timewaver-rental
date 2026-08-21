@@ -190,11 +190,11 @@ cd functions && rm -rf lib/ && npx tsc && cd .. && firebase deploy --only functi
 
 - ~~**`paymentLinks` が公開読み取り (`allow read: if true`)。**~~
   ~~リンク ID を知る第三者が金額・PaymentIntent ID・Stripe 顧客 ID を読める。~~
-  → **対応済み（2026-08-21・未デプロイ）**: 本人と管理者のみに限定。
+  → **対応済み・デプロイ済み（2026-08-22）**: 本人と管理者のみに限定。
   [SECURITY-payment-link-status.md](./SECURITY-payment-link-status.md) を参照。
 - ~~**決済リンクが `status: 'open'` で作られ、`used` に遷移できない。**~~
   ~~ルールは `pending → used` のみ許可しているため、決済完了後もリンクが `open` のまま残る。~~
-  → **対応済み（2026-08-21・未デプロイ）**: 語彙を `pending`/`paid`/`expired`/`canceled` に
+  → **対応済み・デプロイ済み（2026-08-22）**: 語彙を `pending`/`paid`/`expired`/`canceled` に
   統一し、`expiresAt` を実効化。同上のドキュメントを参照。
 - **更新(renew)の請求額が上がる。** モジュール込みに統一したため、モジュールが設定された
   機器では更新時の月額・一括金額が従来より高くなる（新規申込と同額になる）。

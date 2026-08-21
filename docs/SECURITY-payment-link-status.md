@@ -1,8 +1,28 @@
 # 決済リンクの状態統一と有効期限（+ 公開読み取りの廃止）
 
 対象: `TWRENTAL-PLATFORM_vrs.1.1`
-状態: **未デプロイ（実装のみ・2026-08-21）**
+状態: **デプロイ済み（2026-08-22）**
 関連: [SECURITY-payment-amount-verification.md](./SECURITY-payment-amount-verification.md) の「7. 残る関連リスク」
+
+デプロイ実績（2026-08-22 01:00-01:06 JST / コミット `79b4743`）:
+- Firestore ルール: `firebase deploy --only firestore:rules`。本番 ruleset
+  `68b148a1-80ec-4db0-bb4e-d8107cb9ed6b` を Rules API から取得し、`firestore.rules`
+  と差分なし（末尾空行のみ）を確認。`isLinkOwner()` / `linkNotExpired()` /
+  `status == 'paid'` が live に入っている。
+- Cloud Functions: `rm -rf lib && npx tsc`（exit 0）後にデプロイ。
+  `createStripePayment` / `stripeWebhook` / `syncPaymentData` / `onApplicationUpdate`
+  が `2026-08-21T16:01Z` 更新・ACTIVE。
+- Next.js (App Hosting): `rollout-2026-08-21-006` / `build-2026-08-21-006`（branch: main）
+  が SUCCEEDED / READY。配信中のチャンク
+  `chunks/app/payment/%5BpaymentLinkId%5D/page-e33bbcea20e5037e.js` に
+  「ログインが必要です」「お支払い済みです」「このお支払いリンクの有効期限」が
+  含まれることを確認。
+- 移行スクリプト: 本番 `paymentLinks` が 0 件のため実行不要（デプロイ後に dry-run で再確認）。
+
+**未完了**: Stripe の Webhook エンドポイント
+（`stripewebhook-2ssvwicroa-uc.a.run.app`）の有効イベントに
+`payment_intent.succeeded` が入っていない。2-3 のサーバー側フォールバックは
+このイベントを追加するまで発火しない（主経路の決済ページ側は動作する）。
 
 ---
 
@@ -135,12 +155,13 @@ node scripts/migrate-payment-link-status.cjs --apply   # 書き込み
 未払い（`pending`）のリンクには「実行時刻 + 有効日数」を与える。移行の巻き添えで
 いきなり期限切れにしないため。`createdAt` 起算に揃えたい場合は `--strict-expiry`。
 
-> 2026-08-21 時点の本番 `paymentLinks` は **0 件**（dry-run で確認済み）。
-> 移行が要るのは、この変更をデプロイするまでの間に発行されたリンクだけ。
+> デプロイ完了時点（2026-08-22）の本番 `paymentLinks` は **0 件**で、移行対象は
+> 無かった（デプロイ前後の 2 回とも dry-run で確認）。スクリプトは残しておく
+> — 旧仕様で発行されたリンクが後から見つかった場合に使う。
 
 ---
 
-## 5. デプロイ順序
+## 5. デプロイ順序（実施済み — 上の「デプロイ実績」を参照）
 
 1. **Firestore ルール** — 先に出しても壊れない（旧語彙 `open` からの遷移も許可しているため）
 2. **Cloud Functions** — `rm -rf lib && npx tsc` の後にデプロイ
