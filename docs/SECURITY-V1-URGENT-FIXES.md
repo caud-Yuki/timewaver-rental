@@ -13,13 +13,15 @@
 
 2026-08-21 追記: セクション 3 の **Custom Claims 移行を完了**（管理者 4 名へ Claim 付与、
 3 層すべてから Firestore role フォールバックを削除）。Firestore ルールは本番反映済み。
-Cloud Functions / Next.js の Claim 専用版は**デプロイ待ち**（下記）。
+Firestore ルール・Cloud Functions とも Claim 専用版を本番へデプロイ済み（本番の ruleset と
+Cloud Functions のソースを取得して内容を実機確認）。Next.js は `origin/main` に push 済みで
+App Hosting の自動ビルド対象。
 
 残タスク:
 - セクション 2 のキーローテーション（未実施）
-- Cloud Functions のデプロイ（`functions/src/pricing.ts` を使う金額検証の実装が完了し、
-  `tsc` は exit 0・テストも通過済み。保留解除 → デプロイ可。
-  内容は [SECURITY-payment-amount-verification.md](./SECURITY-payment-amount-verification.md) 参照）
+- ~~Cloud Functions のデプロイ~~ → **完了（2026-08-21）**。`functions/src/pricing.ts` を使う
+  金額検証と併せてデプロイ済み。内容は
+  [SECURITY-payment-amount-verification.md](./SECURITY-payment-amount-verification.md) 参照
 - Next.js の push（App Hosting 自動ビルド）
 - ~~`/admin/settings` の表示確認（App Hosting サービスアカウント権限の検証）~~ → **完了（2026-08-21）**
 
@@ -202,8 +204,8 @@ Claim は Admin SDK からしか書けないため、Firestore 側が何らか�
 | 層 | ファイル | 移行前 | 現在 |
 |---|---|---|---|
 | Firestore ルール | `firestore.rules` の `isAdmin()` | Claim 優先 + role フォールバック | **Claim のみ**（本番反映済み） |
-| Cloud Functions | `functions/src/index.ts:requireAdmin` / `functions/src/mail/lib/auth.ts:requireAdmin` | Firestore role のみ | **Claim のみ**（コード完了・デプロイ待ち） |
-| Next.js | `src/lib/admin-auth.ts:requireAdmin` | Claim 優先 + role フォールバック | **Claim のみ**（コード完了・push 待ち） |
+| Cloud Functions | `functions/src/index.ts:requireAdmin` / `functions/src/mail/lib/auth.ts:requireAdmin` | Firestore role のみ | **Claim のみ**（本番反映済み） |
+| Next.js | `src/lib/admin-auth.ts:requireAdmin` | Claim 優先 + role フォールバック | **Claim のみ**（push 済み・App Hosting 自動ビルド） |
 
 #### 実施記録
 
@@ -243,9 +245,12 @@ Claim を持つ管理者: 4 名
   **デプロイ済み**（ruleset `bac561ab-7cc1-4081-87c5-68eac55f89e4`。本番の ruleset を
   取得してローカルの `firestore.rules` と diff し、一致することを確認）。
 - `functions/src/index.ts` / `functions/src/mail/lib/auth.ts` — `request.auth.token` の
-  `admin` / `role` claim だけを見る実装に変更。Firestore 読み取りが 1 回減る。**デプロイ待ち**。
+  `admin` / `role` claim だけを見る実装に変更。Firestore 読み取りが 1 回減る。**デプロイ済み**。
+  CLI が「No changes detected」と表示したため、Cloud Functions API から本番ソースを
+  ダウンロードして `requireAdmin` が claim 判定になっていることを直接確認した
+  （`lib/index.js` と `lib/mail/lib/auth.js` の両方）。
 - `src/lib/admin-auth.ts` — Firestore フォールバックを削除（`adminFirestore` の import も不要になった）。
-  **push 待ち**（App Hosting 自動ビルド）。
+  `origin/main` に push 済み（App Hosting が自動ビルド）。
 
 **5. ルールテスト**
 
@@ -258,10 +263,9 @@ Claim を持つ管理者: 4 名
 「Claim を持つ管理者は管理者専用コレクションを読める（管理画面フロー維持）」に置換した。
 `asAdmin()` コンテキストは本番と同じ `{admin:true, role:'admin'}` claim を持つように変更してある。
 
-> **現在の中間状態**: ルールだけ先に出したため、
-> 「ルール＝Claim のみ / Functions・Next.js＝Claim 優先 + role フォールバック（旧デプロイ）」。
-> 4 名とも Claim と Firestore role の両方を持つのでどの層でも管理者として通る。
-> 残り 2 層をデプロイすれば完全に Claim 一本になる。
+> **反映順序**: ルール → Cloud Functions の順にデプロイした。どの時点でも管理者 4 名は
+> Claim と Firestore role の両方を持っていたため、途中状態でも管理者操作は途切れない。
+> Next.js は App Hosting のビルド完了をもって Claim 一本になる。
 
 #### ロックアウトからの復旧
 
